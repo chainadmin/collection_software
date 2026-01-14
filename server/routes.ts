@@ -255,6 +255,41 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/debtors/:id/cards", async (req, res) => {
+    try {
+      const cards = await storage.getPaymentCards(req.params.id);
+      res.json(cards);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payment cards" });
+    }
+  });
+
+  app.post("/api/debtors/:id/cards", async (req, res) => {
+    try {
+      const card = await storage.createPaymentCard({
+        ...req.body,
+        debtorId: req.params.id,
+        addedDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(card);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create payment card" });
+    }
+  });
+
+  app.delete("/api/cards/:id", async (req, res) => {
+    try {
+      const success = await storage.deletePaymentCard(req.params.id);
+      if (success) {
+        res.status(204).send();
+      } else {
+        res.status(404).json({ error: "Payment card not found" });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete payment card" });
+    }
+  });
+
   app.get("/api/debtors/:id/payments", async (req, res) => {
     try {
       const payments = await storage.getPayments(req.params.id);
