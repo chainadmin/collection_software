@@ -65,9 +65,6 @@ import type {
   Payment,
 } from "@shared/schema";
 
-const DEMO_COLLECTOR_ID = "demo-collector";
-const DEMO_COLLECTOR_NAME = "Michael Chen";
-
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
 
 export default function Workstation() {
@@ -85,10 +82,12 @@ export default function Workstation() {
     queryKey: ["/api/debtors"],
   });
 
-  const { data: collectors } = useQuery<Collector[]>({
+  const { data: collectors, isLoading: collectorsLoading, isError: collectorsError } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
 
+  const currentCollector = collectors?.find((c) => c.role === "collector") || collectors?.[0];
+  const isReady = !collectorsLoading && currentCollector;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
 
   const { data: contacts } = useQuery<DebtorContact[]>({
@@ -111,21 +110,29 @@ export default function Workstation() {
     enabled: !!selectedDebtorId,
   });
 
-  const workQueue = debtors
-    ?.filter((d) => d.status === "open" || d.status === "in_payment")
-    ?.sort((a, b) => {
-      if (!a.nextFollowUpDate && !b.nextFollowUpDate) return 0;
-      if (!a.nextFollowUpDate) return 1;
-      if (!b.nextFollowUpDate) return -1;
-      return new Date(a.nextFollowUpDate).getTime() - new Date(b.nextFollowUpDate).getTime();
-    }) || [];
+  const workQueue = isReady
+    ? (debtors
+        ?.filter((d) => {
+          const isWorkable = d.status === "open" || d.status === "in_payment";
+          const isAssigned = d.assignedCollectorId === currentCollector.id;
+          return isWorkable && isAssigned;
+        })
+        ?.sort((a, b) => {
+          if (!a.nextFollowUpDate && !b.nextFollowUpDate) return 0;
+          if (!a.nextFollowUpDate) return 1;
+          if (!b.nextFollowUpDate) return -1;
+          return new Date(a.nextFollowUpDate).getTime() - new Date(b.nextFollowUpDate).getTime();
+        }) ?? [])
+    : [];
 
   const addNoteMutation = useMutation({
     mutationFn: async (data: { debtorId: string; content: string; noteType: string }) => {
-      const collector = collectors?.find((c) => c.role === "collector");
-      return apiRequest("POST", "/api/notes", {
-        ...data,
-        collectorId: collector?.id || DEMO_COLLECTOR_ID,
+      if (!currentCollector) throw new Error("No collector found");
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/notes`, {
+        debtorId: data.debtorId,
+        content: data.content,
+        noteType: data.noteType,
+        collectorId: currentCollector.id,
         createdDate: new Date().toISOString().split("T")[0],
       });
     },
@@ -138,16 +145,19 @@ export default function Workstation() {
 
   const addPaymentMutation = useMutation({
     mutationFn: async (data: { debtorId: string; amount: number; paymentMethod: string }) => {
-      const collector = collectors?.find((c) => c.role === "collector");
-      return apiRequest("POST", "/api/payments", {
-        ...data,
+      if (!currentCollector) throw new Error("No collector found");
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/payments`, {
+        debtorId: data.debtorId,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
         paymentDate: new Date().toISOString().split("T")[0],
         status: "pending",
-        processedBy: collector?.id || DEMO_COLLECTOR_ID,
+        processedBy: currentCollector.id,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
       setShowPaymentDialog(false);
       setPaymentAmount("");
       toast({ title: "Payment recorded", description: "Payment has been added to the queue." });
@@ -164,7 +174,7 @@ export default function Workstation() {
   });
 
   const handleCallOutcome = (outcome: CallOutcome) => {
-    if (!selectedDebtorId) return;
+    if (!selectedDebtorId || !currentCollector) return;
 
     const today = new Date().toISOString().split("T")[0];
     let nextFollowUp: string | null = null;
@@ -217,7 +227,7 @@ export default function Workstation() {
   };
 
   const handleAddQuickNote = () => {
-    if (!selectedDebtorId || !quickNote.trim()) return;
+    if (!selectedDebtorId || !quickNote.trim() || !currentCollector) return;
     addNoteMutation.mutate({
       debtorId: selectedDebtorId,
       content: quickNote.trim(),
@@ -226,7 +236,7 @@ export default function Workstation() {
   };
 
   const handleRecordPayment = () => {
-    if (!selectedDebtorId || !paymentAmount) return;
+    if (!selectedDebtorId || !paymentAmount || !currentCollector) return;
     const amount = Math.round(parseFloat(paymentAmount) * 100);
     if (isNaN(amount) || amount <= 0) {
       toast({ title: "Error", description: "Please enter a valid payment amount.", variant: "destructive" });
@@ -264,19 +274,48 @@ export default function Workstation() {
     return "text-muted-foreground";
   };
 
+  const getPriorityDot = (debtor: Debtor) => {
+    if (!debtor.nextFollowUpDate) return "bg-muted-foreground";
+    const followUp = new Date(debtor.nextFollowUpDate);
+    const today = new Date();
+    const diffDays = Math.ceil((followUp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return "bg-destructive";
+    if (diffDays === 0) return "bg-orange-500";
+    if (diffDays <= 2) return "bg-yellow-500";
+    return "bg-green-500";
+  };
+
   return (
     <div className="flex h-[calc(100vh-4rem)]">
       <div className="w-80 border-r flex flex-col bg-muted/30">
         <div className="p-4 border-b">
-          <h2 className="font-semibold">Work Queue</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-semibold">Work Queue</h2>
+            {currentCollector && (
+              <Badge variant="secondary" className="text-xs">
+                @{currentCollector.username}
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">{workQueue.length} accounts to work</p>
         </div>
         <ScrollArea className="flex-1">
-          {debtorsLoading ? (
+          {(debtorsLoading || collectorsLoading) ? (
             <div className="p-4 space-y-2">
               {[...Array(8)].map((_, i) => (
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
+            </div>
+          ) : collectorsError ? (
+            <div className="p-4 text-center text-muted-foreground">
+              <AlertCircle className="h-8 w-8 mx-auto mb-2 text-destructive" />
+              <p className="text-sm">Failed to load collector data</p>
+              <p className="text-xs">Please refresh the page</p>
+            </div>
+          ) : !currentCollector ? (
+            <div className="p-4 text-center text-muted-foreground">
+              <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No collector profile found</p>
             </div>
           ) : workQueue.length > 0 ? (
             <div className="p-2 space-y-1">
@@ -292,14 +331,17 @@ export default function Workstation() {
                   data-testid={`queue-item-${debtor.id}`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">
-                      {debtor.firstName} {debtor.lastName}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full ${getPriorityDot(debtor)}`} />
+                      <span className="font-medium text-sm">
+                        {debtor.firstName} {debtor.lastName}
+                      </span>
+                    </div>
                     <Badge variant="outline" className="text-xs">
                       {debtor.status}
                     </Badge>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between text-xs pl-4">
                     <span className="font-mono">{formatCurrency(debtor.currentBalance)}</span>
                     <span className={getPriorityColor(debtor)}>
                       {debtor.nextFollowUpDate ? formatDate(debtor.nextFollowUpDate) : "No follow-up"}
@@ -348,6 +390,7 @@ export default function Workstation() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCallOutcome("connected")}
+                disabled={!isReady}
                 data-testid="button-connected"
               >
                 <PhoneIncoming className="h-4 w-4 mr-1" />
@@ -357,6 +400,7 @@ export default function Workstation() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCallOutcome("no_answer")}
+                disabled={!isReady}
                 data-testid="button-no-answer"
               >
                 <PhoneOff className="h-4 w-4 mr-1" />
@@ -366,6 +410,7 @@ export default function Workstation() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCallOutcome("voicemail")}
+                disabled={!isReady}
                 data-testid="button-voicemail"
               >
                 <Voicemail className="h-4 w-4 mr-1" />
@@ -375,6 +420,7 @@ export default function Workstation() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCallOutcome("promise")}
+                disabled={!isReady}
                 data-testid="button-promise"
               >
                 <CalendarClock className="h-4 w-4 mr-1" />
@@ -384,6 +430,7 @@ export default function Workstation() {
               <Button
                 size="sm"
                 onClick={() => setShowPaymentDialog(true)}
+                disabled={!isReady}
                 data-testid="button-record-payment"
               >
                 <DollarSign className="h-4 w-4 mr-1" />
@@ -566,7 +613,7 @@ export default function Workstation() {
                           <Button
                             size="icon"
                             onClick={handleAddQuickNote}
-                            disabled={!quickNote.trim() || addNoteMutation.isPending}
+                            disabled={!quickNote.trim() || addNoteMutation.isPending || !isReady}
                             data-testid="button-add-note"
                           >
                             <Send className="h-4 w-4" />

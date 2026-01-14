@@ -47,7 +47,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatCurrency, formatDate, formatPhone, maskSSN, getInitials, maskAccountNumber } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note } from "@shared/schema";
+import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note, Collector } from "@shared/schema";
 
 export default function DebtorDetail() {
   const [, params] = useRoute("/debtors/:id");
@@ -92,13 +92,26 @@ export default function DebtorDetail() {
     enabled: !!debtorId,
   });
 
+  const { data: collectors, isLoading: collectorsLoading, isError: collectorsError } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
+  });
+
+  const currentCollector = collectors?.find((c) => c.role === "collector") || collectors?.[0];
+  const isCollectorReady = !collectorsLoading && currentCollector;
+
+  const getCollectorName = (collectorId: string) => {
+    const collector = collectors?.find((c) => c.id === collectorId);
+    return collector ? `${collector.name} (@${collector.username})` : "Unknown";
+  };
+
   const addNoteMutation = useMutation({
     mutationFn: async (data: { content: string; noteType: string }) => {
+      if (!currentCollector) throw new Error("No collector found");
       return apiRequest("POST", `/api/debtors/${debtorId}/notes`, {
         ...data,
         debtorId,
-        collectorId: "current-user",
-        createdDate: new Date().toISOString(),
+        collectorId: currentCollector.id,
+        createdDate: new Date().toISOString().split("T")[0],
       });
     },
     onSuccess: () => {
@@ -115,8 +128,9 @@ export default function DebtorDetail() {
       return apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
         ...data,
         debtorId,
-        paymentDate: new Date().toISOString(),
+        paymentDate: new Date().toISOString().split("T")[0],
         status: "pending",
+        processedBy: currentCollector?.id,
       });
     },
     onSuccess: () => {
@@ -183,7 +197,7 @@ export default function DebtorDetail() {
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </Button>
-          <Button onClick={() => setShowAddPaymentDialog(true)} data-testid="button-add-payment">
+          <Button onClick={() => setShowAddPaymentDialog(true)} disabled={!isCollectorReady} data-testid="button-add-payment">
             <DollarSign className="h-4 w-4 mr-2" />
             Add Payment
           </Button>
@@ -507,7 +521,7 @@ export default function DebtorDetail() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
               <CardTitle className="text-lg font-medium">Payment History</CardTitle>
-              <Button onClick={() => setShowAddPaymentDialog(true)} data-testid="button-add-payment-tab">
+              <Button onClick={() => setShowAddPaymentDialog(true)} disabled={!isCollectorReady} data-testid="button-add-payment-tab">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Payment
               </Button>
@@ -557,7 +571,7 @@ export default function DebtorDetail() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
               <CardTitle className="text-lg font-medium">Notes & Timeline</CardTitle>
-              <Button onClick={() => setShowAddNoteDialog(true)} data-testid="button-add-note">
+              <Button onClick={() => setShowAddNoteDialog(true)} disabled={!isCollectorReady} data-testid="button-add-note">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Note
               </Button>
@@ -580,6 +594,9 @@ export default function DebtorDetail() {
                         <span className="text-xs text-muted-foreground">{formatDate(note.createdDate)}</span>
                       </div>
                       <p className="text-sm">{note.content}</p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        By: {getCollectorName(note.collectorId)}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -631,7 +648,7 @@ export default function DebtorDetail() {
             </Button>
             <Button
               onClick={() => addNoteMutation.mutate({ content: noteContent, noteType })}
-              disabled={!noteContent || addNoteMutation.isPending}
+              disabled={!noteContent || addNoteMutation.isPending || !isCollectorReady}
               data-testid="button-save-note"
             >
               {addNoteMutation.isPending ? "Saving..." : "Save Note"}
@@ -685,7 +702,7 @@ export default function DebtorDetail() {
                   paymentMethod,
                 })
               }
-              disabled={!paymentAmount || addPaymentMutation.isPending}
+              disabled={!paymentAmount || addPaymentMutation.isPending || !isCollectorReady}
               data-testid="button-save-payment"
             >
               {addPaymentMutation.isPending ? "Saving..." : "Record Payment"}
