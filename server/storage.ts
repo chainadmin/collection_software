@@ -15,6 +15,8 @@ import {
   type InsertEmploymentRecord,
   type BankAccount,
   type InsertBankAccount,
+  type PaymentCard,
+  type InsertPaymentCard,
   type Payment,
   type InsertPayment,
   type PaymentBatch,
@@ -70,6 +72,11 @@ export interface IStorage {
   updateBankAccount(id: string, account: Partial<InsertBankAccount>): Promise<BankAccount | undefined>;
   deleteBankAccount(id: string): Promise<boolean>;
 
+  getPaymentCards(debtorId: string): Promise<PaymentCard[]>;
+  createPaymentCard(card: InsertPaymentCard): Promise<PaymentCard>;
+  updatePaymentCard(id: string, card: Partial<InsertPaymentCard>): Promise<PaymentCard | undefined>;
+  deletePaymentCard(id: string): Promise<boolean>;
+
   getPayments(debtorId?: string, batchId?: string): Promise<Payment[]>;
   getRecentPayments(limit?: number): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -98,6 +105,7 @@ export class MemStorage implements IStorage {
   private debtorContacts: Map<string, DebtorContact>;
   private employmentRecords: Map<string, EmploymentRecord>;
   private bankAccounts: Map<string, BankAccount>;
+  private paymentCards: Map<string, PaymentCard>;
   private payments: Map<string, Payment>;
   private paymentBatches: Map<string, PaymentBatch>;
   private notes: Map<string, Note>;
@@ -112,6 +120,7 @@ export class MemStorage implements IStorage {
     this.debtorContacts = new Map();
     this.employmentRecords = new Map();
     this.bankAccounts = new Map();
+    this.paymentCards = new Map();
     this.payments = new Map();
     this.paymentBatches = new Map();
     this.notes = new Map();
@@ -756,6 +765,41 @@ export class MemStorage implements IStorage {
 
   async deleteBankAccount(id: string): Promise<boolean> {
     return this.bankAccounts.delete(id);
+  }
+
+  async getPaymentCards(debtorId: string): Promise<PaymentCard[]> {
+    return Array.from(this.paymentCards.values()).filter((c) => c.debtorId === debtorId);
+  }
+
+  async createPaymentCard(card: InsertPaymentCard): Promise<PaymentCard> {
+    const id = randomUUID();
+    const newCard: PaymentCard = {
+      id,
+      debtorId: card.debtorId,
+      cardType: card.cardType,
+      cardholderName: card.cardholderName,
+      cardNumberLast4: card.cardNumberLast4,
+      expiryMonth: card.expiryMonth,
+      expiryYear: card.expiryYear,
+      billingZip: card.billingZip ?? null,
+      isDefault: card.isDefault ?? false,
+      addedDate: card.addedDate,
+      addedBy: card.addedBy ?? null,
+    };
+    this.paymentCards.set(id, newCard);
+    return newCard;
+  }
+
+  async updatePaymentCard(id: string, card: Partial<InsertPaymentCard>): Promise<PaymentCard | undefined> {
+    const existing = this.paymentCards.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...card };
+    this.paymentCards.set(id, updated);
+    return updated;
+  }
+
+  async deletePaymentCard(id: string): Promise<boolean> {
+    return this.paymentCards.delete(id);
   }
 
   async getPayments(debtorId?: string, batchId?: string): Promise<Payment[]> {
