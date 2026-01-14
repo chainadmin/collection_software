@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import Dashboard from "@/pages/dashboard";
+import Workstation from "@/pages/workstation";
 import Debtors from "@/pages/debtors";
 import DebtorDetail from "@/pages/debtor-detail";
 import PaymentRunner from "@/pages/payment-runner";
@@ -21,6 +22,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/workstation" component={Workstation} />
       <Route path="/debtors" component={Debtors} />
       <Route path="/debtors/:id" component={DebtorDetail} />
       <Route path="/payment-runner" component={PaymentRunner} />

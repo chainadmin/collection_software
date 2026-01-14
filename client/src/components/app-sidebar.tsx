@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Settings,
   Building2,
+  Headphones,
 } from "lucide-react";
 import {
   Sidebar,
@@ -27,6 +28,11 @@ const mainNavItems = [
     title: "Dashboard",
     url: "/",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Workstation",
+    url: "/workstation",
+    icon: Headphones,
   },
   {
     title: "Debtors",
