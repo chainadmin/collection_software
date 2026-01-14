@@ -128,28 +128,34 @@ export class MemStorage implements IStorage {
       id: collector1Id,
       name: "Sarah Johnson",
       email: "sarah.johnson@collectmax.com",
+      username: "sjohnson",
+      password: "password123",
       role: "manager",
       status: "active",
       avatarInitials: "SJ",
-      costPerSeat: 15000,
+      goal: 5000000,
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
       name: "Michael Chen",
       email: "michael.chen@collectmax.com",
+      username: "mchen",
+      password: "password123",
       role: "collector",
       status: "active",
       avatarInitials: "MC",
-      costPerSeat: 15000,
+      goal: 2500000,
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
       name: "Emily Rodriguez",
       email: "emily.rodriguez@collectmax.com",
+      username: "erodriguez",
+      password: "password123",
       role: "collector",
       status: "active",
       avatarInitials: "ER",
-      costPerSeat: 15000,
+      goal: 2500000,
     });
 
     const portfolio1Id = randomUUID();
@@ -522,7 +528,17 @@ export class MemStorage implements IStorage {
 
   async createCollector(collector: InsertCollector): Promise<Collector> {
     const id = randomUUID();
-    const newCollector: Collector = { ...collector, id };
+    const newCollector: Collector = {
+      id,
+      name: collector.name,
+      email: collector.email,
+      username: collector.username,
+      password: collector.password,
+      role: collector.role ?? "collector",
+      status: collector.status ?? "active",
+      avatarInitials: collector.avatarInitials ?? null,
+      goal: collector.goal ?? 0,
+    };
     this.collectors.set(id, newCollector);
     return newCollector;
   }
@@ -549,7 +565,17 @@ export class MemStorage implements IStorage {
 
   async createPortfolio(portfolio: InsertPortfolio): Promise<Portfolio> {
     const id = randomUUID();
-    const newPortfolio: Portfolio = { ...portfolio, id };
+    const newPortfolio: Portfolio = {
+      id,
+      name: portfolio.name,
+      purchaseDate: portfolio.purchaseDate,
+      purchasePrice: portfolio.purchasePrice,
+      totalFaceValue: portfolio.totalFaceValue,
+      totalAccounts: portfolio.totalAccounts,
+      status: portfolio.status ?? "active",
+      creditorName: portfolio.creditorName ?? null,
+      debtType: portfolio.debtType ?? null,
+    };
     this.portfolios.set(id, newPortfolio);
     return newPortfolio;
   }
@@ -603,7 +629,21 @@ export class MemStorage implements IStorage {
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {
     const id = randomUUID();
-    const newDebtor: Debtor = { ...debtor, id };
+    const newDebtor: Debtor = {
+      id,
+      portfolioId: debtor.portfolioId,
+      assignedCollectorId: debtor.assignedCollectorId ?? null,
+      accountNumber: debtor.accountNumber,
+      firstName: debtor.firstName,
+      lastName: debtor.lastName,
+      dateOfBirth: debtor.dateOfBirth ?? null,
+      ssnLast4: debtor.ssnLast4 ?? null,
+      originalBalance: debtor.originalBalance,
+      currentBalance: debtor.currentBalance,
+      status: debtor.status ?? "open",
+      lastContactDate: debtor.lastContactDate ?? null,
+      nextFollowUpDate: debtor.nextFollowUpDate ?? null,
+    };
     this.debtors.set(id, newDebtor);
     return newDebtor;
   }
@@ -626,7 +666,16 @@ export class MemStorage implements IStorage {
 
   async createDebtorContact(contact: InsertDebtorContact): Promise<DebtorContact> {
     const id = randomUUID();
-    const newContact: DebtorContact = { ...contact, id };
+    const newContact: DebtorContact = {
+      id,
+      debtorId: contact.debtorId,
+      type: contact.type,
+      value: contact.value,
+      label: contact.label ?? null,
+      isPrimary: contact.isPrimary ?? false,
+      isValid: contact.isValid ?? true,
+      lastVerified: contact.lastVerified ?? null,
+    };
     this.debtorContacts.set(id, newContact);
     return newContact;
   }
@@ -649,7 +698,18 @@ export class MemStorage implements IStorage {
 
   async createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord> {
     const id = randomUUID();
-    const newRecord: EmploymentRecord = { ...record, id };
+    const newRecord: EmploymentRecord = {
+      id,
+      debtorId: record.debtorId,
+      employerName: record.employerName,
+      employerPhone: record.employerPhone ?? null,
+      employerAddress: record.employerAddress ?? null,
+      position: record.position ?? null,
+      startDate: record.startDate ?? null,
+      salary: record.salary ?? null,
+      isCurrent: record.isCurrent ?? true,
+      verifiedDate: record.verifiedDate ?? null,
+    };
     this.employmentRecords.set(id, newRecord);
     return newRecord;
   }
@@ -672,7 +732,16 @@ export class MemStorage implements IStorage {
 
   async createBankAccount(account: InsertBankAccount): Promise<BankAccount> {
     const id = randomUUID();
-    const newAccount: BankAccount = { ...account, id };
+    const newAccount: BankAccount = {
+      id,
+      debtorId: account.debtorId,
+      bankName: account.bankName,
+      accountType: account.accountType,
+      routingNumber: account.routingNumber ?? null,
+      accountNumberLast4: account.accountNumberLast4 ?? null,
+      isVerified: account.isVerified ?? false,
+      verifiedDate: account.verifiedDate ?? null,
+    };
     this.bankAccounts.set(id, newAccount);
     return newAccount;
   }
@@ -704,7 +773,18 @@ export class MemStorage implements IStorage {
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
     const id = randomUUID();
-    const newPayment: Payment = { ...payment, id };
+    const newPayment: Payment = {
+      id,
+      debtorId: payment.debtorId,
+      batchId: payment.batchId ?? null,
+      amount: payment.amount,
+      paymentDate: payment.paymentDate,
+      paymentMethod: payment.paymentMethod,
+      status: payment.status ?? "pending",
+      referenceNumber: payment.referenceNumber ?? null,
+      processedBy: payment.processedBy ?? null,
+      notes: payment.notes ?? null,
+    };
     this.payments.set(id, newPayment);
     return newPayment;
   }
@@ -727,7 +807,19 @@ export class MemStorage implements IStorage {
 
   async createPaymentBatch(batch: InsertPaymentBatch): Promise<PaymentBatch> {
     const id = randomUUID();
-    const newBatch: PaymentBatch = { ...batch, id };
+    const newBatch: PaymentBatch = {
+      id,
+      name: batch.name,
+      createdBy: batch.createdBy,
+      createdDate: batch.createdDate,
+      scheduledDate: batch.scheduledDate ?? null,
+      status: batch.status ?? "draft",
+      totalPayments: batch.totalPayments ?? 0,
+      totalAmount: batch.totalAmount ?? 0,
+      successCount: batch.successCount ?? 0,
+      failedCount: batch.failedCount ?? 0,
+      processedDate: batch.processedDate ?? null,
+    };
     this.paymentBatches.set(id, newBatch);
     return newBatch;
   }
@@ -748,7 +840,14 @@ export class MemStorage implements IStorage {
 
   async createNote(note: InsertNote): Promise<Note> {
     const id = randomUUID();
-    const newNote: Note = { ...note, id };
+    const newNote: Note = {
+      id,
+      debtorId: note.debtorId,
+      collectorId: note.collectorId,
+      content: note.content,
+      noteType: note.noteType ?? "general",
+      createdDate: note.createdDate,
+    };
     this.notes.set(id, newNote);
     return newNote;
   }

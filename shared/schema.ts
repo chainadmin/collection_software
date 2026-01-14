@@ -8,10 +8,12 @@ export const collectors = pgTable("collectors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  username: text("username").notNull().unique(),
+  password: text("password").notNull(),
   role: text("role").notNull().default("collector"), // admin, manager, collector
   status: text("status").notNull().default("active"), // active, inactive, suspended
   avatarInitials: text("avatar_initials"),
-  costPerSeat: integer("cost_per_seat").default(150),
+  goal: integer("goal").default(0), // monthly collection goal in cents
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });

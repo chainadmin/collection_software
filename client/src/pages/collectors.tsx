@@ -5,13 +5,13 @@ import {
   Plus,
   MoreHorizontal,
   Users,
-  DollarSign,
+  Target,
   Mail,
-  Phone,
+  User,
   Edit,
   Trash2,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,14 +54,16 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, getInitials } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Collector, Portfolio, PortfolioAssignment } from "@shared/schema";
+import type { Collector } from "@shared/schema";
 
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Valid email is required"),
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
   role: z.string().default("collector"),
   status: z.string().default("active"),
-  costPerSeat: z.number().min(0).default(150),
+  goal: z.number().min(0).default(0),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -75,18 +77,16 @@ export default function Collectors() {
     queryKey: ["/api/collectors"],
   });
 
-  const { data: portfolios } = useQuery<Portfolio[]>({
-    queryKey: ["/api/portfolios"],
-  });
-
   const form = useForm<AddCollectorForm>({
     resolver: zodResolver(addCollectorSchema),
     defaultValues: {
       name: "",
       email: "",
+      username: "",
+      password: "",
       role: "collector",
       status: "active",
-      costPerSeat: 150,
+      goal: 0,
     },
   });
 
@@ -95,14 +95,14 @@ export default function Collectors() {
       return apiRequest("POST", "/api/collectors", {
         ...data,
         avatarInitials: getInitials(data.name),
-        costPerSeat: data.costPerSeat * 100,
+        goal: data.goal * 100,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
       setShowAddDialog(false);
       form.reset();
-      toast({ title: "Collector added", description: "Collector seat has been created." });
+      toast({ title: "Collector added", description: "Collector has been created successfully." });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to add collector.", variant: "destructive" });
@@ -115,7 +115,7 @@ export default function Collectors() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
-      toast({ title: "Collector removed", description: "Collector seat has been removed." });
+      toast({ title: "Collector removed", description: "Collector has been removed." });
     },
   });
 
@@ -123,14 +123,14 @@ export default function Collectors() {
     return (
       searchQuery === "" ||
       collector.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      collector.email.toLowerCase().includes(searchQuery.toLowerCase())
+      collector.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      collector.username.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 
   const activeCollectors = collectors?.filter((c) => c.status === "active").length || 0;
   const totalSeats = collectors?.length || 0;
-  const totalMonthlyCost = collectors?.reduce((sum, c) => sum + (c.costPerSeat || 15000), 0) || 0;
-  const avgCostPerSeat = totalSeats > 0 ? totalMonthlyCost / totalSeats : 0;
+  const totalGoal = collectors?.reduce((sum, c) => sum + (c.goal || 0), 0) || 0;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -138,37 +138,32 @@ export default function Collectors() {
         <div>
           <h1 className="text-2xl font-semibold">Collectors</h1>
           <p className="text-sm text-muted-foreground">
-            Manage collector seats and assignments
+            Manage collectors and their assignments
           </p>
         </div>
         <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-collector">
           <Plus className="h-4 w-4 mr-2" />
-          Add Collector Seat
+          Add Collector
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <StatCard
           title="Active Collectors"
           value={activeCollectors.toString()}
-          subtitle={`of ${totalSeats} total seats`}
+          subtitle={`of ${totalSeats} total`}
           icon={Users}
         />
         <StatCard
-          title="Total Seats"
+          title="Total Collectors"
           value={totalSeats.toString()}
           icon={Users}
         />
         <StatCard
-          title="Monthly Cost"
-          value={formatCurrency(totalMonthlyCost)}
-          icon={DollarSign}
-        />
-        <StatCard
-          title="Avg Cost/Seat"
-          value={formatCurrency(avgCostPerSeat)}
-          subtitle="per month"
-          icon={DollarSign}
+          title="Combined Goal"
+          value={formatCurrency(totalGoal)}
+          subtitle="monthly target"
+          icon={Target}
         />
       </div>
 
@@ -243,14 +238,19 @@ export default function Collectors() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <User className="h-4 w-4" />
+                        <span>@{collector.username}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Mail className="h-4 w-4" />
                         <span className="truncate">{collector.email}</span>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between pt-2">
                         <StatusBadge status={collector.status} />
-                        <span className="text-sm font-mono text-muted-foreground">
-                          {formatCurrency(collector.costPerSeat || 15000)}/mo
-                        </span>
+                        <div className="flex items-center gap-1 text-sm">
+                          <Target className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-mono">{formatCurrency(collector.goal || 0)}</span>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -266,12 +266,12 @@ export default function Collectors() {
               <p className="text-sm text-muted-foreground mb-4">
                 {searchQuery
                   ? "Try adjusting your search"
-                  : "Get started by adding your first collector seat"}
+                  : "Get started by adding your first collector"}
               </p>
               {!searchQuery && (
                 <Button onClick={() => setShowAddDialog(true)}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Collector Seat
+                  Add Collector
                 </Button>
               )}
             </div>
@@ -279,37 +279,12 @@ export default function Collectors() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-medium">Pricing Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="p-4 rounded-md bg-muted/50 text-center">
-              <p className="text-2xl font-semibold font-mono">$150</p>
-              <p className="text-sm text-muted-foreground">per seat / month</p>
-              <p className="text-xs text-muted-foreground mt-1">Standard rate</p>
-            </div>
-            <div className="p-4 rounded-md bg-muted/50 text-center">
-              <p className="text-2xl font-semibold font-mono">$125</p>
-              <p className="text-sm text-muted-foreground">per seat / month</p>
-              <p className="text-xs text-muted-foreground mt-1">10+ seats</p>
-            </div>
-            <div className="p-4 rounded-md bg-muted/50 text-center">
-              <p className="text-2xl font-semibold font-mono">$100</p>
-              <p className="text-sm text-muted-foreground">per seat / month</p>
-              <p className="text-xs text-muted-foreground mt-1">25+ seats</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Collector Seat</DialogTitle>
+            <DialogTitle>Add Collector</DialogTitle>
             <DialogDescription>
-              Add a new collector seat to your organization.
+              Add a new collector to your organization.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -343,6 +318,34 @@ export default function Collectors() {
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Username</FormLabel>
+                      <FormControl>
+                        <Input placeholder="jsmith" {...field} data-testid="input-collector-username" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="********" {...field} data-testid="input-collector-password" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
                   name="role"
                   render={({ field }) => (
                     <FormItem>
@@ -365,17 +368,17 @@ export default function Collectors() {
                 />
                 <FormField
                   control={form.control}
-                  name="costPerSeat"
+                  name="goal"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cost per Seat ($)</FormLabel>
+                      <FormLabel>Monthly Goal ($)</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
-                          placeholder="150"
+                          placeholder="25000"
                           {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value || "150"))}
-                          data-testid="input-cost-per-seat"
+                          onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
+                          data-testid="input-collector-goal"
                         />
                       </FormControl>
                       <FormMessage />
