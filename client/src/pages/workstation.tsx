@@ -63,6 +63,7 @@ import type {
   Note,
   Collector,
   Payment,
+  PaymentCard,
 } from "@shared/schema";
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
@@ -76,7 +77,14 @@ export default function Workstation() {
   const [paymentMethod, setPaymentMethod] = useState("ach");
   const [employmentOpen, setEmploymentOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+  const [cardsOpen, setCardsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(true);
+  const [showCardDialog, setShowCardDialog] = useState(false);
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardHolderName, setCardHolderName] = useState("");
+  const [cardBillingZip, setCardBillingZip] = useState("");
+  const [cardType, setCardType] = useState("visa");
 
   const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
@@ -102,6 +110,11 @@ export default function Workstation() {
 
   const { data: bankAccounts } = useQuery<BankAccount[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "bank-accounts"],
+    enabled: !!selectedDebtorId,
+  });
+
+  const { data: paymentCards } = useQuery<PaymentCard[]>({
+    queryKey: ["/api/debtors", selectedDebtorId, "cards"],
     enabled: !!selectedDebtorId,
   });
 
@@ -172,6 +185,66 @@ export default function Workstation() {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
     },
   });
+
+  const addCardMutation = useMutation({
+    mutationFn: async (data: { debtorId: string; cardType: string; cardNumberLast4: string; expiryMonth: string; expiryYear: string; cardholderName: string; billingZip: string }) => {
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/cards`, {
+        cardType: data.cardType,
+        cardNumberLast4: data.cardNumberLast4,
+        expiryMonth: data.expiryMonth,
+        expiryYear: data.expiryYear,
+        cardholderName: data.cardholderName,
+        billingZip: data.billingZip,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+      setShowCardDialog(false);
+      setCardNumber("");
+      setCardExpiry("");
+      setCardHolderName("");
+      setCardBillingZip("");
+      toast({ title: "Card added", description: "Payment card has been saved on file." });
+    },
+  });
+
+  const handleAddCard = () => {
+    if (!selectedDebtorId || !cardNumber || !cardExpiry || !cardHolderName) {
+      toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
+      return;
+    }
+    const cardNumberLast4 = cardNumber.slice(-4);
+    const expiryParts = cardExpiry.split("/");
+    if (expiryParts.length !== 2) {
+      toast({ title: "Error", description: "Please enter expiry as MM/YY.", variant: "destructive" });
+      return;
+    }
+    addCardMutation.mutate({
+      debtorId: selectedDebtorId,
+      cardType,
+      cardNumberLast4,
+      expiryMonth: expiryParts[0],
+      expiryYear: `20${expiryParts[1]}`,
+      cardholderName: cardHolderName,
+      billingZip: cardBillingZip,
+    });
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    if (!selectedDebtorId) return;
+    updateDebtorMutation.mutate(
+      {
+        id: selectedDebtorId,
+        updates: { status: newStatus },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+          toast({ title: "Status updated", description: `Account status changed to ${newStatus}.` });
+        },
+      }
+    );
+  };
 
   const handleCallOutcome = (outcome: CallOutcome) => {
     if (!selectedDebtorId || !currentCollector) return;
@@ -347,6 +420,9 @@ export default function Workstation() {
                       {debtor.nextFollowUpDate ? formatDate(debtor.nextFollowUpDate) : "No follow-up"}
                     </span>
                   </div>
+                  {debtor.fileNumber && (
+                    <p className="text-xs text-muted-foreground pl-4 font-mono">{debtor.fileNumber}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -369,9 +445,29 @@ export default function Workstation() {
                     <h1 className="text-xl font-semibold">
                       {selectedDebtor.firstName} {selectedDebtor.lastName}
                     </h1>
-                    <StatusBadge status={selectedDebtor.status} />
+                    <Select
+                      value={selectedDebtor.status}
+                      onValueChange={handleStatusChange}
+                      disabled={!isReady}
+                    >
+                      <SelectTrigger className="w-[140px] h-8" data-testid="select-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="open">Open</SelectItem>
+                        <SelectItem value="in_payment">In Payment</SelectItem>
+                        <SelectItem value="disputed">Disputed</SelectItem>
+                        <SelectItem value="settled">Settled</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                        <SelectItem value="bankruptcy">Bankruptcy</SelectItem>
+                        <SelectItem value="legal">Legal</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <p className="text-sm text-muted-foreground">
+                    {selectedDebtor.fileNumber && (
+                      <span className="font-mono mr-2">{selectedDebtor.fileNumber}</span>
+                    )}
                     Account #{selectedDebtor.accountNumber} | SSN: ***-**-{selectedDebtor.ssnLast4 || "????"}
                   </p>
                 </div>
@@ -585,6 +681,59 @@ export default function Workstation() {
                   </Card>
                 </Collapsible>
 
+                <Collapsible open={cardsOpen} onOpenChange={setCardsOpen}>
+                  <Card>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" />
+                            Payment Cards
+                          </span>
+                          <ChevronRight
+                            className={`h-4 w-4 transition-transform ${cardsOpen ? "rotate-90" : ""}`}
+                          />
+                        </CardTitle>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent>
+                        <div className="mb-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setShowCardDialog(true)}
+                            disabled={!isReady}
+                            data-testid="button-add-card"
+                          >
+                            <CreditCard className="h-4 w-4 mr-1" />
+                            Add Card
+                          </Button>
+                        </div>
+                        {paymentCards && paymentCards.length > 0 ? (
+                          <div className="space-y-2">
+                            {paymentCards.map((card) => (
+                              <div key={card.id} className="p-3 rounded-md bg-muted/50">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium capitalize">{card.cardType}</p>
+                                  <Badge variant="secondary" className="text-xs font-mono">
+                                    **** {card.cardNumberLast4}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  Exp: {card.expiryMonth}/{card.expiryYear} | {card.cardholderName}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No payment cards on file</p>
+                        )}
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
+
                 <Collapsible open={notesOpen} onOpenChange={setNotesOpen}>
                   <Card>
                     <CollapsibleTrigger asChild>
@@ -705,6 +854,90 @@ export default function Workstation() {
               data-testid="button-confirm-payment"
             >
               {addPaymentMutation.isPending ? "Recording..." : "Record Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCardDialog} onOpenChange={setShowCardDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Payment Card</DialogTitle>
+            <DialogDescription>
+              Add a card on file for{" "}
+              {selectedDebtor && `${selectedDebtor.firstName} ${selectedDebtor.lastName}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Card Type</label>
+              <Select value={cardType} onValueChange={setCardType}>
+                <SelectTrigger data-testid="select-card-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="visa">Visa</SelectItem>
+                  <SelectItem value="mastercard">Mastercard</SelectItem>
+                  <SelectItem value="amex">American Express</SelectItem>
+                  <SelectItem value="discover">Discover</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Card Number</label>
+              <Input
+                type="text"
+                placeholder="1234 5678 9012 3456"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ""))}
+                maxLength={16}
+                data-testid="input-card-number"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Only last 4 digits will be stored</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Expiry (MM/YY)</label>
+              <Input
+                type="text"
+                placeholder="MM/YY"
+                value={cardExpiry}
+                onChange={(e) => setCardExpiry(e.target.value)}
+                maxLength={5}
+                data-testid="input-card-expiry"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Cardholder Name</label>
+              <Input
+                type="text"
+                placeholder="John Doe"
+                value={cardHolderName}
+                onChange={(e) => setCardHolderName(e.target.value)}
+                data-testid="input-cardholder-name"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Billing ZIP (optional)</label>
+              <Input
+                type="text"
+                placeholder="12345"
+                value={cardBillingZip}
+                onChange={(e) => setCardBillingZip(e.target.value)}
+                maxLength={10}
+                data-testid="input-billing-zip"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCardDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddCard}
+              disabled={addCardMutation.isPending}
+              data-testid="button-confirm-add-card"
+            >
+              {addCardMutation.isPending ? "Saving..." : "Save Card"}
             </Button>
           </DialogFooter>
         </DialogContent>
