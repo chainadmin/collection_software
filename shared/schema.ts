@@ -54,6 +54,7 @@ export const debtors = pgTable("debtors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   portfolioId: varchar("portfolio_id").notNull(),
   assignedCollectorId: varchar("assigned_collector_id"),
+  fileNumber: text("file_number"), // unique tracking number for the account
   accountNumber: text("account_number").notNull(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -119,6 +120,25 @@ export const bankAccounts = pgTable("bank_accounts", {
 export const insertBankAccountSchema = createInsertSchema(bankAccounts).omit({ id: true });
 export type InsertBankAccount = z.infer<typeof insertBankAccountSchema>;
 export type BankAccount = typeof bankAccounts.$inferSelect;
+
+// Payment Cards (credit/debit cards on file)
+export const paymentCards = pgTable("payment_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  debtorId: varchar("debtor_id").notNull(),
+  cardType: text("card_type").notNull(), // visa, mastercard, amex, discover
+  cardholderName: text("cardholder_name").notNull(),
+  cardNumberLast4: text("card_number_last_4").notNull(),
+  expiryMonth: text("expiry_month").notNull(),
+  expiryYear: text("expiry_year").notNull(),
+  billingZip: text("billing_zip"),
+  isDefault: boolean("is_default").default(false),
+  addedDate: text("added_date").notNull(),
+  addedBy: varchar("added_by"), // collector id who added the card
+});
+
+export const insertPaymentCardSchema = createInsertSchema(paymentCards).omit({ id: true });
+export type InsertPaymentCard = z.infer<typeof insertPaymentCardSchema>;
+export type PaymentCard = typeof paymentCards.$inferSelect;
 
 // Payments
 export const payments = pgTable("payments", {
