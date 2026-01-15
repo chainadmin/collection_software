@@ -435,5 +435,547 @@ export async function registerRoutes(
     }
   });
 
+  // Merchants API
+  app.get("/api/merchants", async (req, res) => {
+    try {
+      const merchants = await storage.getMerchants();
+      res.json(merchants);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch merchants" });
+    }
+  });
+
+  app.get("/api/merchants/:id", async (req, res) => {
+    try {
+      const merchant = await storage.getMerchant(req.params.id);
+      if (!merchant) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      res.json(merchant);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch merchant" });
+    }
+  });
+
+  app.post("/api/merchants", async (req, res) => {
+    try {
+      const merchant = await storage.createMerchant({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(merchant);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create merchant" });
+    }
+  });
+
+  app.patch("/api/merchants/:id", async (req, res) => {
+    try {
+      const merchant = await storage.updateMerchant(req.params.id, req.body);
+      if (!merchant) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      res.json(merchant);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update merchant" });
+    }
+  });
+
+  app.delete("/api/merchants/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteMerchant(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete merchant" });
+    }
+  });
+
+  // Time Clock API
+  app.get("/api/time-clock", async (req, res) => {
+    try {
+      const { collectorId, date } = req.query;
+      const entries = await storage.getTimeClockEntries(
+        collectorId as string | undefined,
+        date as string | undefined
+      );
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch time clock entries" });
+    }
+  });
+
+  app.get("/api/time-clock/active/:collectorId", async (req, res) => {
+    try {
+      const entry = await storage.getActiveTimeClockEntry(req.params.collectorId);
+      res.json(entry || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch active time clock entry" });
+    }
+  });
+
+  app.post("/api/time-clock/clock-in", async (req, res) => {
+    try {
+      const { collectorId } = req.body;
+      const existing = await storage.getActiveTimeClockEntry(collectorId);
+      if (existing) {
+        return res.status(400).json({ error: "Already clocked in" });
+      }
+      const entry = await storage.createTimeClockEntry({
+        collectorId,
+        clockIn: new Date().toISOString(),
+      });
+      res.status(201).json(entry);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to clock in" });
+    }
+  });
+
+  app.post("/api/time-clock/clock-out", async (req, res) => {
+    try {
+      const { collectorId } = req.body;
+      const entry = await storage.getActiveTimeClockEntry(collectorId);
+      if (!entry) {
+        return res.status(400).json({ error: "Not clocked in" });
+      }
+      const clockOut = new Date();
+      const clockIn = new Date(entry.clockIn);
+      const totalMinutes = Math.round((clockOut.getTime() - clockIn.getTime()) / 60000);
+      const updated = await storage.updateTimeClockEntry(entry.id, {
+        clockOut: clockOut.toISOString(),
+        totalMinutes,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to clock out" });
+    }
+  });
+
+  // Payments by date (for Payment Runner)
+  app.get("/api/payments/by-date", async (req, res) => {
+    try {
+      const { date } = req.query;
+      if (!date) {
+        return res.status(400).json({ error: "Date parameter required" });
+      }
+      const payments = await storage.getPaymentsByDate(date as string);
+      res.json(payments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payments by date" });
+    }
+  });
+
+  // Import Batches API
+  app.get("/api/import-batches", async (req, res) => {
+    try {
+      const batches = await storage.getImportBatches();
+      res.json(batches);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch import batches" });
+    }
+  });
+
+  app.get("/api/import-batches/:id", async (req, res) => {
+    try {
+      const batch = await storage.getImportBatch(req.params.id);
+      if (!batch) {
+        return res.status(404).json({ error: "Import batch not found" });
+      }
+      res.json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch import batch" });
+    }
+  });
+
+  app.post("/api/import-batches", async (req, res) => {
+    try {
+      const batch = await storage.createImportBatch({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create import batch" });
+    }
+  });
+
+  app.patch("/api/import-batches/:id", async (req, res) => {
+    try {
+      const batch = await storage.updateImportBatch(req.params.id, req.body);
+      if (!batch) {
+        return res.status(404).json({ error: "Import batch not found" });
+      }
+      res.json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update import batch" });
+    }
+  });
+
+  // Import Mappings API
+  app.get("/api/import-mappings", async (req, res) => {
+    try {
+      const { importType } = req.query;
+      const mappings = await storage.getImportMappings(importType as string | undefined);
+      res.json(mappings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch import mappings" });
+    }
+  });
+
+  app.post("/api/import-mappings", async (req, res) => {
+    try {
+      const mapping = await storage.createImportMapping({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(mapping);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create import mapping" });
+    }
+  });
+
+  app.delete("/api/import-mappings/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteImportMapping(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Import mapping not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete import mapping" });
+    }
+  });
+
+  // Drop Batches API
+  app.get("/api/drop-batches", async (req, res) => {
+    try {
+      const batches = await storage.getDropBatches();
+      res.json(batches);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch drop batches" });
+    }
+  });
+
+  app.post("/api/drop-batches", async (req, res) => {
+    try {
+      const batch = await storage.createDropBatch({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create drop batch" });
+    }
+  });
+
+  app.patch("/api/drop-batches/:id", async (req, res) => {
+    try {
+      const batch = await storage.updateDropBatch(req.params.id, req.body);
+      if (!batch) {
+        return res.status(404).json({ error: "Drop batch not found" });
+      }
+      res.json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update drop batch" });
+    }
+  });
+
+  // Drop Items API
+  app.get("/api/drop-items", async (req, res) => {
+    try {
+      const { batchId, collectorId } = req.query;
+      const items = await storage.getDropItems(
+        batchId as string | undefined,
+        collectorId as string | undefined
+      );
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch drop items" });
+    }
+  });
+
+  app.post("/api/drop-items", async (req, res) => {
+    try {
+      const item = await storage.createDropItem({
+        ...req.body,
+        assignedDate: new Date().toISOString().split("T")[0],
+      });
+      
+      // Also add to work queue
+      await storage.createWorkQueueItem({
+        collectorId: req.body.collectorId,
+        debtorId: req.body.debtorId,
+        assignedDate: new Date().toISOString().split("T")[0],
+        priority: 0,
+      });
+      
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create drop item" });
+    }
+  });
+
+  // Recall Batches API
+  app.get("/api/recall-batches", async (req, res) => {
+    try {
+      const batches = await storage.getRecallBatches();
+      res.json(batches);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch recall batches" });
+    }
+  });
+
+  app.post("/api/recall-batches", async (req, res) => {
+    try {
+      const batch = await storage.createRecallBatch({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create recall batch" });
+    }
+  });
+
+  // Recall Items API
+  app.get("/api/recall-items/:batchId", async (req, res) => {
+    try {
+      const items = await storage.getRecallItems(req.params.batchId);
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch recall items" });
+    }
+  });
+
+  app.post("/api/recall-items", async (req, res) => {
+    try {
+      const item = await storage.createRecallItem(req.body);
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create recall item" });
+    }
+  });
+
+  app.patch("/api/recall-items/:id", async (req, res) => {
+    try {
+      const item = await storage.updateRecallItem(req.params.id, req.body);
+      if (!item) {
+        return res.status(404).json({ error: "Recall item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update recall item" });
+    }
+  });
+
+  // Consolidation Companies API
+  app.get("/api/consolidation-companies", async (req, res) => {
+    try {
+      const companies = await storage.getConsolidationCompanies();
+      res.json(companies);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch consolidation companies" });
+    }
+  });
+
+  app.post("/api/consolidation-companies", async (req, res) => {
+    try {
+      const company = await storage.createConsolidationCompany({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(company);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create consolidation company" });
+    }
+  });
+
+  app.patch("/api/consolidation-companies/:id", async (req, res) => {
+    try {
+      const company = await storage.updateConsolidationCompany(req.params.id, req.body);
+      if (!company) {
+        return res.status(404).json({ error: "Consolidation company not found" });
+      }
+      res.json(company);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update consolidation company" });
+    }
+  });
+
+  app.delete("/api/consolidation-companies/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteConsolidationCompany(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Consolidation company not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete consolidation company" });
+    }
+  });
+
+  // Consolidation Cases API
+  app.get("/api/consolidation-cases", async (req, res) => {
+    try {
+      const { debtorId, companyId } = req.query;
+      const cases = await storage.getConsolidationCases(
+        debtorId as string | undefined,
+        companyId as string | undefined
+      );
+      res.json(cases);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch consolidation cases" });
+    }
+  });
+
+  app.post("/api/consolidation-cases", async (req, res) => {
+    try {
+      const caseData = await storage.createConsolidationCase({
+        ...req.body,
+        startDate: req.body.startDate || new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(caseData);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create consolidation case" });
+    }
+  });
+
+  app.patch("/api/consolidation-cases/:id", async (req, res) => {
+    try {
+      const caseData = await storage.updateConsolidationCase(req.params.id, req.body);
+      if (!caseData) {
+        return res.status(404).json({ error: "Consolidation case not found" });
+      }
+      res.json(caseData);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update consolidation case" });
+    }
+  });
+
+  // Work Queue API
+  app.get("/api/work-queue/:collectorId", async (req, res) => {
+    try {
+      const { status } = req.query;
+      const items = await storage.getWorkQueueItems(
+        req.params.collectorId,
+        status as string | undefined
+      );
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch work queue" });
+    }
+  });
+
+  app.post("/api/work-queue", async (req, res) => {
+    try {
+      const item = await storage.createWorkQueueItem({
+        ...req.body,
+        assignedDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add to work queue" });
+    }
+  });
+
+  app.patch("/api/work-queue/:id", async (req, res) => {
+    try {
+      const item = await storage.updateWorkQueueItem(req.params.id, req.body);
+      if (!item) {
+        return res.status(404).json({ error: "Work queue item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update work queue item" });
+    }
+  });
+
+  app.delete("/api/work-queue/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteWorkQueueItem(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Work queue item not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete work queue item" });
+    }
+  });
+
+  // Remittances API
+  app.get("/api/remittances", async (req, res) => {
+    try {
+      const { status, portfolioId } = req.query;
+      const remittances = await storage.getRemittances(
+        status as string | undefined,
+        portfolioId as string | undefined
+      );
+      res.json(remittances);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch remittances" });
+    }
+  });
+
+  app.post("/api/remittances", async (req, res) => {
+    try {
+      const remittance = await storage.createRemittance({
+        ...req.body,
+        remittanceDate: req.body.remittanceDate || new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(remittance);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create remittance" });
+    }
+  });
+
+  app.patch("/api/remittances/:id", async (req, res) => {
+    try {
+      const remittance = await storage.updateRemittance(req.params.id, req.body);
+      if (!remittance) {
+        return res.status(404).json({ error: "Remittance not found" });
+      }
+      res.json(remittance);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update remittance" });
+    }
+  });
+
+  // Remittance Items API
+  app.get("/api/remittance-items", async (req, res) => {
+    try {
+      const { remittanceId, status } = req.query;
+      const items = await storage.getRemittanceItems(
+        remittanceId as string | undefined,
+        status as string | undefined
+      );
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch remittance items" });
+    }
+  });
+
+  app.post("/api/remittance-items", async (req, res) => {
+    try {
+      const item = await storage.createRemittanceItem(req.body);
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create remittance item" });
+    }
+  });
+
+  app.patch("/api/remittance-items/:id", async (req, res) => {
+    try {
+      const item = await storage.updateRemittanceItem(req.params.id, req.body);
+      if (!item) {
+        return res.status(404).json({ error: "Remittance item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update remittance item" });
+    }
+  });
+
   return httpServer;
 }

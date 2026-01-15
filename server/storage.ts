@@ -26,6 +26,32 @@ import {
   type LiquidationSnapshot,
   type InsertLiquidationSnapshot,
   type DashboardStats,
+  type Merchant,
+  type InsertMerchant,
+  type TimeClockEntry,
+  type InsertTimeClockEntry,
+  type ImportBatch,
+  type InsertImportBatch,
+  type ImportMapping,
+  type InsertImportMapping,
+  type DropBatch,
+  type InsertDropBatch,
+  type DropItem,
+  type InsertDropItem,
+  type RecallBatch,
+  type InsertRecallBatch,
+  type RecallItem,
+  type InsertRecallItem,
+  type ConsolidationCompany,
+  type InsertConsolidationCompany,
+  type ConsolidationCase,
+  type InsertConsolidationCase,
+  type WorkQueueItem,
+  type InsertWorkQueueItem,
+  type RemittanceItem,
+  type InsertRemittanceItem,
+  type Remittance,
+  type InsertRemittance,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -94,6 +120,88 @@ export interface IStorage {
   createLiquidationSnapshot(snapshot: InsertLiquidationSnapshot): Promise<LiquidationSnapshot>;
 
   getDashboardStats(): Promise<DashboardStats>;
+
+  // Merchants
+  getMerchants(): Promise<Merchant[]>;
+  getMerchant(id: string): Promise<Merchant | undefined>;
+  createMerchant(merchant: InsertMerchant): Promise<Merchant>;
+  updateMerchant(id: string, merchant: Partial<InsertMerchant>): Promise<Merchant | undefined>;
+  deleteMerchant(id: string): Promise<boolean>;
+
+  // Time Clock
+  getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]>;
+  getActiveTimeClockEntry(collectorId: string): Promise<TimeClockEntry | undefined>;
+  createTimeClockEntry(entry: InsertTimeClockEntry): Promise<TimeClockEntry>;
+  updateTimeClockEntry(id: string, entry: Partial<InsertTimeClockEntry>): Promise<TimeClockEntry | undefined>;
+
+  // Import Batches
+  getImportBatches(): Promise<ImportBatch[]>;
+  getImportBatch(id: string): Promise<ImportBatch | undefined>;
+  createImportBatch(batch: InsertImportBatch): Promise<ImportBatch>;
+  updateImportBatch(id: string, batch: Partial<InsertImportBatch>): Promise<ImportBatch | undefined>;
+
+  // Import Mappings
+  getImportMappings(importType?: string): Promise<ImportMapping[]>;
+  getImportMapping(id: string): Promise<ImportMapping | undefined>;
+  createImportMapping(mapping: InsertImportMapping): Promise<ImportMapping>;
+  updateImportMapping(id: string, mapping: Partial<InsertImportMapping>): Promise<ImportMapping | undefined>;
+  deleteImportMapping(id: string): Promise<boolean>;
+
+  // Drop Batches
+  getDropBatches(): Promise<DropBatch[]>;
+  getDropBatch(id: string): Promise<DropBatch | undefined>;
+  createDropBatch(batch: InsertDropBatch): Promise<DropBatch>;
+  updateDropBatch(id: string, batch: Partial<InsertDropBatch>): Promise<DropBatch | undefined>;
+
+  // Drop Items
+  getDropItems(batchId?: string, collectorId?: string): Promise<DropItem[]>;
+  createDropItem(item: InsertDropItem): Promise<DropItem>;
+  updateDropItem(id: string, item: Partial<InsertDropItem>): Promise<DropItem | undefined>;
+
+  // Recall Batches
+  getRecallBatches(): Promise<RecallBatch[]>;
+  getRecallBatch(id: string): Promise<RecallBatch | undefined>;
+  createRecallBatch(batch: InsertRecallBatch): Promise<RecallBatch>;
+  updateRecallBatch(id: string, batch: Partial<InsertRecallBatch>): Promise<RecallBatch | undefined>;
+
+  // Recall Items
+  getRecallItems(batchId: string): Promise<RecallItem[]>;
+  createRecallItem(item: InsertRecallItem): Promise<RecallItem>;
+  updateRecallItem(id: string, item: Partial<InsertRecallItem>): Promise<RecallItem | undefined>;
+
+  // Consolidation Companies
+  getConsolidationCompanies(): Promise<ConsolidationCompany[]>;
+  getConsolidationCompany(id: string): Promise<ConsolidationCompany | undefined>;
+  createConsolidationCompany(company: InsertConsolidationCompany): Promise<ConsolidationCompany>;
+  updateConsolidationCompany(id: string, company: Partial<InsertConsolidationCompany>): Promise<ConsolidationCompany | undefined>;
+  deleteConsolidationCompany(id: string): Promise<boolean>;
+
+  // Consolidation Cases
+  getConsolidationCases(debtorId?: string, companyId?: string): Promise<ConsolidationCase[]>;
+  getConsolidationCase(id: string): Promise<ConsolidationCase | undefined>;
+  createConsolidationCase(caseData: InsertConsolidationCase): Promise<ConsolidationCase>;
+  updateConsolidationCase(id: string, caseData: Partial<InsertConsolidationCase>): Promise<ConsolidationCase | undefined>;
+
+  // Work Queue
+  getWorkQueueItems(collectorId: string, status?: string): Promise<WorkQueueItem[]>;
+  getWorkQueueItem(id: string): Promise<WorkQueueItem | undefined>;
+  createWorkQueueItem(item: InsertWorkQueueItem): Promise<WorkQueueItem>;
+  updateWorkQueueItem(id: string, item: Partial<InsertWorkQueueItem>): Promise<WorkQueueItem | undefined>;
+  deleteWorkQueueItem(id: string): Promise<boolean>;
+
+  // Remittances
+  getRemittances(status?: string, portfolioId?: string): Promise<Remittance[]>;
+  getRemittance(id: string): Promise<Remittance | undefined>;
+  createRemittance(remittance: InsertRemittance): Promise<Remittance>;
+  updateRemittance(id: string, remittance: Partial<InsertRemittance>): Promise<Remittance | undefined>;
+
+  // Remittance Items
+  getRemittanceItems(remittanceId?: string, status?: string): Promise<RemittanceItem[]>;
+  createRemittanceItem(item: InsertRemittanceItem): Promise<RemittanceItem>;
+  updateRemittanceItem(id: string, item: Partial<InsertRemittanceItem>): Promise<RemittanceItem | undefined>;
+
+  // Payments by date
+  getPaymentsByDate(date: string): Promise<Payment[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -110,6 +218,19 @@ export class MemStorage implements IStorage {
   private paymentBatches: Map<string, PaymentBatch>;
   private notes: Map<string, Note>;
   private liquidationSnapshots: Map<string, LiquidationSnapshot>;
+  private merchants: Map<string, Merchant>;
+  private timeClockEntries: Map<string, TimeClockEntry>;
+  private importBatches: Map<string, ImportBatch>;
+  private importMappings: Map<string, ImportMapping>;
+  private dropBatches: Map<string, DropBatch>;
+  private dropItems: Map<string, DropItem>;
+  private recallBatches: Map<string, RecallBatch>;
+  private recallItems: Map<string, RecallItem>;
+  private consolidationCompanies: Map<string, ConsolidationCompany>;
+  private consolidationCases: Map<string, ConsolidationCase>;
+  private workQueueItems: Map<string, WorkQueueItem>;
+  private remittances: Map<string, Remittance>;
+  private remittanceItems: Map<string, RemittanceItem>;
 
   constructor() {
     this.users = new Map();
@@ -125,6 +246,19 @@ export class MemStorage implements IStorage {
     this.paymentBatches = new Map();
     this.notes = new Map();
     this.liquidationSnapshots = new Map();
+    this.merchants = new Map();
+    this.timeClockEntries = new Map();
+    this.importBatches = new Map();
+    this.importMappings = new Map();
+    this.dropBatches = new Map();
+    this.dropItems = new Map();
+    this.recallBatches = new Map();
+    this.recallItems = new Map();
+    this.consolidationCompanies = new Map();
+    this.consolidationCases = new Map();
+    this.workQueueItems = new Map();
+    this.remittances = new Map();
+    this.remittanceItems = new Map();
     this.seedData();
   }
 
@@ -1005,6 +1139,470 @@ export class MemStorage implements IStorage {
       totalPortfolioValue,
       totalCollected,
     };
+  }
+
+  // Merchants
+  async getMerchants(): Promise<Merchant[]> {
+    return Array.from(this.merchants.values());
+  }
+
+  async getMerchant(id: string): Promise<Merchant | undefined> {
+    return this.merchants.get(id);
+  }
+
+  async createMerchant(merchant: InsertMerchant): Promise<Merchant> {
+    const id = randomUUID();
+    const newMerchant: Merchant = {
+      id,
+      name: merchant.name,
+      merchantId: merchant.merchantId,
+      processorType: merchant.processorType,
+      isActive: merchant.isActive ?? true,
+      apiKeyRef: merchant.apiKeyRef ?? null,
+      createdDate: merchant.createdDate,
+    };
+    this.merchants.set(id, newMerchant);
+    return newMerchant;
+  }
+
+  async updateMerchant(id: string, merchant: Partial<InsertMerchant>): Promise<Merchant | undefined> {
+    const existing = this.merchants.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...merchant };
+    this.merchants.set(id, updated);
+    return updated;
+  }
+
+  async deleteMerchant(id: string): Promise<boolean> {
+    return this.merchants.delete(id);
+  }
+
+  // Time Clock
+  async getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]> {
+    let entries = Array.from(this.timeClockEntries.values());
+    if (collectorId) entries = entries.filter((e) => e.collectorId === collectorId);
+    if (date) entries = entries.filter((e) => e.clockIn.startsWith(date));
+    return entries;
+  }
+
+  async getActiveTimeClockEntry(collectorId: string): Promise<TimeClockEntry | undefined> {
+    return Array.from(this.timeClockEntries.values()).find(
+      (e) => e.collectorId === collectorId && !e.clockOut
+    );
+  }
+
+  async createTimeClockEntry(entry: InsertTimeClockEntry): Promise<TimeClockEntry> {
+    const id = randomUUID();
+    const newEntry: TimeClockEntry = {
+      id,
+      collectorId: entry.collectorId,
+      clockIn: entry.clockIn,
+      clockOut: entry.clockOut ?? null,
+      totalMinutes: entry.totalMinutes ?? null,
+      notes: entry.notes ?? null,
+    };
+    this.timeClockEntries.set(id, newEntry);
+    return newEntry;
+  }
+
+  async updateTimeClockEntry(id: string, entry: Partial<InsertTimeClockEntry>): Promise<TimeClockEntry | undefined> {
+    const existing = this.timeClockEntries.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...entry };
+    this.timeClockEntries.set(id, updated);
+    return updated;
+  }
+
+  // Import Batches
+  async getImportBatches(): Promise<ImportBatch[]> {
+    return Array.from(this.importBatches.values());
+  }
+
+  async getImportBatch(id: string): Promise<ImportBatch | undefined> {
+    return this.importBatches.get(id);
+  }
+
+  async createImportBatch(batch: InsertImportBatch): Promise<ImportBatch> {
+    const id = randomUUID();
+    const newBatch: ImportBatch = {
+      id,
+      name: batch.name,
+      fileName: batch.fileName,
+      importType: batch.importType,
+      status: batch.status ?? "pending",
+      totalRecords: batch.totalRecords ?? 0,
+      successRecords: batch.successRecords ?? 0,
+      failedRecords: batch.failedRecords ?? 0,
+      mappingId: batch.mappingId ?? null,
+      createdDate: batch.createdDate,
+      createdBy: batch.createdBy ?? null,
+      processedDate: batch.processedDate ?? null,
+      errorLog: batch.errorLog ?? null,
+    };
+    this.importBatches.set(id, newBatch);
+    return newBatch;
+  }
+
+  async updateImportBatch(id: string, batch: Partial<InsertImportBatch>): Promise<ImportBatch | undefined> {
+    const existing = this.importBatches.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...batch };
+    this.importBatches.set(id, updated);
+    return updated;
+  }
+
+  // Import Mappings
+  async getImportMappings(importType?: string): Promise<ImportMapping[]> {
+    let mappings = Array.from(this.importMappings.values());
+    if (importType) mappings = mappings.filter((m) => m.importType === importType);
+    return mappings;
+  }
+
+  async getImportMapping(id: string): Promise<ImportMapping | undefined> {
+    return this.importMappings.get(id);
+  }
+
+  async createImportMapping(mapping: InsertImportMapping): Promise<ImportMapping> {
+    const id = randomUUID();
+    const newMapping: ImportMapping = {
+      id,
+      name: mapping.name,
+      importType: mapping.importType,
+      fieldMappings: mapping.fieldMappings,
+      isDefault: mapping.isDefault ?? false,
+      createdDate: mapping.createdDate,
+      createdBy: mapping.createdBy ?? null,
+    };
+    this.importMappings.set(id, newMapping);
+    return newMapping;
+  }
+
+  async updateImportMapping(id: string, mapping: Partial<InsertImportMapping>): Promise<ImportMapping | undefined> {
+    const existing = this.importMappings.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...mapping };
+    this.importMappings.set(id, updated);
+    return updated;
+  }
+
+  async deleteImportMapping(id: string): Promise<boolean> {
+    return this.importMappings.delete(id);
+  }
+
+  // Drop Batches
+  async getDropBatches(): Promise<DropBatch[]> {
+    return Array.from(this.dropBatches.values());
+  }
+
+  async getDropBatch(id: string): Promise<DropBatch | undefined> {
+    return this.dropBatches.get(id);
+  }
+
+  async createDropBatch(batch: InsertDropBatch): Promise<DropBatch> {
+    const id = randomUUID();
+    const newBatch: DropBatch = {
+      id,
+      name: batch.name,
+      portfolioId: batch.portfolioId ?? null,
+      totalAccounts: batch.totalAccounts ?? 0,
+      status: batch.status ?? "pending",
+      createdDate: batch.createdDate,
+      createdBy: batch.createdBy ?? null,
+      processedDate: batch.processedDate ?? null,
+    };
+    this.dropBatches.set(id, newBatch);
+    return newBatch;
+  }
+
+  async updateDropBatch(id: string, batch: Partial<InsertDropBatch>): Promise<DropBatch | undefined> {
+    const existing = this.dropBatches.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...batch };
+    this.dropBatches.set(id, updated);
+    return updated;
+  }
+
+  // Drop Items
+  async getDropItems(batchId?: string, collectorId?: string): Promise<DropItem[]> {
+    let items = Array.from(this.dropItems.values());
+    if (batchId) items = items.filter((i) => i.dropBatchId === batchId);
+    if (collectorId) items = items.filter((i) => i.collectorId === collectorId);
+    return items;
+  }
+
+  async createDropItem(item: InsertDropItem): Promise<DropItem> {
+    const id = randomUUID();
+    const newItem: DropItem = {
+      id,
+      dropBatchId: item.dropBatchId,
+      debtorId: item.debtorId,
+      collectorId: item.collectorId,
+      status: item.status ?? "pending",
+      assignedDate: item.assignedDate,
+    };
+    this.dropItems.set(id, newItem);
+    return newItem;
+  }
+
+  async updateDropItem(id: string, item: Partial<InsertDropItem>): Promise<DropItem | undefined> {
+    const existing = this.dropItems.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...item };
+    this.dropItems.set(id, updated);
+    return updated;
+  }
+
+  // Recall Batches
+  async getRecallBatches(): Promise<RecallBatch[]> {
+    return Array.from(this.recallBatches.values());
+  }
+
+  async getRecallBatch(id: string): Promise<RecallBatch | undefined> {
+    return this.recallBatches.get(id);
+  }
+
+  async createRecallBatch(batch: InsertRecallBatch): Promise<RecallBatch> {
+    const id = randomUUID();
+    const newBatch: RecallBatch = {
+      id,
+      name: batch.name,
+      portfolioId: batch.portfolioId ?? null,
+      clientName: batch.clientName ?? null,
+      totalAccounts: batch.totalAccounts ?? 0,
+      keeperCount: batch.keeperCount ?? 0,
+      recallCount: batch.recallCount ?? 0,
+      status: batch.status ?? "pending",
+      createdDate: batch.createdDate,
+      processedDate: batch.processedDate ?? null,
+    };
+    this.recallBatches.set(id, newBatch);
+    return newBatch;
+  }
+
+  async updateRecallBatch(id: string, batch: Partial<InsertRecallBatch>): Promise<RecallBatch | undefined> {
+    const existing = this.recallBatches.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...batch };
+    this.recallBatches.set(id, updated);
+    return updated;
+  }
+
+  // Recall Items
+  async getRecallItems(batchId: string): Promise<RecallItem[]> {
+    return Array.from(this.recallItems.values()).filter((i) => i.recallBatchId === batchId);
+  }
+
+  async createRecallItem(item: InsertRecallItem): Promise<RecallItem> {
+    const id = randomUUID();
+    const newItem: RecallItem = {
+      id,
+      recallBatchId: item.recallBatchId,
+      debtorId: item.debtorId,
+      isKeeper: item.isKeeper ?? false,
+      recallReason: item.recallReason ?? null,
+      keeperReason: item.keeperReason ?? null,
+      processedDate: item.processedDate ?? null,
+    };
+    this.recallItems.set(id, newItem);
+    return newItem;
+  }
+
+  async updateRecallItem(id: string, item: Partial<InsertRecallItem>): Promise<RecallItem | undefined> {
+    const existing = this.recallItems.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...item };
+    this.recallItems.set(id, updated);
+    return updated;
+  }
+
+  // Consolidation Companies
+  async getConsolidationCompanies(): Promise<ConsolidationCompany[]> {
+    return Array.from(this.consolidationCompanies.values());
+  }
+
+  async getConsolidationCompany(id: string): Promise<ConsolidationCompany | undefined> {
+    return this.consolidationCompanies.get(id);
+  }
+
+  async createConsolidationCompany(company: InsertConsolidationCompany): Promise<ConsolidationCompany> {
+    const id = randomUUID();
+    const newCompany: ConsolidationCompany = {
+      id,
+      name: company.name,
+      contactName: company.contactName ?? null,
+      phone: company.phone ?? null,
+      email: company.email ?? null,
+      address: company.address ?? null,
+      isActive: company.isActive ?? true,
+      createdDate: company.createdDate,
+    };
+    this.consolidationCompanies.set(id, newCompany);
+    return newCompany;
+  }
+
+  async updateConsolidationCompany(id: string, company: Partial<InsertConsolidationCompany>): Promise<ConsolidationCompany | undefined> {
+    const existing = this.consolidationCompanies.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...company };
+    this.consolidationCompanies.set(id, updated);
+    return updated;
+  }
+
+  async deleteConsolidationCompany(id: string): Promise<boolean> {
+    return this.consolidationCompanies.delete(id);
+  }
+
+  // Consolidation Cases
+  async getConsolidationCases(debtorId?: string, companyId?: string): Promise<ConsolidationCase[]> {
+    let cases = Array.from(this.consolidationCases.values());
+    if (debtorId) cases = cases.filter((c) => c.debtorId === debtorId);
+    if (companyId) cases = cases.filter((c) => c.consolidationCompanyId === companyId);
+    return cases;
+  }
+
+  async getConsolidationCase(id: string): Promise<ConsolidationCase | undefined> {
+    return this.consolidationCases.get(id);
+  }
+
+  async createConsolidationCase(caseData: InsertConsolidationCase): Promise<ConsolidationCase> {
+    const id = randomUUID();
+    const newCase: ConsolidationCase = {
+      id,
+      debtorId: caseData.debtorId,
+      consolidationCompanyId: caseData.consolidationCompanyId,
+      caseNumber: caseData.caseNumber ?? null,
+      status: caseData.status ?? "active",
+      monthlyPayment: caseData.monthlyPayment ?? null,
+      totalSettlementAmount: caseData.totalSettlementAmount ?? null,
+      startDate: caseData.startDate,
+      endDate: caseData.endDate ?? null,
+      notes: caseData.notes ?? null,
+    };
+    this.consolidationCases.set(id, newCase);
+    return newCase;
+  }
+
+  async updateConsolidationCase(id: string, caseData: Partial<InsertConsolidationCase>): Promise<ConsolidationCase | undefined> {
+    const existing = this.consolidationCases.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...caseData };
+    this.consolidationCases.set(id, updated);
+    return updated;
+  }
+
+  // Work Queue
+  async getWorkQueueItems(collectorId: string, status?: string): Promise<WorkQueueItem[]> {
+    let items = Array.from(this.workQueueItems.values()).filter((i) => i.collectorId === collectorId);
+    if (status) items = items.filter((i) => i.status === status);
+    return items.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  }
+
+  async getWorkQueueItem(id: string): Promise<WorkQueueItem | undefined> {
+    return this.workQueueItems.get(id);
+  }
+
+  async createWorkQueueItem(item: InsertWorkQueueItem): Promise<WorkQueueItem> {
+    const id = randomUUID();
+    const newItem: WorkQueueItem = {
+      id,
+      collectorId: item.collectorId,
+      debtorId: item.debtorId,
+      priority: item.priority ?? 0,
+      status: item.status ?? "pending",
+      assignedDate: item.assignedDate,
+      workedDate: item.workedDate ?? null,
+      outcome: item.outcome ?? null,
+      notes: item.notes ?? null,
+    };
+    this.workQueueItems.set(id, newItem);
+    return newItem;
+  }
+
+  async updateWorkQueueItem(id: string, item: Partial<InsertWorkQueueItem>): Promise<WorkQueueItem | undefined> {
+    const existing = this.workQueueItems.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...item };
+    this.workQueueItems.set(id, updated);
+    return updated;
+  }
+
+  async deleteWorkQueueItem(id: string): Promise<boolean> {
+    return this.workQueueItems.delete(id);
+  }
+
+  // Remittances
+  async getRemittances(status?: string, portfolioId?: string): Promise<Remittance[]> {
+    let remittances = Array.from(this.remittances.values());
+    if (status) remittances = remittances.filter((r) => r.status === status);
+    if (portfolioId) remittances = remittances.filter((r) => r.portfolioId === portfolioId);
+    return remittances;
+  }
+
+  async getRemittance(id: string): Promise<Remittance | undefined> {
+    return this.remittances.get(id);
+  }
+
+  async createRemittance(remittance: InsertRemittance): Promise<Remittance> {
+    const id = randomUUID();
+    const newRemittance: Remittance = {
+      id,
+      portfolioId: remittance.portfolioId,
+      clientName: remittance.clientName,
+      amount: remittance.amount,
+      remittanceDate: remittance.remittanceDate,
+      status: remittance.status ?? "pending",
+      checkNumber: remittance.checkNumber ?? null,
+      notes: remittance.notes ?? null,
+      createdBy: remittance.createdBy ?? null,
+    };
+    this.remittances.set(id, newRemittance);
+    return newRemittance;
+  }
+
+  async updateRemittance(id: string, remittance: Partial<InsertRemittance>): Promise<Remittance | undefined> {
+    const existing = this.remittances.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...remittance };
+    this.remittances.set(id, updated);
+    return updated;
+  }
+
+  // Remittance Items
+  async getRemittanceItems(remittanceId?: string, status?: string): Promise<RemittanceItem[]> {
+    let items = Array.from(this.remittanceItems.values());
+    if (remittanceId) items = items.filter((i) => i.remittanceId === remittanceId);
+    if (status) items = items.filter((i) => i.status === status);
+    return items;
+  }
+
+  async createRemittanceItem(item: InsertRemittanceItem): Promise<RemittanceItem> {
+    const id = randomUUID();
+    const newItem: RemittanceItem = {
+      id,
+      remittanceId: item.remittanceId,
+      debtorId: item.debtorId,
+      paymentId: item.paymentId,
+      amount: item.amount,
+      status: item.status ?? "posted",
+      declineReason: item.declineReason ?? null,
+      reverseReason: item.reverseReason ?? null,
+      processedDate: item.processedDate ?? null,
+    };
+    this.remittanceItems.set(id, newItem);
+    return newItem;
+  }
+
+  async updateRemittanceItem(id: string, item: Partial<InsertRemittanceItem>): Promise<RemittanceItem | undefined> {
+    const existing = this.remittanceItems.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...item };
+    this.remittanceItems.set(id, updated);
+    return updated;
+  }
+
+  // Payments by date
+  async getPaymentsByDate(date: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter((p) => p.paymentDate === date);
   }
 }
 

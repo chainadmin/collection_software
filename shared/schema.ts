@@ -350,3 +350,170 @@ export const timeClockEntries = pgTable("time_clock_entries", {
 export const insertTimeClockEntrySchema = createInsertSchema(timeClockEntries).omit({ id: true });
 export type InsertTimeClockEntry = z.infer<typeof insertTimeClockEntrySchema>;
 export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
+
+// Import Batches (for importing payments from external systems)
+export const importBatches = pgTable("import_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  fileName: text("file_name").notNull(),
+  importType: text("import_type").notNull(), // payments, accounts, recalls
+  status: text("status").notNull().default("pending"), // pending, validating, validated, committed, failed
+  totalRecords: integer("total_records").default(0),
+  successRecords: integer("success_records").default(0),
+  failedRecords: integer("failed_records").default(0),
+  mappingId: varchar("mapping_id"),
+  createdDate: text("created_date").notNull(),
+  createdBy: varchar("created_by"),
+  processedDate: text("processed_date"),
+  errorLog: text("error_log"),
+});
+
+export const insertImportBatchSchema = createInsertSchema(importBatches).omit({ id: true });
+export type InsertImportBatch = z.infer<typeof insertImportBatchSchema>;
+export type ImportBatch = typeof importBatches.$inferSelect;
+
+// Import Mappings (field mapping templates)
+export const importMappings = pgTable("import_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  importType: text("import_type").notNull(), // payments, accounts, recalls
+  fieldMappings: text("field_mappings").notNull(), // JSON string of field mappings
+  isDefault: boolean("is_default").default(false),
+  createdDate: text("created_date").notNull(),
+  createdBy: varchar("created_by"),
+});
+
+export const insertImportMappingSchema = createInsertSchema(importMappings).omit({ id: true });
+export type InsertImportMapping = z.infer<typeof insertImportMappingSchema>;
+export type ImportMapping = typeof importMappings.$inferSelect;
+
+// Drop Batches (for dropping accounts to collectors)
+export const dropBatches = pgTable("drop_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  portfolioId: varchar("portfolio_id"),
+  totalAccounts: integer("total_accounts").default(0),
+  status: text("status").notNull().default("pending"), // pending, processing, completed
+  createdDate: text("created_date").notNull(),
+  createdBy: varchar("created_by"),
+  processedDate: text("processed_date"),
+});
+
+export const insertDropBatchSchema = createInsertSchema(dropBatches).omit({ id: true });
+export type InsertDropBatch = z.infer<typeof insertDropBatchSchema>;
+export type DropBatch = typeof dropBatches.$inferSelect;
+
+// Drop Items (individual account assignments)
+export const dropItems = pgTable("drop_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dropBatchId: varchar("drop_batch_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  collectorId: varchar("collector_id").notNull(),
+  status: text("status").notNull().default("pending"), // pending, assigned, worked
+  assignedDate: text("assigned_date").notNull(),
+});
+
+export const insertDropItemSchema = createInsertSchema(dropItems).omit({ id: true });
+export type InsertDropItem = z.infer<typeof insertDropItemSchema>;
+export type DropItem = typeof dropItems.$inferSelect;
+
+// Recall Batches (for recall accounts from clients)
+export const recallBatches = pgTable("recall_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  portfolioId: varchar("portfolio_id"),
+  clientName: text("client_name"),
+  totalAccounts: integer("total_accounts").default(0),
+  keeperCount: integer("keeper_count").default(0),
+  recallCount: integer("recall_count").default(0),
+  status: text("status").notNull().default("pending"), // pending, processing, completed
+  createdDate: text("created_date").notNull(),
+  processedDate: text("processed_date"),
+});
+
+export const insertRecallBatchSchema = createInsertSchema(recallBatches).omit({ id: true });
+export type InsertRecallBatch = z.infer<typeof insertRecallBatchSchema>;
+export type RecallBatch = typeof recallBatches.$inferSelect;
+
+// Recall Items (individual account recall status)
+export const recallItems = pgTable("recall_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  recallBatchId: varchar("recall_batch_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  isKeeper: boolean("is_keeper").default(false),
+  recallReason: text("recall_reason"),
+  keeperReason: text("keeper_reason"),
+  processedDate: text("processed_date"),
+});
+
+export const insertRecallItemSchema = createInsertSchema(recallItems).omit({ id: true });
+export type InsertRecallItem = z.infer<typeof insertRecallItemSchema>;
+export type RecallItem = typeof recallItems.$inferSelect;
+
+// Consolidation Companies
+export const consolidationCompanies = pgTable("consolidation_companies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  phone: text("phone"),
+  email: text("email"),
+  address: text("address"),
+  isActive: boolean("is_active").default(true),
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertConsolidationCompanySchema = createInsertSchema(consolidationCompanies).omit({ id: true });
+export type InsertConsolidationCompany = z.infer<typeof insertConsolidationCompanySchema>;
+export type ConsolidationCompany = typeof consolidationCompanies.$inferSelect;
+
+// Consolidation Cases (accounts linked to consolidation companies)
+export const consolidationCases = pgTable("consolidation_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  debtorId: varchar("debtor_id").notNull(),
+  consolidationCompanyId: varchar("consolidation_company_id").notNull(),
+  caseNumber: text("case_number"),
+  status: text("status").notNull().default("active"), // active, settled, cancelled
+  monthlyPayment: integer("monthly_payment"), // in cents
+  totalSettlementAmount: integer("total_settlement_amount"), // in cents
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  notes: text("notes"),
+});
+
+export const insertConsolidationCaseSchema = createInsertSchema(consolidationCases).omit({ id: true });
+export type InsertConsolidationCase = z.infer<typeof insertConsolidationCaseSchema>;
+export type ConsolidationCase = typeof consolidationCases.$inferSelect;
+
+// Work Queue Items (collector's assigned work)
+export const workQueueItems = pgTable("work_queue_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  collectorId: varchar("collector_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  priority: integer("priority").default(0), // higher = more priority
+  status: text("status").notNull().default("pending"), // pending, in_progress, completed, skipped
+  assignedDate: text("assigned_date").notNull(),
+  workedDate: text("worked_date"),
+  outcome: text("outcome"), // contact_made, no_answer, promise, payment, etc.
+  notes: text("notes"),
+});
+
+export const insertWorkQueueItemSchema = createInsertSchema(workQueueItems).omit({ id: true });
+export type InsertWorkQueueItem = z.infer<typeof insertWorkQueueItemSchema>;
+export type WorkQueueItem = typeof workQueueItems.$inferSelect;
+
+// Remittance Items (individual account payments for remittance)
+export const remittanceItems = pgTable("remittance_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  remittanceId: varchar("remittance_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  paymentId: varchar("payment_id").notNull(),
+  amount: integer("amount").notNull(), // in cents
+  status: text("status").notNull().default("posted"), // posted, declined, reversed
+  declineReason: text("decline_reason"),
+  reverseReason: text("reverse_reason"),
+  processedDate: text("processed_date"),
+});
+
+export const insertRemittanceItemSchema = createInsertSchema(remittanceItems).omit({ id: true });
+export type InsertRemittanceItem = z.infer<typeof insertRemittanceItemSchema>;
+export type RemittanceItem = typeof remittanceItems.$inferSelect;
