@@ -169,7 +169,7 @@ export default function ImportExport() {
                       <SelectValue placeholder="All Portfolios" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Portfolios</SelectItem>
+                      <SelectItem value="all">All Portfolios</SelectItem>
                       {portfolios.map((p) => (
                         <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                       ))}

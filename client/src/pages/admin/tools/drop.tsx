@@ -28,7 +28,7 @@ export default function DropAccounts() {
   });
 
   const filteredDebtors = debtors.filter((d) => {
-    const matchesPortfolio = !selectedPortfolio || d.portfolioId === selectedPortfolio;
+    const matchesPortfolio = selectedPortfolio === "all" || !selectedPortfolio || d.portfolioId === selectedPortfolio;
     const matchesSearch = !searchTerm || 
       d.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -97,7 +97,7 @@ export default function DropAccounts() {
                   <SelectValue placeholder="All Portfolios" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Portfolios</SelectItem>
+                  <SelectItem value="all">All Portfolios</SelectItem>
                   {portfolios.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}

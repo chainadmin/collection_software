@@ -89,7 +89,7 @@ export default function FeeSchedules() {
                     <SelectValue placeholder="All Portfolios (Default)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Portfolios (Default)</SelectItem>
+                    <SelectItem value="all">All Portfolios (Default)</SelectItem>
                     {portfolios.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
