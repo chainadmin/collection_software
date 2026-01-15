@@ -21,6 +21,22 @@ import Settings from "@/pages/settings";
 import Whiteboard from "@/pages/collector/whiteboard";
 import Declines from "@/pages/collector/declines";
 import LiqRates from "@/pages/collector/liq-rates";
+import DropAccounts from "@/pages/admin/tools/drop";
+import ImportExport from "@/pages/admin/tools/import-export";
+import Recall from "@/pages/admin/tools/recall";
+import Banko from "@/pages/admin/tools/banko";
+import Consolidation from "@/pages/admin/tools/consolidation";
+import Merchants from "@/pages/admin/payments/merchants";
+import Remittance from "@/pages/admin/payments/remittance";
+import ImportBatch from "@/pages/admin/payments/import-batch";
+import EmailManage from "@/pages/admin/email/manage";
+import EmailSettings from "@/pages/admin/email/settings";
+import EmailTemplates from "@/pages/admin/email/templates";
+import CompanyDashboard from "@/pages/admin/reporting/dashboard";
+import CollectorReporting from "@/pages/admin/reporting/collectors";
+import TimeClock from "@/pages/admin/reporting/time-clock";
+import FeeSchedules from "@/pages/admin/settings/fees";
+import ServerAccess from "@/pages/admin/settings/server-access";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 
@@ -45,6 +61,22 @@ function Router() {
       <Route path="/collector/whiteboard" component={Whiteboard} />
       <Route path="/collector/declines" component={Declines} />
       <Route path="/collector/liq-rates" component={LiqRates} />
+      <Route path="/admin/tools/drop" component={DropAccounts} />
+      <Route path="/admin/tools/import-export" component={ImportExport} />
+      <Route path="/admin/tools/recall" component={Recall} />
+      <Route path="/admin/tools/banko" component={Banko} />
+      <Route path="/admin/tools/consolidation" component={Consolidation} />
+      <Route path="/admin/payments/merchants" component={Merchants} />
+      <Route path="/admin/payments/remittance" component={Remittance} />
+      <Route path="/admin/payments/import-batch" component={ImportBatch} />
+      <Route path="/admin/email/manage" component={EmailManage} />
+      <Route path="/admin/email/settings" component={EmailSettings} />
+      <Route path="/admin/email/templates" component={EmailTemplates} />
+      <Route path="/admin/reporting/dashboard" component={CompanyDashboard} />
+      <Route path="/admin/reporting/collectors" component={CollectorReporting} />
+      <Route path="/admin/reporting/time-clock" component={TimeClock} />
+      <Route path="/admin/settings/fees" component={FeeSchedules} />
+      <Route path="/admin/settings/server-access" component={ServerAccess} />
       <Route component={NotFound} />
     </Switch>
   );
