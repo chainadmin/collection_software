@@ -123,6 +123,15 @@ export default function Workstation() {
     enabled: !!selectedDebtorId,
   });
 
+  const { data: debtorPayments } = useQuery<Payment[]>({
+    queryKey: ["/api/debtors", selectedDebtorId, "payments"],
+    enabled: !!selectedDebtorId,
+  });
+
+  const lastPayment = debtorPayments
+    ?.filter((p) => p.status === "processed")
+    ?.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())?.[0];
+
   const workQueue = isReady
     ? (debtors
         ?.filter((d) => {
@@ -440,7 +449,7 @@ export default function Workstation() {
           <>
             <div className="p-4 border-b bg-card">
               <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div>
+                <div className="flex-1">
                   <div className="flex items-center gap-3">
                     <h1 className="text-xl font-semibold">
                       {selectedDebtor.firstName} {selectedDebtor.lastName}
@@ -464,18 +473,55 @@ export default function Workstation() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedDebtor.fileNumber && (
-                      <span className="font-mono mr-2">{selectedDebtor.fileNumber}</span>
-                    )}
-                    Account #{selectedDebtor.accountNumber} | SSN: ***-**-{selectedDebtor.ssnLast4 || "????"}
-                  </p>
+                  <div className="mt-1 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">File #: </span>
+                      <span className="font-mono">{selectedDebtor.fileNumber || "N/A"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Acct #: </span>
+                      <span className="font-mono">{selectedDebtor.accountNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">SSN: </span>
+                      <span className="font-mono">{selectedDebtor.ssn || `***-**-${selectedDebtor.ssnLast4 || "????"}`}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">DOB: </span>
+                      <span>{selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Address: </span>
+                      <span>
+                        {selectedDebtor.address 
+                          ? `${selectedDebtor.address}, ${selectedDebtor.city || ""} ${selectedDebtor.state || ""} ${selectedDebtor.zipCode || ""}`.trim()
+                          : "N/A"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Email: </span>
+                      <span>{selectedDebtor.email || "N/A"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Client: </span>
+                      <span>{selectedDebtor.clientName || "N/A"}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Original Creditor: </span>
+                      <span>{selectedDebtor.originalCreditor || "N/A"}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <p className="text-2xl font-bold font-mono">{formatCurrency(selectedDebtor.currentBalance)}</p>
                   <p className="text-xs text-muted-foreground">
                     Original: {formatCurrency(selectedDebtor.originalBalance)}
                   </p>
+                  {lastPayment && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Last Pay: {formatCurrency(lastPayment.amount)} on {formatDate(lastPayment.paymentDate)}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
