@@ -8,23 +8,51 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FileDown, AlertTriangle, Search, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { FileDown, Search, Users, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Debtor, Portfolio } from "@shared/schema";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/utils";
+import type { Debtor, Portfolio, Collector } from "@shared/schema";
 
 export default function DropAccounts() {
   const { toast } = useToast();
   const [selectedPortfolio, setSelectedPortfolio] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
-  const [dropReason, setDropReason] = useState("");
+  const [selectedCollector, setSelectedCollector] = useState<string>("");
+  const [dropNotes, setDropNotes] = useState("");
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
   });
 
-  const { data: debtors = [] } = useQuery<Debtor[]>({
+  const { data: debtors = [], isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
+  });
+
+  const { data: collectors = [] } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
+  });
+
+  const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin");
+
+  const createDropBatchMutation = useMutation({
+    mutationFn: async (data: { name: string; portfolioId?: string; totalAccounts: number }) => {
+      return apiRequest("POST", "/api/drop-batches", data);
+    },
+  });
+
+  const createDropItemMutation = useMutation({
+    mutationFn: async (data: { dropBatchId: string; debtorId: string; collectorId: string }) => {
+      return apiRequest("POST", "/api/drop-items", data);
+    },
+  });
+
+  const updateDebtorMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Debtor> }) => {
+      return apiRequest("PATCH", `/api/debtors/${id}`, updates);
+    },
   });
 
   const filteredDebtors = debtors.filter((d) => {
@@ -34,8 +62,11 @@ export default function DropAccounts() {
       d.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.fileNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesPortfolio && matchesSearch && d.status !== "closed";
+    const isWorkable = d.status === "open" || d.status === "in_payment";
+    return matchesPortfolio && matchesSearch && isWorkable;
   });
+
+  const unassignedDebtors = filteredDebtors.filter((d) => !d.assignedCollectorId);
 
   const toggleAccount = (id: string) => {
     const newSelected = new Set(selectedAccounts);
@@ -48,39 +79,75 @@ export default function DropAccounts() {
   };
 
   const toggleAll = () => {
-    if (selectedAccounts.size === filteredDebtors.length) {
+    if (selectedAccounts.size === unassignedDebtors.length) {
       setSelectedAccounts(new Set());
     } else {
-      setSelectedAccounts(new Set(filteredDebtors.map((d) => d.id)));
+      setSelectedAccounts(new Set(unassignedDebtors.map((d) => d.id)));
     }
   };
 
-  const handleDrop = () => {
+  const handleDropToCollector = async () => {
     if (selectedAccounts.size === 0) {
       toast({ title: "Error", description: "Please select accounts to drop.", variant: "destructive" });
       return;
     }
-    if (!dropReason) {
-      toast({ title: "Error", description: "Please provide a reason for dropping.", variant: "destructive" });
+    if (!selectedCollector) {
+      toast({ title: "Error", description: "Please select a collector.", variant: "destructive" });
       return;
     }
-    toast({ 
-      title: "Accounts Dropped", 
-      description: `${selectedAccounts.size} accounts have been marked for drop with reason: ${dropReason}` 
-    });
-    setSelectedAccounts(new Set());
-    setDropReason("");
+
+    try {
+      const batchName = `Drop ${new Date().toISOString().split("T")[0]} - ${selectedAccounts.size} accounts`;
+      const batchResponse = await createDropBatchMutation.mutateAsync({
+        name: batchName,
+        portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
+        totalAccounts: selectedAccounts.size,
+      });
+      const batch = batchResponse as unknown as { id: string };
+
+      const accountIds = Array.from(selectedAccounts);
+      for (const debtorId of accountIds) {
+        await createDropItemMutation.mutateAsync({
+          dropBatchId: batch.id,
+          debtorId,
+          collectorId: selectedCollector,
+        });
+        
+        await updateDebtorMutation.mutateAsync({
+          id: debtorId,
+          updates: { assignedCollectorId: selectedCollector },
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/drop-batches"] });
+      
+      const collector = collectors.find((c) => c.id === selectedCollector);
+      toast({ 
+        title: "Accounts Dropped", 
+        description: `${selectedAccounts.size} accounts assigned to ${collector?.name || "collector"}'s work queue.`
+      });
+      setSelectedAccounts(new Set());
+      setDropNotes("");
+    } catch {
+      toast({ title: "Error", description: "Failed to drop accounts.", variant: "destructive" });
+    }
   };
+
+  const selectedTotal = Array.from(selectedAccounts).reduce((sum, id) => {
+    const debtor = debtors.find((d) => d.id === id);
+    return sum + (debtor?.currentBalance || 0);
+  }, 0);
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Drop Accounts</h1>
-          <p className="text-muted-foreground">Remove accounts from active collection</p>
+          <h1 className="text-2xl font-semibold">Drop Accounts to Collectors</h1>
+          <p className="text-muted-foreground">Assign accounts to collectors' work queues</p>
         </div>
         <Badge variant="outline" className="text-lg px-3 py-1">
-          {selectedAccounts.size} Selected
+          {selectedAccounts.size} Selected ({formatCurrency(selectedTotal)})
         </Badge>
       </div>
 
@@ -122,28 +189,42 @@ export default function DropAccounts() {
 
         <Card className="md:col-span-2">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center justify-between">
-              <span>Drop Reason</span>
-              <AlertTriangle className="h-4 w-4 text-destructive" />
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Assign to Collector
             </CardTitle>
-            <CardDescription>Provide documentation for the drop action</CardDescription>
+            <CardDescription>Select collector to receive accounts</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Target Collector</Label>
+              <Select value={selectedCollector} onValueChange={setSelectedCollector}>
+                <SelectTrigger data-testid="select-collector">
+                  <SelectValue placeholder="Select a collector" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeCollectors.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Textarea 
-              placeholder="Enter reason for dropping these accounts..."
-              value={dropReason}
-              onChange={(e) => setDropReason(e.target.value)}
-              className="min-h-[80px]"
-              data-testid="input-drop-reason"
+              placeholder="Optional notes for this drop..."
+              value={dropNotes}
+              onChange={(e) => setDropNotes(e.target.value)}
+              className="min-h-[60px]"
+              data-testid="input-drop-notes"
             />
             <Button 
-              variant="destructive" 
-              onClick={handleDrop}
-              disabled={selectedAccounts.size === 0}
+              onClick={handleDropToCollector}
+              disabled={selectedAccounts.size === 0 || !selectedCollector || createDropBatchMutation.isPending}
               data-testid="button-drop-accounts"
             >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Drop {selectedAccounts.size} Accounts
+              <Send className="h-4 w-4 mr-2" />
+              {createDropBatchMutation.isPending ? "Dropping..." : `Drop ${selectedAccounts.size} Accounts`}
             </Button>
           </CardContent>
         </Card>
@@ -152,50 +233,59 @@ export default function DropAccounts() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center justify-between">
-            <span>Accounts ({filteredDebtors.length})</span>
+            <span>Unassigned Accounts ({unassignedDebtors.length})</span>
             <Button variant="outline" size="sm" onClick={toggleAll} data-testid="button-select-all">
-              {selectedAccounts.size === filteredDebtors.length ? "Deselect All" : "Select All"}
+              {selectedAccounts.size === unassignedDebtors.length ? "Deselect All" : "Select All"}
             </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="border rounded-md divide-y max-h-[400px] overflow-auto">
-            {filteredDebtors.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                <FileDown className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No accounts found</p>
-              </div>
-            ) : (
-              filteredDebtors.map((debtor) => (
-                <div 
-                  key={debtor.id} 
-                  className="flex items-center gap-4 p-3 hover-elevate cursor-pointer"
-                  onClick={() => toggleAccount(debtor.id)}
-                  data-testid={`row-account-${debtor.id}`}
-                >
-                  <Checkbox 
-                    checked={selectedAccounts.has(debtor.id)}
-                    onCheckedChange={() => toggleAccount(debtor.id)}
-                  />
-                  <div className="flex-1 grid grid-cols-4 gap-4">
-                    <div>
-                      <p className="font-medium">{debtor.firstName} {debtor.lastName}</p>
-                      <p className="text-xs text-muted-foreground">{debtor.fileNumber}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-mono">{debtor.accountNumber}</p>
-                    </div>
-                    <div>
-                      <Badge variant="outline">{debtor.status}</Badge>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono">${(debtor.currentBalance / 100).toFixed(2)}</p>
+          {debtorsLoading ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="border rounded-md divide-y max-h-[400px] overflow-auto">
+              {unassignedDebtors.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <FileDown className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No unassigned accounts found</p>
+                  <p className="text-sm">All accounts are already assigned to collectors</p>
+                </div>
+              ) : (
+                unassignedDebtors.map((debtor) => (
+                  <div 
+                    key={debtor.id} 
+                    className="flex items-center gap-4 p-3 hover-elevate cursor-pointer"
+                    onClick={() => toggleAccount(debtor.id)}
+                    data-testid={`row-account-${debtor.id}`}
+                  >
+                    <Checkbox 
+                      checked={selectedAccounts.has(debtor.id)}
+                      onCheckedChange={() => toggleAccount(debtor.id)}
+                    />
+                    <div className="flex-1 grid grid-cols-4 gap-4">
+                      <div>
+                        <p className="font-medium">{debtor.firstName} {debtor.lastName}</p>
+                        <p className="text-xs text-muted-foreground">{debtor.fileNumber}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-mono">{debtor.accountNumber}</p>
+                      </div>
+                      <div>
+                        <Badge variant="outline">{debtor.status}</Badge>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono">{formatCurrency(debtor.currentBalance)}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

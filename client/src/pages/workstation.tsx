@@ -64,6 +64,7 @@ import type {
   Collector,
   Payment,
   PaymentCard,
+  TimeClockEntry,
 } from "@shared/schema";
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
@@ -97,6 +98,55 @@ export default function Workstation() {
   const currentCollector = collectors?.find((c) => c.role === "collector") || collectors?.[0];
   const isReady = !collectorsLoading && currentCollector;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
+
+  const { data: activeTimeEntry } = useQuery<TimeClockEntry | null>({
+    queryKey: ["/api/time-clock/active", currentCollector?.id],
+    enabled: !!currentCollector,
+  });
+
+  const isClockedIn = !!activeTimeEntry;
+
+  const clockInMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentCollector) throw new Error("No collector found");
+      return apiRequest("POST", "/api/time-clock/clock-in", {
+        collectorId: currentCollector.id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-clock/active", currentCollector?.id] });
+      toast({ title: "Clocked in", description: "You are now on the clock." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to clock in.", variant: "destructive" });
+    },
+  });
+
+  const clockOutMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentCollector) throw new Error("No collector found");
+      return apiRequest("POST", "/api/time-clock/clock-out", {
+        collectorId: currentCollector.id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-clock/active", currentCollector?.id] });
+      toast({ title: "Clocked out", description: "You are now off the clock." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to clock out.", variant: "destructive" });
+    },
+  });
+
+  const getClockDuration = () => {
+    if (!activeTimeEntry) return null;
+    const clockIn = new Date(activeTimeEntry.clockIn);
+    const now = new Date();
+    const diffMs = now.getTime() - clockIn.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
 
   const { data: contacts } = useQuery<DebtorContact[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "contacts"],
@@ -371,11 +421,42 @@ export default function Workstation() {
     <div className="flex h-[calc(100vh-4rem)]">
       <div className="w-80 border-r flex flex-col bg-muted/30">
         <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold">Work Queue</h2>
             {currentCollector && (
               <Badge variant="secondary" className="text-xs">
                 @{currentCollector.username}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            {isClockedIn ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => clockOutMutation.mutate()}
+                disabled={clockOutMutation.isPending}
+                className="flex-1"
+                data-testid="button-clock-out"
+              >
+                <Clock className="h-4 w-4 mr-1" />
+                Clock Out
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => clockInMutation.mutate()}
+                disabled={clockInMutation.isPending || !isReady}
+                className="flex-1"
+                data-testid="button-clock-in"
+              >
+                <Clock className="h-4 w-4 mr-1" />
+                Clock In
+              </Button>
+            )}
+            {isClockedIn && (
+              <Badge variant="outline" className="text-xs font-mono">
+                {getClockDuration()}
               </Badge>
             )}
           </div>
