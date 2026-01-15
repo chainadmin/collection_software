@@ -37,21 +37,39 @@ export default function DropAccounts() {
 
   const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin");
 
-  const createDropBatchMutation = useMutation({
-    mutationFn: async (data: { name: string; portfolioId?: string; totalAccounts: number }) => {
-      return apiRequest("POST", "/api/drop-batches", data);
-    },
-  });
-
-  const createDropItemMutation = useMutation({
-    mutationFn: async (data: { dropBatchId: string; debtorId: string; collectorId: string }) => {
-      return apiRequest("POST", "/api/drop-items", data);
-    },
-  });
-
-  const updateDebtorMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Debtor> }) => {
-      return apiRequest("PATCH", `/api/debtors/${id}`, updates);
+  const dropAccountsMutation = useMutation({
+    mutationFn: async (data: { 
+      name: string; 
+      portfolioId?: string; 
+      notes?: string;
+      collectorId: string;
+      debtorIds: string[];
+    }) => {
+      const response = await apiRequest("POST", "/api/drop-batches", {
+        name: data.name,
+        portfolioId: data.portfolioId,
+        notes: data.notes,
+        totalAccounts: data.debtorIds.length,
+      });
+      const batch = await response.json() as { id: string };
+      
+      const results = { success: 0, failed: 0 };
+      for (const debtorId of data.debtorIds) {
+        try {
+          await apiRequest("POST", "/api/drop-items", {
+            dropBatchId: batch.id,
+            debtorId,
+            collectorId: data.collectorId,
+          });
+          await apiRequest("PATCH", `/api/debtors/${debtorId}`, { 
+            assignedCollectorId: data.collectorId 
+          });
+          results.success++;
+        } catch {
+          results.failed++;
+        }
+      }
+      return results;
     },
   });
 
@@ -96,42 +114,34 @@ export default function DropAccounts() {
       return;
     }
 
-    try {
-      const batchName = `Drop ${new Date().toISOString().split("T")[0]} - ${selectedAccounts.size} accounts`;
-      const batchResponse = await createDropBatchMutation.mutateAsync({
-        name: batchName,
-        portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
-        totalAccounts: selectedAccounts.size,
+    const batchName = `Drop ${new Date().toISOString().split("T")[0]} - ${selectedAccounts.size} accounts`;
+    const results = await dropAccountsMutation.mutateAsync({
+      name: batchName,
+      portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
+      notes: dropNotes || undefined,
+      collectorId: selectedCollector,
+      debtorIds: Array.from(selectedAccounts),
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/drop-batches"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/work-queue"] });
+    
+    const collector = collectors.find((c) => c.id === selectedCollector);
+    if (results.failed > 0) {
+      toast({ 
+        title: "Partial Success", 
+        description: `${results.success} accounts assigned to ${collector?.name || "collector"}. ${results.failed} failed.`,
+        variant: "destructive"
       });
-      const batch = batchResponse as unknown as { id: string };
-
-      const accountIds = Array.from(selectedAccounts);
-      for (const debtorId of accountIds) {
-        await createDropItemMutation.mutateAsync({
-          dropBatchId: batch.id,
-          debtorId,
-          collectorId: selectedCollector,
-        });
-        
-        await updateDebtorMutation.mutateAsync({
-          id: debtorId,
-          updates: { assignedCollectorId: selectedCollector },
-        });
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/drop-batches"] });
-      
-      const collector = collectors.find((c) => c.id === selectedCollector);
+    } else {
       toast({ 
         title: "Accounts Dropped", 
-        description: `${selectedAccounts.size} accounts assigned to ${collector?.name || "collector"}'s work queue.`
+        description: `${results.success} accounts assigned to ${collector?.name || "collector"}'s work queue.`
       });
-      setSelectedAccounts(new Set());
-      setDropNotes("");
-    } catch {
-      toast({ title: "Error", description: "Failed to drop accounts.", variant: "destructive" });
     }
+    setSelectedAccounts(new Set());
+    setDropNotes("");
   };
 
   const selectedTotal = Array.from(selectedAccounts).reduce((sum, id) => {
@@ -220,11 +230,11 @@ export default function DropAccounts() {
             />
             <Button 
               onClick={handleDropToCollector}
-              disabled={selectedAccounts.size === 0 || !selectedCollector || createDropBatchMutation.isPending}
+              disabled={selectedAccounts.size === 0 || !selectedCollector || dropAccountsMutation.isPending}
               data-testid="button-drop-accounts"
             >
               <Send className="h-4 w-4 mr-2" />
-              {createDropBatchMutation.isPending ? "Dropping..." : `Drop ${selectedAccounts.size} Accounts`}
+              {dropAccountsMutation.isPending ? "Dropping..." : `Drop ${selectedAccounts.size} Accounts`}
             </Button>
           </CardContent>
         </Card>
