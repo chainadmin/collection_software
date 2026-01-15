@@ -59,7 +59,15 @@ export const debtors = pgTable("debtors", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   dateOfBirth: text("date_of_birth"),
+  ssn: text("ssn"), // full SSN for display
   ssnLast4: text("ssn_last_4"),
+  email: text("email"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  originalCreditor: text("original_creditor"),
+  clientName: text("client_name"),
   originalBalance: integer("original_balance").notNull(), // in cents
   currentBalance: integer("current_balance").notNull(), // in cents
   status: text("status").notNull().default("open"), // open, in_payment, settled, closed, disputed
@@ -232,3 +240,113 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// IP Whitelist for collector login security
+export const ipWhitelist = pgTable("ip_whitelist", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: text("ip_address").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdDate: text("created_date").notNull(),
+  createdBy: varchar("created_by"),
+});
+
+export const insertIpWhitelistSchema = createInsertSchema(ipWhitelist).omit({ id: true });
+export type InsertIpWhitelist = z.infer<typeof insertIpWhitelistSchema>;
+export type IpWhitelist = typeof ipWhitelist.$inferSelect;
+
+// Merchants for payment processing
+export const merchants = pgTable("merchants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  processorType: text("processor_type").notNull(), // stripe, authorize_net, etc.
+  isActive: boolean("is_active").default(true),
+  apiKeyRef: text("api_key_ref"), // reference to secrets
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertMerchantSchema = createInsertSchema(merchants).omit({ id: true });
+export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
+export type Merchant = typeof merchants.$inferSelect;
+
+// Fee Schedules for portfolios/clients
+export const feeSchedules = pgTable("fee_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  portfolioId: varchar("portfolio_id"),
+  clientName: text("client_name"),
+  feeType: text("fee_type").notNull(), // contingency, flat_fee, hybrid
+  feePercentage: integer("fee_percentage"), // basis points
+  flatFeeAmount: integer("flat_fee_amount"), // in cents
+  minimumFee: integer("minimum_fee"), // in cents
+  isActive: boolean("is_active").default(true),
+  effectiveDate: text("effective_date").notNull(),
+});
+
+export const insertFeeScheduleSchema = createInsertSchema(feeSchedules).omit({ id: true });
+export type InsertFeeSchedule = z.infer<typeof insertFeeScheduleSchema>;
+export type FeeSchedule = typeof feeSchedules.$inferSelect;
+
+// Email Templates
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  templateType: text("template_type").notNull(), // collection, reminder, receipt, etc.
+  isActive: boolean("is_active").default(true),
+  createdDate: text("created_date").notNull(),
+  updatedDate: text("updated_date"),
+});
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+// Email Settings
+export const emailSettings = pgTable("email_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  smtpHost: text("smtp_host"),
+  smtpPort: integer("smtp_port"),
+  smtpUser: text("smtp_user"),
+  smtpSecure: boolean("smtp_secure").default(true),
+  fromEmail: text("from_email"),
+  fromName: text("from_name"),
+  isActive: boolean("is_active").default(false),
+});
+
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings).omit({ id: true });
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+
+// Remittances (payments to clients/creditors)
+export const remittances = pgTable("remittances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  portfolioId: varchar("portfolio_id").notNull(),
+  clientName: text("client_name").notNull(),
+  amount: integer("amount").notNull(), // in cents
+  remittanceDate: text("remittance_date").notNull(),
+  status: text("status").notNull().default("pending"), // pending, sent, confirmed
+  checkNumber: text("check_number"),
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+});
+
+export const insertRemittanceSchema = createInsertSchema(remittances).omit({ id: true });
+export type InsertRemittance = z.infer<typeof insertRemittanceSchema>;
+export type Remittance = typeof remittances.$inferSelect;
+
+// Time Clock for collectors
+export const timeClockEntries = pgTable("time_clock_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  collectorId: varchar("collector_id").notNull(),
+  clockIn: text("clock_in").notNull(),
+  clockOut: text("clock_out"),
+  totalMinutes: integer("total_minutes"),
+  notes: text("notes"),
+});
+
+export const insertTimeClockEntrySchema = createInsertSchema(timeClockEntries).omit({ id: true });
+export type InsertTimeClockEntry = z.infer<typeof insertTimeClockEntrySchema>;
+export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
