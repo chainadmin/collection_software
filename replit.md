@@ -46,6 +46,18 @@ Preferred communication style: Simple, everyday language.
 - **Component Composition**: UI built from composable shadcn/ui primitives
 - **Collapsible Sidebar Navigation**: Fixed left sidebar with icon-only collapsed state
 
+### Workstation Features
+- **Click-to-Call**: Phone contacts are clickable, opening a Call Outcome dialog with options: Connected, No Answer, Voicemail, Busy, Wrong Number, Promise
+- **Auto-Save Notes**: Notes auto-save after 3 seconds of inactivity with visual indicator
+- **Payment Calculator**: Shows settlement options (50%, 40%, 25%) and monthly payment calculations
+- **Work By Status Filter**: Filter accounts by collection status (newbiz, 1st message, final, promise, etc.)
+- **Payment Recording**: Supports card selection from saved cards and payment frequency (one-time, weekly, bi-weekly, monthly, specific dates)
+
+### PWA Support
+- **Desktop Installation**: Installable as PWA on Windows, Mac, and iOS
+- **Manifest**: Located at `client/public/manifest.json`
+- **Service Worker**: Located at `client/public/sw.js`
+
 ## External Dependencies
 
 ### Database

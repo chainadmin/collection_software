@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Phone,
@@ -22,7 +22,13 @@ import {
   Voicemail,
   CalendarClock,
   Send,
+  Settings,
+  Pencil,
+  Calculator,
+  Plus,
+  Filter,
 } from "lucide-react";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +92,16 @@ export default function Workstation() {
   const [cardHolderName, setCardHolderName] = useState("");
   const [cardBillingZip, setCardBillingZip] = useState("");
   const [cardType, setCardType] = useState("visa");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedCardId, setSelectedCardId] = useState<string>("");
+  const [paymentFrequency, setPaymentFrequency] = useState("one_time");
+  const [specificPaymentDates, setSpecificPaymentDates] = useState("");
+  const [showCallOutcomeDialog, setShowCallOutcomeDialog] = useState(false);
+  const [clickedPhone, setClickedPhone] = useState("");
+  const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
+  const [calculatorMonths, setCalculatorMonths] = useState("12");
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedNoteRef = useRef<string>("");
 
   const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
@@ -182,12 +198,16 @@ export default function Workstation() {
     ?.filter((p) => p.status === "processed")
     ?.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())?.[0];
 
+  // Collection-specific statuses that can be worked
+  const workableStatuses = ["newbiz", "1st_message", "final", "promise", "payments_pending", "open", "in_payment"];
+  
   const workQueue = isReady
     ? (debtors
         ?.filter((d) => {
-          const isWorkable = d.status === "open" || d.status === "in_payment";
+          const isWorkable = workableStatuses.includes(d.status);
           const isAssigned = d.assignedCollectorId === currentCollector.id;
-          return isWorkable && isAssigned;
+          const matchesFilter = statusFilter === "all" || d.status === statusFilter;
+          return isWorkable && isAssigned && matchesFilter;
         })
         ?.sort((a, b) => {
           if (!a.nextFollowUpDate && !b.nextFollowUpDate) return 0;
@@ -196,6 +216,44 @@ export default function Workstation() {
           return new Date(a.nextFollowUpDate).getTime() - new Date(b.nextFollowUpDate).getTime();
         }) ?? [])
     : [];
+    
+  // Get counts for status filter dropdown
+  const getStatusCounts = () => {
+    if (!debtors || !currentCollector) return {};
+    return debtors.reduce((acc, d) => {
+      if (d.assignedCollectorId === currentCollector.id && workableStatuses.includes(d.status)) {
+        acc[d.status] = (acc[d.status] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+  };
+  const statusCounts = getStatusCounts();
+  
+  // Color mapping for collection statuses
+  const getStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      newbiz: "bg-blue-500",
+      "1st_message": "bg-cyan-500",
+      final: "bg-orange-500",
+      promise: "bg-yellow-500",
+      payments_pending: "bg-green-500",
+      decline: "bg-red-500",
+      open: "bg-gray-500",
+      in_payment: "bg-emerald-500",
+      disputed: "bg-purple-500",
+      settled: "bg-teal-500",
+      closed: "bg-gray-400",
+      bankruptcy: "bg-rose-600",
+      legal: "bg-amber-600",
+    };
+    return colors[status] || "bg-gray-500";
+  };
+  
+  const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+    if (status === "decline") return "destructive";
+    if (status === "payments_pending" || status === "promise") return "default";
+    return "secondary";
+  };
 
   const addNoteMutation = useMutation({
     mutationFn: async (data: { debtorId: string; content: string; noteType: string }) => {
@@ -266,6 +324,43 @@ export default function Workstation() {
       toast({ title: "Card added", description: "Payment card has been saved on file." });
     },
   });
+
+  // Auto-save notes with debounce
+  useEffect(() => {
+    if (!quickNote.trim() || !selectedDebtorId || !currentCollector) {
+      return;
+    }
+    if (quickNote === lastSavedNoteRef.current) {
+      return;
+    }
+    
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (quickNote.trim() && quickNote !== lastSavedNoteRef.current) {
+        lastSavedNoteRef.current = quickNote;
+        addNoteMutation.mutate({
+          debtorId: selectedDebtorId,
+          content: quickNote.trim(),
+          noteType: "general",
+        });
+      }
+    }, 3000); // Auto-save after 3 seconds of inactivity
+    
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [quickNote, selectedDebtorId, currentCollector]);
+
+  // Reset note when switching accounts
+  useEffect(() => {
+    setQuickNote("");
+    lastSavedNoteRef.current = "";
+  }, [selectedDebtorId]);
 
   const handleAddCard = () => {
     if (!selectedDebtorId || !cardNumber || !cardExpiry || !cardHolderName) {
@@ -423,11 +518,18 @@ export default function Workstation() {
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold">Work Queue</h2>
-            {currentCollector && (
-              <Badge variant="secondary" className="text-xs">
-                @{currentCollector.username}
-              </Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {currentCollector && (
+                <Badge variant="secondary" className="text-xs">
+                  @{currentCollector.username}
+                </Badge>
+              )}
+              <Link href="/admin/reporting/dashboard">
+                <Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-admin-settings">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-2 mb-2">
             {isClockedIn ? (
@@ -459,6 +561,24 @@ export default function Workstation() {
                 {getClockDuration()}
               </Badge>
             )}
+          </div>
+          <div className="mb-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-work-by-status">
+                <Filter className="h-3 w-3 mr-1" />
+                <SelectValue placeholder="Work By Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses ({Object.values(statusCounts).reduce((a, b) => a + b, 0)})</SelectItem>
+                <SelectItem value="newbiz">New Business ({statusCounts["newbiz"] || 0})</SelectItem>
+                <SelectItem value="1st_message">1st Message ({statusCounts["1st_message"] || 0})</SelectItem>
+                <SelectItem value="final">Final ({statusCounts["final"] || 0})</SelectItem>
+                <SelectItem value="promise">Promise ({statusCounts["promise"] || 0})</SelectItem>
+                <SelectItem value="payments_pending">Payments Pending ({statusCounts["payments_pending"] || 0})</SelectItem>
+                <SelectItem value="open">Open ({statusCounts["open"] || 0})</SelectItem>
+                <SelectItem value="in_payment">In Payment ({statusCounts["in_payment"] || 0})</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <p className="text-xs text-muted-foreground">{workQueue.length} accounts to work</p>
         </div>
@@ -495,13 +615,13 @@ export default function Workstation() {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full ${getPriorityDot(debtor)}`} />
+                      <div className={`h-2 w-2 rounded-full ${getStatusColor(debtor.status)}`} />
                       <span className="font-medium text-sm">
                         {debtor.firstName} {debtor.lastName}
                       </span>
                     </div>
-                    <Badge variant="outline" className="text-xs">
-                      {debtor.status}
+                    <Badge variant={getStatusBadgeVariant(debtor.status)} className="text-xs capitalize">
+                      {debtor.status.replace(/_/g, " ")}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-xs pl-4">
@@ -540,10 +660,19 @@ export default function Workstation() {
                       onValueChange={handleStatusChange}
                       disabled={!isReady}
                     >
-                      <SelectTrigger className="w-[140px] h-8" data-testid="select-status">
-                        <SelectValue />
+                      <SelectTrigger className="w-[160px] h-8" data-testid="select-status">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-2 w-2 rounded-full ${getStatusColor(selectedDebtor.status)}`} />
+                          <SelectValue />
+                        </div>
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="newbiz">New Business</SelectItem>
+                        <SelectItem value="1st_message">1st Message</SelectItem>
+                        <SelectItem value="final">Final</SelectItem>
+                        <SelectItem value="promise">Promise</SelectItem>
+                        <SelectItem value="payments_pending">Payments Pending</SelectItem>
+                        <SelectItem value="decline">Decline</SelectItem>
                         <SelectItem value="open">Open</SelectItem>
                         <SelectItem value="in_payment">In Payment</SelectItem>
                         <SelectItem value="disputed">Disputed</SelectItem>
@@ -652,6 +781,16 @@ export default function Workstation() {
               <Separator orientation="vertical" className="h-6 mx-2" />
               <Button
                 size="sm"
+                variant="outline"
+                onClick={() => setShowPaymentCalculator(true)}
+                disabled={!isReady}
+                data-testid="button-payment-calculator"
+              >
+                <Calculator className="h-4 w-4 mr-1" />
+                Calculator
+              </Button>
+              <Button
+                size="sm"
                 onClick={() => setShowPaymentDialog(true)}
                 disabled={!isReady}
                 data-testid="button-record-payment"
@@ -685,7 +824,14 @@ export default function Workstation() {
                         {contacts.map((contact) => (
                           <div
                             key={contact.id}
-                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                            className={`flex items-center justify-between p-2 rounded-md bg-muted/50 ${contact.type === "phone" ? "cursor-pointer hover-elevate" : ""}`}
+                            onClick={() => {
+                              if (contact.type === "phone") {
+                                setClickedPhone(contact.value);
+                                setShowCallOutcomeDialog(true);
+                              }
+                            }}
+                            data-testid={`contact-${contact.id}`}
                           >
                             <div className="flex items-center gap-3">
                               {contact.type === "phone" ? (
@@ -702,9 +848,7 @@ export default function Workstation() {
                               </div>
                             </div>
                             {contact.type === "phone" && (
-                              <Button size="sm" variant="ghost">
-                                <Phone className="h-4 w-4" />
-                              </Button>
+                              <Phone className="h-4 w-4 text-primary" />
                             )}
                           </div>
                         ))}
@@ -878,22 +1022,30 @@ export default function Workstation() {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <CardContent className="space-y-4">
-                        <div className="flex gap-2">
-                          <Textarea
-                            placeholder="Add a quick note..."
-                            value={quickNote}
-                            onChange={(e) => setQuickNote(e.target.value)}
-                            className="min-h-[60px] resize-none"
-                            data-testid="input-quick-note"
-                          />
-                          <Button
-                            size="icon"
-                            onClick={handleAddQuickNote}
-                            disabled={!quickNote.trim() || addNoteMutation.isPending || !isReady}
-                            data-testid="button-add-note"
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <Textarea
+                              placeholder="Add a quick note... (auto-saves after 3 seconds)"
+                              value={quickNote}
+                              onChange={(e) => setQuickNote(e.target.value)}
+                              className="min-h-[60px] resize-none"
+                              data-testid="input-quick-note"
+                            />
+                            <Button
+                              size="icon"
+                              onClick={handleAddQuickNote}
+                              disabled={!quickNote.trim() || addNoteMutation.isPending || !isReady}
+                              data-testid="button-add-note"
+                            >
+                              <Send className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {quickNote.trim() && quickNote !== lastSavedNoteRef.current && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                              Auto-saving...
+                            </p>
+                          )}
                         </div>
                         {notes && notes.length > 0 ? (
                           <div className="space-y-2">
@@ -936,7 +1088,7 @@ export default function Workstation() {
       </div>
 
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
             <DialogDescription>
@@ -970,6 +1122,52 @@ export default function Workstation() {
                 </SelectContent>
               </Select>
             </div>
+            {paymentMethod === "card" && (
+              <div>
+                <label className="text-sm font-medium">Select Card</label>
+                <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                  <SelectTrigger data-testid="select-saved-card">
+                    <SelectValue placeholder="Select a card or add new" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">Add New Card</SelectItem>
+                    {paymentCards && paymentCards.map((card) => (
+                      <SelectItem key={card.id} value={card.id}>
+                        {card.cardType.toUpperCase()} **** {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium">Payment Frequency</label>
+              <Select value={paymentFrequency} onValueChange={setPaymentFrequency}>
+                <SelectTrigger data-testid="select-payment-frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="one_time">One-Time Payment</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="bi_weekly">Bi-Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="specific_dates">Specific Dates</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {paymentFrequency === "specific_dates" && (
+              <div>
+                <label className="text-sm font-medium">Specific Dates (comma separated)</label>
+                <Input
+                  type="text"
+                  placeholder="2025-02-01, 2025-02-15, 2025-03-01"
+                  value={specificPaymentDates}
+                  onChange={(e) => setSpecificPaymentDates(e.target.value)}
+                  data-testid="input-specific-dates"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Enter dates in YYYY-MM-DD format</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
@@ -1065,6 +1263,159 @@ export default function Workstation() {
               data-testid="button-confirm-add-card"
             >
               {addCardMutation.isPending ? "Saving..." : "Save Card"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCallOutcomeDialog} onOpenChange={setShowCallOutcomeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Call Outcome</DialogTitle>
+            <DialogDescription>
+              Record the outcome of your call to {clickedPhone}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <p className="text-sm text-muted-foreground text-center">What was the result of your call?</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("connected");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-connected"
+              >
+                <PhoneIncoming className="h-4 w-4 mr-2" />
+                Connected
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("no_answer");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-no-answer"
+              >
+                <PhoneOff className="h-4 w-4 mr-2" />
+                No Answer
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("voicemail");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-voicemail"
+              >
+                <Voicemail className="h-4 w-4 mr-2" />
+                Voicemail
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("busy");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-busy"
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Busy
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("wrong_number");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-wrong-number"
+              >
+                <AlertCircle className="h-4 w-4 mr-2" />
+                Wrong Number
+              </Button>
+              <Button
+                variant="default"
+                onClick={() => {
+                  handleCallOutcome("promise");
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-promise"
+              >
+                <CalendarClock className="h-4 w-4 mr-2" />
+                Promise
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowCallOutcomeDialog(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPaymentCalculator} onOpenChange={setShowPaymentCalculator}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payment Calculator</DialogTitle>
+            <DialogDescription>
+              Calculate payment plans based on account balance
+            </DialogDescription>
+          </DialogHeader>
+          {selectedDebtor && (
+            <div className="space-y-4 py-4">
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground">Current Balance</p>
+                <p className="text-3xl font-bold font-mono">{formatCurrency(selectedDebtor.currentBalance)}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Number of Months</label>
+                <Input
+                  type="number"
+                  value={calculatorMonths}
+                  onChange={(e) => setCalculatorMonths(e.target.value)}
+                  min="1"
+                  max="60"
+                  data-testid="input-calculator-months"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Payment Plans:</p>
+                <div className="grid gap-2">
+                  <div className="p-3 rounded-md bg-muted/50 flex justify-between">
+                    <span className="text-sm">Full Payment:</span>
+                    <span className="font-mono font-medium">{formatCurrency(selectedDebtor.currentBalance)}</span>
+                  </div>
+                  <div className="p-3 rounded-md bg-muted/50 flex justify-between">
+                    <span className="text-sm">{calculatorMonths} Monthly Payments:</span>
+                    <span className="font-mono font-medium">{formatCurrency(Math.ceil(selectedDebtor.currentBalance / parseInt(calculatorMonths || "12")))}/mo</span>
+                  </div>
+                  <div className="p-3 rounded-md bg-muted/50 flex justify-between">
+                    <span className="text-sm">50% Settlement:</span>
+                    <span className="font-mono font-medium">{formatCurrency(Math.ceil(selectedDebtor.currentBalance * 0.5))}</span>
+                  </div>
+                  <div className="p-3 rounded-md bg-muted/50 flex justify-between">
+                    <span className="text-sm">40% Settlement:</span>
+                    <span className="font-mono font-medium">{formatCurrency(Math.ceil(selectedDebtor.currentBalance * 0.4))}</span>
+                  </div>
+                  <div className="p-3 rounded-md bg-muted/50 flex justify-between">
+                    <span className="text-sm">25% Settlement:</span>
+                    <span className="font-mono font-medium">{formatCurrency(Math.ceil(selectedDebtor.currentBalance * 0.25))}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentCalculator(false)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              setShowPaymentCalculator(false);
+              setShowPaymentDialog(true);
+            }}>
+              Record Payment
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -6,10 +6,13 @@ import {
   MoreHorizontal,
   Users,
   Target,
-  Mail,
+  DollarSign,
   User,
   Edit,
   Trash2,
+  LayoutDashboard,
+  Mail,
+  CreditCard,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,7 +51,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
 import { formatCurrency, getInitials } from "@/lib/utils";
@@ -64,6 +69,10 @@ const addCollectorSchema = z.object({
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
+  hourlyWage: z.number().min(0).default(0),
+  canViewDashboard: z.boolean().default(false),
+  canViewEmail: z.boolean().default(false),
+  canViewPaymentRunner: z.boolean().default(false),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -87,6 +96,10 @@ export default function Collectors() {
       role: "collector",
       status: "active",
       goal: 0,
+      hourlyWage: 0,
+      canViewDashboard: false,
+      canViewEmail: false,
+      canViewPaymentRunner: false,
     },
   });
 
@@ -96,6 +109,7 @@ export default function Collectors() {
         ...data,
         avatarInitials: getInitials(data.name),
         goal: data.goal * 100,
+        hourlyWage: data.hourlyWage * 100, // convert dollars to cents
       });
     },
     onSuccess: () => {
@@ -242,8 +256,8 @@ export default function Collectors() {
                         <span>@{collector.username}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Mail className="h-4 w-4" />
-                        <span className="truncate">{collector.email}</span>
+                        <DollarSign className="h-4 w-4" />
+                        <span className="font-mono">{formatCurrency((collector.hourlyWage || 0))}/hr</span>
                       </div>
                       <div className="flex items-center justify-between pt-2">
                         <StatusBadge status={collector.status} />
@@ -368,23 +382,105 @@ export default function Collectors() {
                 />
                 <FormField
                   control={form.control}
-                  name="goal"
+                  name="hourlyWage"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Monthly Goal ($)</FormLabel>
+                      <FormLabel>Hourly Wage ($)</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
-                          placeholder="25000"
+                          step="0.01"
+                          placeholder="15.00"
                           {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
-                          data-testid="input-collector-goal"
+                          onChange={(e) => field.onChange(parseFloat(e.target.value || "0"))}
+                          data-testid="input-collector-hourly-wage"
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+              </div>
+              <FormField
+                control={form.control}
+                name="goal"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Monthly Goal ($)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder="25000"
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
+                        data-testid="input-collector-goal"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="space-y-3 pt-2">
+                <FormLabel className="text-sm font-medium">Workstation Permissions</FormLabel>
+                <div className="space-y-2">
+                  <FormField
+                    control={form.control}
+                    name="canViewDashboard"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center gap-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-view-dashboard"
+                          />
+                        </FormControl>
+                        <div className="flex items-center gap-2 pb-0">
+                          <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                          <FormLabel className="font-normal">Company Dashboard</FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="canViewEmail"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center gap-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-view-email"
+                          />
+                        </FormControl>
+                        <div className="flex items-center gap-2 pb-0">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          <FormLabel className="font-normal">Email / SMS Tab</FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="canViewPaymentRunner"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center gap-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-view-payment-runner"
+                          />
+                        </FormControl>
+                        <div className="flex items-center gap-2 pb-0">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          <FormLabel className="font-normal">Payment Runner</FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
