@@ -14,6 +14,11 @@ export const collectors = pgTable("collectors", {
   status: text("status").notNull().default("active"), // active, inactive, suspended
   avatarInitials: text("avatar_initials"),
   goal: integer("goal").default(0), // monthly collection goal in cents
+  hourlyWage: integer("hourly_wage").default(0), // hourly wage in cents for profitability tracking
+  // Role-based permissions
+  canViewDashboard: boolean("can_view_dashboard").default(false),
+  canViewEmail: boolean("can_view_email").default(false),
+  canViewPaymentRunner: boolean("can_view_payment_runner").default(false),
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });
@@ -49,6 +54,9 @@ export const insertPortfolioAssignmentSchema = createInsertSchema(portfolioAssig
 export type InsertPortfolioAssignment = z.infer<typeof insertPortfolioAssignmentSchema>;
 export type PortfolioAssignment = typeof portfolioAssignments.$inferSelect;
 
+// Collection-specific statuses: newbiz, 1st_message, final, promise, payments_pending, decline
+// Also supports: open, in_payment, settled, closed, disputed, bankruptcy, legal
+
 // Debtors (accounts to collect)
 export const debtors = pgTable("debtors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -70,7 +78,7 @@ export const debtors = pgTable("debtors", {
   clientName: text("client_name"),
   originalBalance: integer("original_balance").notNull(), // in cents
   currentBalance: integer("current_balance").notNull(), // in cents
-  status: text("status").notNull().default("open"), // open, in_payment, settled, closed, disputed
+  status: text("status").notNull().default("newbiz"), // newbiz, 1st_message, final, promise, payments_pending, decline, open, in_payment, settled, closed, disputed
   lastContactDate: text("last_contact_date"),
   nextFollowUpDate: text("next_follow_up_date"),
 });
@@ -153,6 +161,7 @@ export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   debtorId: varchar("debtor_id").notNull(),
   batchId: varchar("batch_id"),
+  cardId: varchar("card_id"), // reference to payment card used
   amount: integer("amount").notNull(), // in cents
   paymentDate: text("payment_date").notNull(),
   paymentMethod: text("payment_method").notNull(), // ach, card, check, cash
@@ -160,6 +169,11 @@ export const payments = pgTable("payments", {
   referenceNumber: text("reference_number"),
   processedBy: varchar("processed_by"),
   notes: text("notes"),
+  // Recurring payment fields
+  frequency: text("frequency"), // one_time, weekly, bi_weekly, monthly, specific_dates
+  nextPaymentDate: text("next_payment_date"),
+  specificDates: text("specific_dates"), // JSON array of dates for specific_dates frequency
+  isRecurring: boolean("is_recurring").default(false),
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
