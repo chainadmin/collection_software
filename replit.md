@@ -52,6 +52,14 @@ Preferred communication style: Simple, everyday language.
 - **Payment Calculator**: Shows settlement options (50%, 40%, 25%) and monthly payment calculations
 - **Work By Status Filter**: Filter accounts by collection status (newbiz, 1st message, final, promise, etc.)
 - **Payment Recording**: Supports card selection from saved cards and payment frequency (one-time, weekly, bi-weekly, monthly, specific dates)
+- **Inline Editing**: Edit icons for address, email, and contacts with dedicated edit dialogs
+- **Bulk Add Features**: Bulk add contacts (phone/email) and bulk add notes with multi-line text input
+- **Work Queue Logic**: Collectors only see their assigned accounts filtered by status
+
+### Collector Management
+- **Hourly Wage Tracking**: Required field for profitability analysis (replaces optional email)
+- **Role-Based Permissions**: Checkboxes for Dashboard Access, Email/SMS Access, Payment Runner Access
+- **Profitability Reports**: Collector reporting with wage cost vs. collections ROI analysis
 
 ### PWA Support
 - **Desktop Installation**: Installable as PWA on Windows, Mac, and iOS

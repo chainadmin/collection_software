@@ -63,13 +63,13 @@ import type { Collector } from "@shared/schema";
 
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  email: z.string().email("Valid email is required"),
+  email: z.string().email("Valid email is required").optional().or(z.literal("")),
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
-  hourlyWage: z.number().min(0).default(0),
+  hourlyWage: z.number().min(1, "Hourly wage is required"),
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
@@ -318,10 +318,32 @@ export default function Collectors() {
               />
               <FormField
                 control={form.control}
+                name="hourlyWage"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Hourly Wage</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="15.00" 
+                        step="0.01"
+                        {...field}
+                        value={field.value ? (field.value / 100).toFixed(2) : ""}
+                        onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
+                        data-testid="input-collector-hourly-wage" 
+                      />
+                    </FormControl>
+                    <FormDescription>Required - used for profitability tracking</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email Address</FormLabel>
+                    <FormLabel>Email Address (Optional)</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="john@company.com" {...field} data-testid="input-collector-email" />
                     </FormControl>
@@ -357,8 +379,7 @@ export default function Collectors() {
                   )}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
+              <FormField
                   control={form.control}
                   name="role"
                   render={({ field }) => (
@@ -380,27 +401,6 @@ export default function Collectors() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="hourlyWage"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Hourly Wage ($)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="15.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value || "0"))}
-                          data-testid="input-collector-hourly-wage"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
               <FormField
                 control={form.control}
                 name="goal"

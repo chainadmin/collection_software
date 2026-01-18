@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock } from "lucide-react";
+import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
 import type { Collector } from "@shared/schema";
@@ -17,25 +17,63 @@ export default function CollectorReporting() {
     queryKey: ["/api/collectors"],
   });
 
-  const collectorMetrics = collectors.map((c) => ({
-    ...c,
-    collections: Math.floor(Math.random() * 1000000) + 200000,
-    callsMade: Math.floor(Math.random() * 500) + 100,
-    promisesSecured: Math.floor(Math.random() * 50) + 10,
-    accountsWorked: Math.floor(Math.random() * 100) + 20,
-    avgCallDuration: Math.floor(Math.random() * 180) + 60,
-    conversionRate: Math.random() * 0.3 + 0.1,
-  }));
+  // Calculate hours based on date range
+  const getHoursWorked = () => {
+    switch (dateRange) {
+      case "today": return 8;
+      case "this_week": return 40;
+      case "this_month": return 160;
+      case "this_quarter": return 480;
+      default: return 160;
+    }
+  };
+
+  const hoursWorked = getHoursWorked();
+
+  const collectorMetrics = collectors.map((c) => {
+    const collections = Math.floor(Math.random() * 1000000) + 200000;
+    const callsMade = Math.floor(Math.random() * 500) + 100;
+    const promisesSecured = Math.floor(Math.random() * 50) + 10;
+    const accountsWorked = Math.floor(Math.random() * 100) + 20;
+    const avgCallDuration = Math.floor(Math.random() * 180) + 60;
+    const conversionRate = Math.random() * 0.3 + 0.1;
+    
+    // Profitability calculation
+    const hourlyWage = c.hourlyWage || 1500; // Default $15/hr in cents
+    const wageCost = (hourlyWage / 100) * hoursWorked;
+    const collectionsInDollars = collections / 100;
+    const profit = collectionsInDollars - wageCost;
+    const profitMargin = wageCost > 0 ? (profit / collectionsInDollars) * 100 : 0;
+    const roi = wageCost > 0 ? (collectionsInDollars / wageCost) : 0;
+
+    return {
+      ...c,
+      collections,
+      callsMade,
+      promisesSecured,
+      accountsWorked,
+      avgCallDuration,
+      conversionRate,
+      hourlyWage,
+      wageCost,
+      profit,
+      profitMargin,
+      roi,
+    };
+  });
 
   const totalCollections = collectorMetrics.reduce((sum, c) => sum + c.collections, 0);
   const totalCalls = collectorMetrics.reduce((sum, c) => sum + c.callsMade, 0);
+  const totalWageCost = collectorMetrics.reduce((sum, c) => sum + c.wageCost, 0);
+  const totalProfit = (totalCollections / 100) - totalWageCost;
+  const overallROI = totalWageCost > 0 ? ((totalCollections / 100) / totalWageCost) : 0;
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Collector Reporting</h1>
-          <p className="text-muted-foreground">Individual and team performance metrics</p>
+          <p className="text-muted-foreground">Individual and team performance metrics with profitability analysis</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={dateRange} onValueChange={setDateRange}>
@@ -56,7 +94,7 @@ export default function CollectorReporting() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -100,11 +138,26 @@ export default function CollectorReporting() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-lg bg-yellow-500/10">
-                <Target className="h-6 w-6 text-yellow-500" />
+                <Wallet className="h-6 w-6 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">24.5%</p>
-                <p className="text-sm text-muted-foreground">Avg Conversion</p>
+                <p className="text-2xl font-bold">${totalWageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                <p className="text-sm text-muted-foreground">Wage Cost ({hoursWorked}hrs)</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-lg ${totalProfit >= 0 ? "bg-green-500/10" : "bg-red-500/10"}`}>
+                <TrendingUp className={`h-6 w-6 ${totalProfit >= 0 ? "text-green-500" : "text-red-500"}`} />
+              </div>
+              <div>
+                <p className={`text-2xl font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {overallROI.toFixed(1)}x ROI
+                </p>
+                <p className="text-sm text-muted-foreground">Profit: ${totalProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
             </div>
           </CardContent>
@@ -113,8 +166,8 @@ export default function CollectorReporting() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Collector Performance</CardTitle>
-          <CardDescription>Detailed metrics for each collector</CardDescription>
+          <CardTitle className="text-lg">Collector Performance & Profitability</CardTitle>
+          <CardDescription>Detailed metrics and cost analysis for each collector</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -122,11 +175,12 @@ export default function CollectorReporting() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 font-medium">Collector</th>
+                  <th className="text-right py-3 px-4 font-medium">Hourly Rate</th>
+                  <th className="text-right py-3 px-4 font-medium">Wage Cost</th>
                   <th className="text-right py-3 px-4 font-medium">Collections</th>
+                  <th className="text-right py-3 px-4 font-medium">Profit</th>
+                  <th className="text-right py-3 px-4 font-medium">ROI</th>
                   <th className="text-right py-3 px-4 font-medium">Calls</th>
-                  <th className="text-right py-3 px-4 font-medium">Promises</th>
-                  <th className="text-right py-3 px-4 font-medium">Accounts</th>
-                  <th className="text-right py-3 px-4 font-medium">Avg Call</th>
                   <th className="text-right py-3 px-4 font-medium">Conv. Rate</th>
                   <th className="text-right py-3 px-4 font-medium">Goal Progress</th>
                 </tr>
@@ -147,16 +201,22 @@ export default function CollectorReporting() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.collections)}</td>
-                      <td className="text-right py-3 px-4">{collector.callsMade}</td>
-                      <td className="text-right py-3 px-4">{collector.promisesSecured}</td>
-                      <td className="text-right py-3 px-4">{collector.accountsWorked}</td>
-                      <td className="text-right py-3 px-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          {Math.floor(collector.avgCallDuration / 60)}:{(collector.avgCallDuration % 60).toString().padStart(2, '0')}
-                        </div>
+                      <td className="text-right py-3 px-4 font-mono text-sm">
+                        ${(collector.hourlyWage / 100).toFixed(2)}/hr
                       </td>
+                      <td className="text-right py-3 px-4 font-mono text-sm text-muted-foreground">
+                        ${collector.wageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.collections)}</td>
+                      <td className={`text-right py-3 px-4 font-mono ${collector.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        ${collector.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="text-right py-3 px-4">
+                        <Badge variant={collector.roi >= 5 ? "default" : collector.roi >= 2 ? "secondary" : "destructive"}>
+                          {collector.roi.toFixed(1)}x
+                        </Badge>
+                      </td>
+                      <td className="text-right py-3 px-4">{collector.callsMade}</td>
                       <td className="text-right py-3 px-4">
                         <Badge variant={collector.conversionRate >= 0.25 ? "default" : "secondary"}>
                           {(collector.conversionRate * 100).toFixed(1)}%
@@ -178,6 +238,61 @@ export default function CollectorReporting() {
                 })}
               </tbody>
             </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Profitability Analysis</CardTitle>
+          <CardDescription>Cost vs. revenue breakdown by collector</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {collectorMetrics.map((collector) => {
+              const collectionsInDollars = collector.collections / 100;
+              const maxValue = Math.max(collectionsInDollars, collector.wageCost);
+              const collectionsPercent = (collectionsInDollars / maxValue) * 100;
+              const wagePercent = (collector.wageCost / maxValue) * 100;
+              
+              return (
+                <div key={collector.id} className="space-y-2" data-testid={`profitability-${collector.id}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs">{collector.avatarInitials}</AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium text-sm">{collector.name}</span>
+                    </div>
+                    <span className={`text-sm font-medium ${collector.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {collector.profit >= 0 ? "+" : ""}${collector.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 h-4">
+                    <div 
+                      className="bg-green-500 rounded"
+                      style={{ width: `${collectionsPercent}%` }}
+                      title={`Collections: $${collectionsInDollars.toLocaleString()}`}
+                    />
+                  </div>
+                  <div className="flex gap-2 h-4">
+                    <div 
+                      className="bg-red-400 rounded"
+                      style={{ width: `${wagePercent}%` }}
+                      title={`Wage Cost: $${collector.wageCost.toLocaleString()}`}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 bg-green-500 rounded" /> Collections: ${collectionsInDollars.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 bg-red-400 rounded" /> Wage: ${collector.wageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
