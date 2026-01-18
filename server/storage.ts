@@ -105,6 +105,7 @@ export interface IStorage {
 
   getPayments(debtorId?: string, batchId?: string): Promise<Payment[]>;
   getRecentPayments(limit?: number): Promise<Payment[]>;
+  getPendingPayments(): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
 
@@ -112,6 +113,7 @@ export interface IStorage {
   getPaymentBatch(id: string): Promise<PaymentBatch | undefined>;
   createPaymentBatch(batch: InsertPaymentBatch): Promise<PaymentBatch>;
   updatePaymentBatch(id: string, batch: Partial<InsertPaymentBatch>): Promise<PaymentBatch | undefined>;
+  addPaymentsToBatch(batchId: string, paymentIds: string[]): Promise<PaymentBatch | undefined>;
 
   getNotes(debtorId: string): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
@@ -1041,6 +1043,12 @@ export class MemStorage implements IStorage {
       .slice(0, limit);
   }
 
+  async getPendingPayments(): Promise<Payment[]> {
+    return Array.from(this.payments.values())
+      .filter((p) => p.status === "pending")
+      .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+  }
+
   async createPayment(payment: InsertPayment): Promise<Payment> {
     const id = randomUUID();
     const newPayment: Payment = {
@@ -1104,6 +1112,32 @@ export class MemStorage implements IStorage {
     if (!existing) return undefined;
     const updated = { ...existing, ...batch };
     this.paymentBatches.set(id, updated);
+    return updated;
+  }
+
+  async addPaymentsToBatch(batchId: string, paymentIds: string[]): Promise<PaymentBatch | undefined> {
+    const batch = this.paymentBatches.get(batchId);
+    if (!batch) return undefined;
+
+    let addedAmount = 0;
+    let addedCount = 0;
+
+    for (const paymentId of paymentIds) {
+      const payment = this.payments.get(paymentId);
+      if (payment && !payment.batchId) {
+        payment.batchId = batchId;
+        this.payments.set(paymentId, payment);
+        addedAmount += payment.amount;
+        addedCount++;
+      }
+    }
+
+    const updated: PaymentBatch = {
+      ...batch,
+      totalPayments: (batch.totalPayments || 0) + addedCount,
+      totalAmount: (batch.totalAmount || 0) + addedAmount,
+    };
+    this.paymentBatches.set(batchId, updated);
     return updated;
   }
 

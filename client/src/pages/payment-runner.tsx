@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { format } from "date-fns";
 import {
   Play,
   Pause,
@@ -12,6 +13,8 @@ import {
   FileText,
   Download,
   RefreshCw,
+  CalendarIcon,
+  Check,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,18 +36,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { PaymentBatch, Payment } from "@shared/schema";
+import type { PaymentBatch, Payment, Debtor } from "@shared/schema";
+
+interface PaymentWithDebtor extends Payment {
+  debtor?: Debtor;
+}
 
 export default function PaymentRunner() {
   const { toast } = useToast();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [batchName, setBatchName] = useState("");
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
 
   const { data: batches, isLoading: batchesLoading } = useQuery<PaymentBatch[]>({
     queryKey: ["/api/payment-batches"],
@@ -53,6 +65,14 @@ export default function PaymentRunner() {
   const { data: batchPayments, isLoading: paymentsLoading } = useQuery<Payment[]>({
     queryKey: ["/api/payment-batches", selectedBatchId, "payments"],
     enabled: !!selectedBatchId,
+  });
+
+  const { data: pendingPayments, isLoading: pendingLoading } = useQuery<PaymentWithDebtor[]>({
+    queryKey: ["/api/payments/pending"],
+  });
+
+  const { data: debtors } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors"],
   });
 
   const createBatchMutation = useMutation({
@@ -81,6 +101,52 @@ export default function PaymentRunner() {
       toast({ title: "Batch started", description: "Payment batch is now processing." });
     },
   });
+
+  const addToBatchMutation = useMutation({
+    mutationFn: async ({ batchId, paymentIds }: { batchId: string; paymentIds: string[] }) => {
+      return apiRequest("POST", `/api/payment-batches/${batchId}/add-payments`, { paymentIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      setSelectedPaymentIds(new Set());
+      toast({ title: "Payments added", description: "Selected payments have been added to the batch." });
+    },
+  });
+
+  const getDebtorName = (debtorId: string) => {
+    const debtor = debtors?.find((d) => d.id === debtorId);
+    return debtor ? `${debtor.firstName} ${debtor.lastName}` : "Unknown";
+  };
+
+  const filteredPendingPayments = pendingPayments?.filter((p) => {
+    if (!p.paymentDate) return false;
+    const paymentDateStr = format(new Date(p.paymentDate), "yyyy-MM-dd");
+    const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
+    return paymentDateStr === selectedDateStr;
+  }) || [];
+
+  const allFilteredPayments = pendingPayments || [];
+
+  const togglePaymentSelection = (paymentId: string) => {
+    const newSet = new Set(selectedPaymentIds);
+    if (newSet.has(paymentId)) {
+      newSet.delete(paymentId);
+    } else {
+      newSet.add(paymentId);
+    }
+    setSelectedPaymentIds(newSet);
+  };
+
+  const selectAllFiltered = () => {
+    const newSet = new Set(selectedPaymentIds);
+    filteredPendingPayments.forEach((p) => newSet.add(p.id));
+    setSelectedPaymentIds(newSet);
+  };
+
+  const clearSelection = () => {
+    setSelectedPaymentIds(new Set());
+  };
 
   const queuedBatches = batches?.filter((b) => b.status === "queued") || [];
   const processingBatches = batches?.filter((b) => b.status === "processing") || [];
@@ -137,6 +203,137 @@ export default function PaymentRunner() {
           icon={Loader2}
         />
       </div>
+
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2 flex-wrap">
+          <CardTitle className="text-lg font-medium">Pending Payments</CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "justify-start text-left font-normal",
+                    !selectedDate && "text-muted-foreground"
+                  )}
+                  data-testid="button-select-date"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {selectedDate ? format(selectedDate, "PPP") : "Select date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => date && setSelectedDate(date)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            {selectedPaymentIds.size > 0 && (
+              <>
+                <span className="text-sm text-muted-foreground">
+                  {selectedPaymentIds.size} selected
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearSelection}
+                  data-testid="button-clear-selection"
+                >
+                  Clear
+                </Button>
+                {draftBatches.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" data-testid="button-add-to-batch">
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add to Batch
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {draftBatches.map((batch) => (
+                        <DropdownMenuItem
+                          key={batch.id}
+                          onClick={() =>
+                            addToBatchMutation.mutate({
+                              batchId: batch.id,
+                              paymentIds: Array.from(selectedPaymentIds),
+                            })
+                          }
+                        >
+                          {batch.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {pendingLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : filteredPendingPayments.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-2 border-b">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectAllFiltered}
+                  data-testid="button-select-all"
+                >
+                  Select All ({filteredPendingPayments.length})
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  Total: {formatCurrency(filteredPendingPayments.reduce((sum, p) => sum + p.amount, 0))}
+                </p>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto space-y-2">
+                {filteredPendingPayments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-md border hover-elevate cursor-pointer",
+                      selectedPaymentIds.has(payment.id) && "bg-primary/10 border-primary"
+                    )}
+                    onClick={() => togglePaymentSelection(payment.id)}
+                    data-testid={`pending-payment-${payment.id}`}
+                  >
+                    <Checkbox
+                      checked={selectedPaymentIds.has(payment.id)}
+                      onCheckedChange={() => togglePaymentSelection(payment.id)}
+                      data-testid={`checkbox-payment-${payment.id}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{getDebtorName(payment.debtorId)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {payment.paymentMethod.toUpperCase()} • {payment.frequency || "one-time"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
+                    </div>
+                    <StatusBadge status={payment.status} size="sm" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : allFilteredPayments.length > 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No pending payments for {format(selectedDate, "PPP")}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {allFilteredPayments.length} pending payment(s) on other dates
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">No pending payments in the system</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">

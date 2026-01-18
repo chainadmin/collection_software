@@ -364,6 +364,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/payments/pending", async (req, res) => {
+    try {
+      const payments = await storage.getPendingPayments();
+      res.json(payments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch pending payments" });
+    }
+  });
+
   app.get("/api/payment-batches", async (req, res) => {
     try {
       const batches = await storage.getPaymentBatches();
@@ -425,6 +434,19 @@ export async function registerRoutes(
       res.json(payments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch batch payments" });
+    }
+  });
+
+  app.post("/api/payment-batches/:id/add-payments", async (req, res) => {
+    try {
+      const { paymentIds } = req.body;
+      if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
+        return res.status(400).json({ error: "Payment IDs required" });
+      }
+      const batch = await storage.addPaymentsToBatch(req.params.id, paymentIds);
+      res.json(batch);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add payments to batch" });
     }
   });
 
