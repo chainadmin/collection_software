@@ -102,6 +102,27 @@ export default function Workstation() {
   const [calculatorMonths, setCalculatorMonths] = useState("12");
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedNoteRef = useRef<string>("");
+  
+  // Inline editing state
+  const [showEditAddressDialog, setShowEditAddressDialog] = useState(false);
+  const [showEditEmailDialog, setShowEditEmailDialog] = useState(false);
+  const [showEditContactDialog, setShowEditContactDialog] = useState(false);
+  const [showAddContactDialog, setShowAddContactDialog] = useState(false);
+  const [editingContact, setEditingContact] = useState<DebtorContact | null>(null);
+  const [editAddress, setEditAddress] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [editState, setEditState] = useState("");
+  const [editZipCode, setEditZipCode] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editContactValue, setEditContactValue] = useState("");
+  const [editContactType, setEditContactType] = useState("phone");
+  const [editContactLabel, setEditContactLabel] = useState("");
+  
+  // Bulk add state
+  const [showBulkAddContactsDialog, setShowBulkAddContactsDialog] = useState(false);
+  const [showBulkAddNotesDialog, setShowBulkAddNotesDialog] = useState(false);
+  const [bulkContactsText, setBulkContactsText] = useState("");
+  const [bulkNotesText, setBulkNotesText] = useState("");
 
   const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
@@ -325,6 +346,32 @@ export default function Workstation() {
     },
   });
 
+  const updateContactMutation = useMutation({
+    mutationFn: async (data: { contactId: string; updates: Partial<DebtorContact> }) => {
+      return apiRequest("PATCH", `/api/contacts/${data.contactId}`, data.updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+      setShowEditContactDialog(false);
+      setEditingContact(null);
+      toast({ title: "Contact updated", description: "Contact information saved." });
+    },
+  });
+
+  const addContactMutation = useMutation({
+    mutationFn: async (data: { debtorId: string; type: string; value: string; label?: string }) => {
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/contacts`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+      setShowAddContactDialog(false);
+      setEditContactValue("");
+      setEditContactType("phone");
+      setEditContactLabel("");
+      toast({ title: "Contact added", description: "New contact added." });
+    },
+  });
+
   // Auto-save notes with debounce
   useEffect(() => {
     if (!quickNote.trim() || !selectedDebtorId || !currentCollector) {
@@ -460,6 +507,155 @@ export default function Workstation() {
       content: quickNote.trim(),
       noteType: "general",
     });
+  };
+
+  const openEditAddressDialog = () => {
+    if (!selectedDebtor) return;
+    setEditAddress(selectedDebtor.address || "");
+    setEditCity(selectedDebtor.city || "");
+    setEditState(selectedDebtor.state || "");
+    setEditZipCode(selectedDebtor.zipCode || "");
+    setShowEditAddressDialog(true);
+  };
+
+  const handleSaveAddress = () => {
+    if (!selectedDebtorId) return;
+    updateDebtorMutation.mutate(
+      {
+        id: selectedDebtorId,
+        updates: {
+          address: editAddress,
+          city: editCity,
+          state: editState,
+          zipCode: editZipCode,
+        },
+      },
+      {
+        onSuccess: () => {
+          setShowEditAddressDialog(false);
+          toast({ title: "Address updated", description: "Address saved successfully." });
+        },
+      }
+    );
+  };
+
+  const openEditEmailDialog = () => {
+    if (!selectedDebtor) return;
+    setEditEmail(selectedDebtor.email || "");
+    setShowEditEmailDialog(true);
+  };
+
+  const handleSaveEmail = () => {
+    if (!selectedDebtorId) return;
+    updateDebtorMutation.mutate(
+      {
+        id: selectedDebtorId,
+        updates: { email: editEmail },
+      },
+      {
+        onSuccess: () => {
+          setShowEditEmailDialog(false);
+          toast({ title: "Email updated", description: "Email saved successfully." });
+        },
+      }
+    );
+  };
+
+  const openEditContactDialog = (contact: DebtorContact) => {
+    setEditingContact(contact);
+    setEditContactValue(contact.value);
+    setEditContactType(contact.type);
+    setEditContactLabel(contact.label || "");
+    setShowEditContactDialog(true);
+  };
+
+  const handleSaveContact = () => {
+    if (!editingContact) return;
+    updateContactMutation.mutate({
+      contactId: editingContact.id,
+      updates: {
+        value: editContactValue,
+        type: editContactType,
+        label: editContactLabel,
+      },
+    });
+  };
+
+  const openAddContactDialog = () => {
+    setEditContactValue("");
+    setEditContactType("phone");
+    setEditContactLabel("");
+    setShowAddContactDialog(true);
+  };
+
+  const handleAddContact = () => {
+    if (!selectedDebtorId || !editContactValue.trim()) return;
+    addContactMutation.mutate({
+      debtorId: selectedDebtorId,
+      type: editContactType,
+      value: editContactValue.trim(),
+      label: editContactLabel || undefined,
+    });
+  };
+
+  const handleBulkAddContacts = async () => {
+    if (!selectedDebtorId || !bulkContactsText.trim()) return;
+    const lines = bulkContactsText.split("\n").filter(line => line.trim());
+    let addedCount = 0;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      
+      // Try to detect if it's a phone number or email
+      const isEmail = trimmedLine.includes("@");
+      const type = isEmail ? "email" : "phone";
+      
+      try {
+        await apiRequest("POST", `/api/debtors/${selectedDebtorId}/contacts`, {
+          debtorId: selectedDebtorId,
+          type,
+          value: trimmedLine,
+        });
+        addedCount++;
+      } catch (error) {
+        console.error("Failed to add contact:", trimmedLine);
+      }
+    }
+    
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+    setShowBulkAddContactsDialog(false);
+    setBulkContactsText("");
+    toast({ title: "Contacts added", description: `Added ${addedCount} contact(s).` });
+  };
+
+  const handleBulkAddNotes = async () => {
+    if (!selectedDebtorId || !bulkNotesText.trim() || !currentCollector) return;
+    const lines = bulkNotesText.split("\n").filter(line => line.trim());
+    let addedCount = 0;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      
+      try {
+        await apiRequest("POST", `/api/debtors/${selectedDebtorId}/notes`, {
+          debtorId: selectedDebtorId,
+          content: trimmedLine,
+          noteType: "general",
+          collectorId: currentCollector.id,
+          createdDate: new Date().toISOString().split("T")[0],
+        });
+        addedCount++;
+      } catch (error) {
+        console.error("Failed to add note:", trimmedLine);
+      }
+    }
+    
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "notes"] });
+    setShowBulkAddNotesDialog(false);
+    setBulkNotesText("");
+    toast({ title: "Notes added", description: `Added ${addedCount} note(s).` });
   };
 
   const handleRecordPayment = () => {
@@ -700,17 +896,35 @@ export default function Workstation() {
                       <span className="text-muted-foreground">DOB: </span>
                       <span>{selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}</span>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-2 flex items-center gap-1">
                       <span className="text-muted-foreground">Address: </span>
                       <span>
                         {selectedDebtor.address 
                           ? `${selectedDebtor.address}, ${selectedDebtor.city || ""} ${selectedDebtor.state || ""} ${selectedDebtor.zipCode || ""}`.trim()
                           : "N/A"}
                       </span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-5 w-5"
+                        onClick={openEditAddressDialog}
+                        data-testid="button-edit-address"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
                     </div>
-                    <div>
+                    <div className="flex items-center gap-1">
                       <span className="text-muted-foreground">Email: </span>
                       <span>{selectedDebtor.email || "N/A"}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-5 w-5"
+                        onClick={openEditEmailDialog}
+                        data-testid="button-edit-email"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Client: </span>
@@ -813,9 +1027,28 @@ export default function Workstation() {
               <div className="space-y-4 max-w-3xl">
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
-                      Contact Information
+                    <CardTitle className="text-sm font-medium flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Phone className="h-4 w-4" />
+                        Contact Information
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setShowBulkAddContactsDialog(true)}
+                        data-testid="button-bulk-add-contacts"
+                      >
+                        Bulk Add
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={openAddContactDialog}
+                        data-testid="button-add-contact"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add
+                      </Button>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -824,16 +1057,18 @@ export default function Workstation() {
                         {contacts.map((contact) => (
                           <div
                             key={contact.id}
-                            className={`flex items-center justify-between p-2 rounded-md bg-muted/50 ${contact.type === "phone" ? "cursor-pointer hover-elevate" : ""}`}
-                            onClick={() => {
-                              if (contact.type === "phone") {
-                                setClickedPhone(contact.value);
-                                setShowCallOutcomeDialog(true);
-                              }
-                            }}
+                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
                             data-testid={`contact-${contact.id}`}
                           >
-                            <div className="flex items-center gap-3">
+                            <div
+                              className={`flex items-center gap-3 flex-1 ${contact.type === "phone" ? "cursor-pointer hover-elevate rounded-md" : ""}`}
+                              onClick={() => {
+                                if (contact.type === "phone") {
+                                  setClickedPhone(contact.value);
+                                  setShowCallOutcomeDialog(true);
+                                }
+                              }}
+                            >
                               {contact.type === "phone" ? (
                                 <Phone className="h-4 w-4 text-muted-foreground" />
                               ) : (
@@ -847,9 +1082,23 @@ export default function Workstation() {
                                 </p>
                               </div>
                             </div>
-                            {contact.type === "phone" && (
-                              <Phone className="h-4 w-4 text-primary" />
-                            )}
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditContactDialog(contact);
+                                }}
+                                data-testid={`button-edit-contact-${contact.id}`}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              {contact.type === "phone" && (
+                                <Phone className="h-4 w-4 text-primary" />
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1022,6 +1271,16 @@ export default function Workstation() {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <CardContent className="space-y-4">
+                        <div className="flex justify-end mb-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setShowBulkAddNotesDialog(true)}
+                            data-testid="button-bulk-add-notes"
+                          >
+                            Bulk Add Notes
+                          </Button>
+                        </div>
                         <div className="space-y-2">
                           <div className="flex gap-2">
                             <Textarea
@@ -1416,6 +1675,264 @@ export default function Workstation() {
               setShowPaymentDialog(true);
             }}>
               Record Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditAddressDialog} onOpenChange={setShowEditAddressDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Address</DialogTitle>
+            <DialogDescription>
+              Update the debtor's address information
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Street Address</label>
+              <Input
+                type="text"
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+                placeholder="123 Main Street"
+                data-testid="input-edit-address"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label className="text-sm font-medium">City</label>
+                <Input
+                  type="text"
+                  value={editCity}
+                  onChange={(e) => setEditCity(e.target.value)}
+                  placeholder="Austin"
+                  data-testid="input-edit-city"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">State</label>
+                <Input
+                  type="text"
+                  value={editState}
+                  onChange={(e) => setEditState(e.target.value)}
+                  placeholder="TX"
+                  maxLength={2}
+                  data-testid="input-edit-state"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">ZIP Code</label>
+              <Input
+                type="text"
+                value={editZipCode}
+                onChange={(e) => setEditZipCode(e.target.value)}
+                placeholder="78701"
+                maxLength={10}
+                data-testid="input-edit-zip"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditAddressDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveAddress} disabled={updateDebtorMutation.isPending}>
+              {updateDebtorMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditEmailDialog} onOpenChange={setShowEditEmailDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Email</DialogTitle>
+            <DialogDescription>
+              Update the debtor's email address
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Email Address</label>
+              <Input
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="example@email.com"
+                data-testid="input-edit-email"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditEmailDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEmail} disabled={updateDebtorMutation.isPending}>
+              {updateDebtorMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditContactDialog} onOpenChange={setShowEditContactDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Contact</DialogTitle>
+            <DialogDescription>
+              Update contact information
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Type</label>
+              <Select value={editContactType} onValueChange={setEditContactType}>
+                <SelectTrigger data-testid="select-edit-contact-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="phone">Phone</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Value</label>
+              <Input
+                type="text"
+                value={editContactValue}
+                onChange={(e) => setEditContactValue(e.target.value)}
+                placeholder={editContactType === "phone" ? "(555) 123-4567" : "email@example.com"}
+                data-testid="input-edit-contact-value"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Label (optional)</label>
+              <Input
+                type="text"
+                value={editContactLabel}
+                onChange={(e) => setEditContactLabel(e.target.value)}
+                placeholder="Home, Work, Cell, etc."
+                data-testid="input-edit-contact-label"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditContactDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveContact} disabled={updateContactMutation.isPending}>
+              {updateContactMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddContactDialog} onOpenChange={setShowAddContactDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Contact</DialogTitle>
+            <DialogDescription>
+              Add a new phone number or email
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Type</label>
+              <Select value={editContactType} onValueChange={setEditContactType}>
+                <SelectTrigger data-testid="select-add-contact-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="phone">Phone</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Value</label>
+              <Input
+                type="text"
+                value={editContactValue}
+                onChange={(e) => setEditContactValue(e.target.value)}
+                placeholder={editContactType === "phone" ? "(555) 123-4567" : "email@example.com"}
+                data-testid="input-add-contact-value"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Label (optional)</label>
+              <Input
+                type="text"
+                value={editContactLabel}
+                onChange={(e) => setEditContactLabel(e.target.value)}
+                placeholder="Home, Work, Cell, etc."
+                data-testid="input-add-contact-label"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddContactDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddContact} disabled={addContactMutation.isPending}>
+              {addContactMutation.isPending ? "Adding..." : "Add Contact"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkAddContactsDialog} onOpenChange={setShowBulkAddContactsDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Add Contacts</DialogTitle>
+            <DialogDescription>
+              Add multiple phone numbers or emails, one per line. The system will auto-detect if each entry is a phone number or email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="(555) 123-4567&#10;(555) 987-6543&#10;email@example.com"
+              value={bulkContactsText}
+              onChange={(e) => setBulkContactsText(e.target.value)}
+              className="min-h-[150px]"
+              data-testid="textarea-bulk-contacts"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkAddContactsDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkAddContacts} disabled={!bulkContactsText.trim()}>
+              Add All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkAddNotesDialog} onOpenChange={setShowBulkAddNotesDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Add Notes</DialogTitle>
+            <DialogDescription>
+              Add multiple notes, one per line. Each line will be saved as a separate note.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="First note here&#10;Second note here&#10;Third note here"
+              value={bulkNotesText}
+              onChange={(e) => setBulkNotesText(e.target.value)}
+              className="min-h-[150px]"
+              data-testid="textarea-bulk-notes"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkAddNotesDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkAddNotes} disabled={!bulkNotesText.trim()}>
+              Add All
             </Button>
           </DialogFooter>
         </DialogContent>

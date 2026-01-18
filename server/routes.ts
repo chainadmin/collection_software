@@ -213,6 +213,18 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/contacts/:id", async (req, res) => {
+    try {
+      const contact = await storage.updateDebtorContact(req.params.id, req.body);
+      if (!contact) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      res.json(contact);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update contact" });
+    }
+  });
+
   app.get("/api/debtors/:id/employment", async (req, res) => {
     try {
       const records = await storage.getEmploymentRecords(req.params.id);

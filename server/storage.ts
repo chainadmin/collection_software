@@ -277,6 +277,10 @@ export class MemStorage implements IStorage {
       status: "active",
       avatarInitials: "SJ",
       goal: 5000000,
+      hourlyWage: 2500,
+      canViewDashboard: true,
+      canViewEmail: true,
+      canViewPaymentRunner: true,
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
@@ -288,6 +292,10 @@ export class MemStorage implements IStorage {
       status: "active",
       avatarInitials: "MC",
       goal: 2500000,
+      hourlyWage: 1800,
+      canViewDashboard: false,
+      canViewEmail: true,
+      canViewPaymentRunner: false,
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
@@ -299,6 +307,10 @@ export class MemStorage implements IStorage {
       status: "active",
       avatarInitials: "ER",
       goal: 2500000,
+      hourlyWage: 1800,
+      canViewDashboard: false,
+      canViewEmail: true,
+      canViewPaymentRunner: false,
     });
 
     const portfolio1Id = randomUUID();
@@ -569,6 +581,11 @@ export class MemStorage implements IStorage {
       referenceNumber: "PAY-2024-001234",
       processedBy: collector2Id,
       notes: "Monthly payment plan",
+      cardId: null,
+      frequency: "monthly",
+      nextPaymentDate: "2025-01-15",
+      specificDates: null,
+      isRecurring: true,
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
@@ -581,6 +598,11 @@ export class MemStorage implements IStorage {
       referenceNumber: "PAY-2024-001100",
       processedBy: collector2Id,
       notes: "Settlement in full",
+      cardId: null,
+      frequency: "one_time",
+      nextPaymentDate: null,
+      specificDates: null,
+      isRecurring: false,
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
@@ -593,6 +615,11 @@ export class MemStorage implements IStorage {
       referenceNumber: "PAY-2024-001189",
       processedBy: collector2Id,
       notes: null,
+      cardId: null,
+      frequency: "one_time",
+      nextPaymentDate: null,
+      specificDates: null,
+      isRecurring: false,
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
@@ -605,6 +632,11 @@ export class MemStorage implements IStorage {
       referenceNumber: "PAY-2024-001201",
       processedBy: collector1Id,
       notes: "Check #4521",
+      cardId: null,
+      frequency: "one_time",
+      nextPaymentDate: null,
+      specificDates: null,
+      isRecurring: false,
     });
 
     const batch1Id = randomUUID();
@@ -726,6 +758,10 @@ export class MemStorage implements IStorage {
       status: collector.status ?? "active",
       avatarInitials: collector.avatarInitials ?? null,
       goal: collector.goal ?? 0,
+      hourlyWage: collector.hourlyWage ?? null,
+      canViewDashboard: collector.canViewDashboard ?? false,
+      canViewEmail: collector.canViewEmail ?? false,
+      canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
     };
     this.collectors.set(id, newCollector);
     return newCollector;
@@ -1016,6 +1052,11 @@ export class MemStorage implements IStorage {
       referenceNumber: payment.referenceNumber ?? null,
       processedBy: payment.processedBy ?? null,
       notes: payment.notes ?? null,
+      cardId: payment.cardId ?? null,
+      frequency: payment.frequency ?? "one_time",
+      nextPaymentDate: payment.nextPaymentDate ?? null,
+      specificDates: payment.specificDates ?? null,
+      isRecurring: payment.isRecurring ?? false,
     };
     this.payments.set(id, newPayment);
     return newPayment;
