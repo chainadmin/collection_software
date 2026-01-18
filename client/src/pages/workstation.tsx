@@ -58,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
+import { RecordPaymentDialog } from "@/components/record-payment-dialog";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -1376,179 +1377,15 @@ export default function Workstation() {
         )}
       </div>
 
-      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-            <DialogDescription>
-              Enter the payment details for{" "}
-              {selectedDebtor && `${selectedDebtor.firstName} ${selectedDebtor.lastName}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-sm font-medium">Amount ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                data-testid="input-payment-amount"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Payment Method</label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger data-testid="select-payment-method">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ach">ACH Transfer</SelectItem>
-                  <SelectItem value="card">Credit/Debit Card</SelectItem>
-                  <SelectItem value="check">Check</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {paymentMethod === "card" && (
-              <>
-                {paymentCards && paymentCards.length > 0 && (
-                  <div>
-                    <label className="text-sm font-medium">Use Saved Card (Optional)</label>
-                    <Select value={selectedCardId} onValueChange={setSelectedCardId}>
-                      <SelectTrigger data-testid="select-saved-card">
-                        <SelectValue placeholder="Enter new card below or select saved" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Enter New Card</SelectItem>
-                        {paymentCards.map((card) => (
-                          <SelectItem key={card.id} value={card.id}>
-                            {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {(!selectedCardId || selectedCardId === "") && (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium">Card Type</label>
-                      <Select value={cardType} onValueChange={setCardType}>
-                        <SelectTrigger data-testid="select-payment-card-type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="visa">Visa</SelectItem>
-                          <SelectItem value="mastercard">Mastercard</SelectItem>
-                          <SelectItem value="amex">American Express</SelectItem>
-                          <SelectItem value="discover">Discover</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Card Number</label>
-                      <Input
-                        type="text"
-                        placeholder="1234 5678 9012 3456"
-                        value={cardNumber}
-                        onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ""))}
-                        maxLength={16}
-                        data-testid="input-payment-card-number"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium">Expiry (MM/YY)</label>
-                        <Input
-                          type="text"
-                          placeholder="MM/YY"
-                          value={cardExpiry}
-                          onChange={(e) => setCardExpiry(e.target.value)}
-                          maxLength={5}
-                          data-testid="input-payment-card-expiry"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium">CVV</label>
-                        <Input
-                          type="text"
-                          placeholder="123"
-                          value={cardCvv}
-                          onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ""))}
-                          maxLength={4}
-                          data-testid="input-payment-card-cvv"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Cardholder Name</label>
-                      <Input
-                        type="text"
-                        placeholder="John Doe"
-                        value={cardHolderName}
-                        onChange={(e) => setCardHolderName(e.target.value)}
-                        data-testid="input-payment-cardholder-name"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Billing ZIP (optional)</label>
-                      <Input
-                        type="text"
-                        placeholder="12345"
-                        value={cardBillingZip}
-                        onChange={(e) => setCardBillingZip(e.target.value)}
-                        maxLength={10}
-                        data-testid="input-payment-billing-zip"
-                      />
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-            <div>
-              <label className="text-sm font-medium">Payment Frequency</label>
-              <Select value={paymentFrequency} onValueChange={setPaymentFrequency}>
-                <SelectTrigger data-testid="select-payment-frequency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="one_time">One-Time Payment</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="bi_weekly">Bi-Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="specific_dates">Specific Dates</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {paymentFrequency === "specific_dates" && (
-              <div>
-                <label className="text-sm font-medium">Specific Dates (comma separated)</label>
-                <Input
-                  type="text"
-                  placeholder="2025-02-01, 2025-02-15, 2025-03-01"
-                  value={specificPaymentDates}
-                  onChange={(e) => setSpecificPaymentDates(e.target.value)}
-                  data-testid="input-specific-dates"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Enter dates in YYYY-MM-DD format</p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleRecordPayment}
-              disabled={addPaymentMutation.isPending}
-              data-testid="button-confirm-payment"
-            >
-              {addPaymentMutation.isPending ? "Recording..." : "Record Payment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {selectedDebtorId && selectedDebtor && currentCollector && (
+        <RecordPaymentDialog
+          open={showPaymentDialog}
+          onOpenChange={setShowPaymentDialog}
+          debtorId={selectedDebtorId}
+          debtorName={`${selectedDebtor.firstName} ${selectedDebtor.lastName}`}
+          collectorId={currentCollector.id}
+        />
+      )}
 
       <Dialog open={showCardDialog} onOpenChange={setShowCardDialog}>
         <DialogContent>

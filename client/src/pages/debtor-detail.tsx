@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
+import { RecordPaymentDialog } from "@/components/record-payment-dialog";
 import { formatCurrency, formatDate, formatPhone, maskSSN, getInitials, maskAccountNumber } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -57,9 +58,7 @@ export default function DebtorDetail() {
   const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteType, setNoteType] = useState("general");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("ach");
-
+  
   const debtorId = params?.id;
 
   const { data: debtor, isLoading: debtorLoading } = useQuery<Debtor>({
@@ -120,25 +119,6 @@ export default function DebtorDetail() {
       setNoteContent("");
       setNoteType("general");
       toast({ title: "Note added", description: "Note has been saved to the account." });
-    },
-  });
-
-  const addPaymentMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string }) => {
-      return apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
-        ...data,
-        debtorId,
-        paymentDate: new Date().toISOString().split("T")[0],
-        status: "pending",
-        processedBy: currentCollector?.id,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
-      setShowAddPaymentDialog(false);
-      setPaymentAmount("");
-      toast({ title: "Payment recorded", description: "Payment has been added to the account." });
     },
   });
 
@@ -657,59 +637,15 @@ export default function DebtorDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAddPaymentDialog} onOpenChange={setShowAddPaymentDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-            <DialogDescription>Record a payment for this account.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="paymentAmount">Amount ($)</Label>
-              <Input
-                id="paymentAmount"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                data-testid="input-payment-amount"
-              />
-            </div>
-            <div>
-              <Label htmlFor="paymentMethod">Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger id="paymentMethod" data-testid="select-payment-method">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ach">ACH</SelectItem>
-                  <SelectItem value="card">Credit/Debit Card</SelectItem>
-                  <SelectItem value="check">Check</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddPaymentDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                addPaymentMutation.mutate({
-                  amount: Math.round(parseFloat(paymentAmount) * 100),
-                  paymentMethod,
-                })
-              }
-              disabled={!paymentAmount || addPaymentMutation.isPending || !isCollectorReady}
-              data-testid="button-save-payment"
-            >
-              {addPaymentMutation.isPending ? "Saving..." : "Record Payment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {debtorId && currentCollector && (
+        <RecordPaymentDialog
+          open={showAddPaymentDialog}
+          onOpenChange={setShowAddPaymentDialog}
+          debtorId={debtorId}
+          debtorName={`${debtor.firstName} ${debtor.lastName}`}
+          collectorId={currentCollector.id}
+        />
+      )}
     </div>
   );
 }
