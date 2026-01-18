@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { CalendarIcon, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { PaymentCard } from "@shared/schema";
@@ -41,7 +47,8 @@ export function RecordPaymentDialog({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("ach");
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
-  const [specificPaymentDates, setSpecificPaymentDates] = useState("");
+  const [paymentDate, setPaymentDate] = useState<Date>(new Date());
+  const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const [selectedCardId, setSelectedCardId] = useState("");
   const [cardType, setCardType] = useState("visa");
   const [cardNumber, setCardNumber] = useState("");
@@ -60,7 +67,8 @@ export function RecordPaymentDialog({
     setPaymentAmount("");
     setPaymentMethod("ach");
     setPaymentFrequency("one_time");
-    setSpecificPaymentDates("");
+    setPaymentDate(new Date());
+    setSelectedDates([]);
     setSelectedCardId("");
     setCardType("visa");
     setCardNumber("");
@@ -68,6 +76,16 @@ export function RecordPaymentDialog({
     setCardCvv("");
     setCardHolderName("");
     setCardBillingZip("");
+  };
+
+  const addSelectedDate = (date: Date | undefined) => {
+    if (date && !selectedDates.some(d => d.toDateString() === date.toDateString())) {
+      setSelectedDates([...selectedDates, date].sort((a, b) => a.getTime() - b.getTime()));
+    }
+  };
+
+  const removeSelectedDate = (dateToRemove: Date) => {
+    setSelectedDates(selectedDates.filter(d => d.toDateString() !== dateToRemove.toDateString()));
   };
 
   const handleRecordPayment = async () => {
@@ -126,13 +144,13 @@ export function RecordPaymentDialog({
         debtorId,
         amount,
         paymentMethod,
-        paymentDate: new Date().toISOString().split("T")[0],
+        paymentDate: paymentDate.toISOString().split("T")[0],
         status: "pending",
         processedBy: collectorId,
         frequency: paymentFrequency,
         isRecurring,
         nextPaymentDate,
-        specificDates: paymentFrequency === "specific_dates" ? specificPaymentDates : null,
+        specificDates: paymentFrequency === "specific_dates" ? selectedDates.map(d => d.toISOString().split("T")[0]).join(", ") : null,
         cardId: cardIdToUse || null,
       });
 
@@ -293,17 +311,74 @@ export function RecordPaymentDialog({
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <Label>Payment Date</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !paymentDate && "text-muted-foreground"
+                  )}
+                  data-testid="button-payment-date"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {paymentDate ? format(paymentDate, "PPP") : "Select date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={paymentDate}
+                  onSelect={(date) => date && setPaymentDate(date)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
           {paymentFrequency === "specific_dates" && (
             <div>
-              <Label>Specific Dates (comma separated)</Label>
-              <Input
-                type="text"
-                placeholder="2025-02-01, 2025-02-15, 2025-03-01"
-                value={specificPaymentDates}
-                onChange={(e) => setSpecificPaymentDates(e.target.value)}
-                data-testid="input-specific-dates"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Enter dates in YYYY-MM-DD format</p>
+              <Label>Future Payment Dates</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal"
+                    data-testid="button-add-date"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    Add payment date
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={undefined}
+                    onSelect={addSelectedDate}
+                    disabled={(date) => date < new Date()}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {selectedDates.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {selectedDates.map((date, index) => (
+                    <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                      {format(date, "MMM d, yyyy")}
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedDate(date)}
+                        className="ml-1 hover:text-destructive"
+                        data-testid={`button-remove-date-${index}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground mt-2">Click to add future payment dates</p>
             </div>
           )}
         </div>
