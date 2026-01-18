@@ -664,17 +664,54 @@ export default function Workstation() {
     toast({ title: "Notes added", description: `Added ${addedCount} note(s).` });
   };
 
-  const handleRecordPayment = () => {
+  const handleRecordPayment = async () => {
     if (!selectedDebtorId || !paymentAmount || !currentCollector) return;
     const amount = Math.round(parseFloat(paymentAmount) * 100);
     if (isNaN(amount) || amount <= 0) {
       toast({ title: "Error", description: "Please enter a valid payment amount.", variant: "destructive" });
       return;
     }
+    
+    let cardIdToUse = selectedCardId;
+    
+    // If card payment with new card info, save the card first
+    if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
+      if (cardNumber.length < 13) {
+        toast({ title: "Error", description: "Please enter a valid card number.", variant: "destructive" });
+        return;
+      }
+      
+      const [expiryMonth, expiryYear] = cardExpiry.split("/");
+      if (!expiryMonth || !expiryYear) {
+        toast({ title: "Error", description: "Please enter expiry in MM/YY format.", variant: "destructive" });
+        return;
+      }
+      
+      try {
+        const newCard = await apiRequest("POST", `/api/debtors/${selectedDebtorId}/cards`, {
+          debtorId: selectedDebtorId,
+          cardType,
+          cardNumber,
+          cardNumberLast4: cardNumber.slice(-4),
+          expiryMonth,
+          expiryYear: `20${expiryYear}`,
+          cardholderName: cardHolderName,
+          billingZip: cardBillingZip,
+          cvv: cardCvv,
+        });
+        cardIdToUse = newCard.id;
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to save card.", variant: "destructive" });
+        return;
+      }
+    }
+    
     addPaymentMutation.mutate({
       debtorId: selectedDebtorId,
       amount,
       paymentMethod,
+      cardId: cardIdToUse || undefined,
     });
   };
 
@@ -1374,22 +1411,100 @@ export default function Workstation() {
               </Select>
             </div>
             {paymentMethod === "card" && (
-              <div>
-                <label className="text-sm font-medium">Select Card</label>
-                <Select value={selectedCardId} onValueChange={setSelectedCardId}>
-                  <SelectTrigger data-testid="select-saved-card">
-                    <SelectValue placeholder="Select a card or add new" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">Add New Card</SelectItem>
-                    {paymentCards && paymentCards.map((card) => (
-                      <SelectItem key={card.id} value={card.id}>
-                        {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                {paymentCards && paymentCards.length > 0 && (
+                  <div>
+                    <label className="text-sm font-medium">Use Saved Card (Optional)</label>
+                    <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                      <SelectTrigger data-testid="select-saved-card">
+                        <SelectValue placeholder="Enter new card below or select saved" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Enter New Card</SelectItem>
+                        {paymentCards.map((card) => (
+                          <SelectItem key={card.id} value={card.id}>
+                            {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {(!selectedCardId || selectedCardId === "") && (
+                  <>
+                    <div>
+                      <label className="text-sm font-medium">Card Type</label>
+                      <Select value={cardType} onValueChange={setCardType}>
+                        <SelectTrigger data-testid="select-payment-card-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="visa">Visa</SelectItem>
+                          <SelectItem value="mastercard">Mastercard</SelectItem>
+                          <SelectItem value="amex">American Express</SelectItem>
+                          <SelectItem value="discover">Discover</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Card Number</label>
+                      <Input
+                        type="text"
+                        placeholder="1234 5678 9012 3456"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ""))}
+                        maxLength={16}
+                        data-testid="input-payment-card-number"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium">Expiry (MM/YY)</label>
+                        <Input
+                          type="text"
+                          placeholder="MM/YY"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(e.target.value)}
+                          maxLength={5}
+                          data-testid="input-payment-card-expiry"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">CVV</label>
+                        <Input
+                          type="text"
+                          placeholder="123"
+                          value={cardCvv}
+                          onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ""))}
+                          maxLength={4}
+                          data-testid="input-payment-card-cvv"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Cardholder Name</label>
+                      <Input
+                        type="text"
+                        placeholder="John Doe"
+                        value={cardHolderName}
+                        onChange={(e) => setCardHolderName(e.target.value)}
+                        data-testid="input-payment-cardholder-name"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Billing ZIP (optional)</label>
+                      <Input
+                        type="text"
+                        placeholder="12345"
+                        value={cardBillingZip}
+                        onChange={(e) => setCardBillingZip(e.target.value)}
+                        maxLength={10}
+                        data-testid="input-payment-billing-zip"
+                      />
+                    </div>
+                  </>
+                )}
+              </>
             )}
             <div>
               <label className="text-sm font-medium">Payment Frequency</label>
