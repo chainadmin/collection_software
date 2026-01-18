@@ -91,6 +91,7 @@ export default function Workstation() {
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardHolderName, setCardHolderName] = useState("");
   const [cardBillingZip, setCardBillingZip] = useState("");
+  const [cardCvv, setCardCvv] = useState("");
   const [cardType, setCardType] = useState("visa");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedCardId, setSelectedCardId] = useState<string>("");
@@ -325,14 +326,16 @@ export default function Workstation() {
   });
 
   const addCardMutation = useMutation({
-    mutationFn: async (data: { debtorId: string; cardType: string; cardNumberLast4: string; expiryMonth: string; expiryYear: string; cardholderName: string; billingZip: string }) => {
+    mutationFn: async (data: { debtorId: string; cardType: string; cardNumber: string; cardNumberLast4: string; expiryMonth: string; expiryYear: string; cardholderName: string; billingZip: string; cvv: string }) => {
       return apiRequest("POST", `/api/debtors/${data.debtorId}/cards`, {
         cardType: data.cardType,
+        cardNumber: data.cardNumber,
         cardNumberLast4: data.cardNumberLast4,
         expiryMonth: data.expiryMonth,
         expiryYear: data.expiryYear,
         cardholderName: data.cardholderName,
         billingZip: data.billingZip,
+        cvv: data.cvv,
       });
     },
     onSuccess: () => {
@@ -342,6 +345,7 @@ export default function Workstation() {
       setCardExpiry("");
       setCardHolderName("");
       setCardBillingZip("");
+      setCardCvv("");
       toast({ title: "Card added", description: "Payment card has been saved on file." });
     },
   });
@@ -423,11 +427,13 @@ export default function Workstation() {
     addCardMutation.mutate({
       debtorId: selectedDebtorId,
       cardType,
+      cardNumber,
       cardNumberLast4,
       expiryMonth: expiryParts[0],
       expiryYear: `20${expiryParts[1]}`,
       cardholderName: cardHolderName,
       billingZip: cardBillingZip,
+      cvv: cardCvv,
     });
   };
 
@@ -913,19 +919,6 @@ export default function Workstation() {
                         <Pencil className="h-3 w-3" />
                       </Button>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">Email: </span>
-                      <span>{selectedDebtor.email || "N/A"}</span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-5 w-5"
-                        onClick={openEditEmailDialog}
-                        data-testid="button-edit-email"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                    </div>
                     <div>
                       <span className="text-muted-foreground">Client: </span>
                       <span>{selectedDebtor.clientName || "N/A"}</span>
@@ -1237,7 +1230,7 @@ export default function Workstation() {
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium capitalize">{card.cardType}</p>
                                   <Badge variant="secondary" className="text-xs font-mono">
-                                    **** {card.cardNumberLast4}
+                                    {card.cardNumber || `**** ${card.cardNumberLast4}`}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground">
@@ -1377,7 +1370,6 @@ export default function Workstation() {
                   <SelectItem value="ach">ACH Transfer</SelectItem>
                   <SelectItem value="card">Credit/Debit Card</SelectItem>
                   <SelectItem value="check">Check</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1392,7 +1384,7 @@ export default function Workstation() {
                     <SelectItem value="new">Add New Card</SelectItem>
                     {paymentCards && paymentCards.map((card) => (
                       <SelectItem key={card.id} value={card.id}>
-                        {card.cardType.toUpperCase()} **** {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
+                        {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1477,18 +1469,30 @@ export default function Workstation() {
                 maxLength={16}
                 data-testid="input-card-number"
               />
-              <p className="text-xs text-muted-foreground mt-1">Only last 4 digits will be stored</p>
             </div>
-            <div>
-              <label className="text-sm font-medium">Expiry (MM/YY)</label>
-              <Input
-                type="text"
-                placeholder="MM/YY"
-                value={cardExpiry}
-                onChange={(e) => setCardExpiry(e.target.value)}
-                maxLength={5}
-                data-testid="input-card-expiry"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Expiry (MM/YY)</label>
+                <Input
+                  type="text"
+                  placeholder="MM/YY"
+                  value={cardExpiry}
+                  onChange={(e) => setCardExpiry(e.target.value)}
+                  maxLength={5}
+                  data-testid="input-card-expiry"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">CVV</label>
+                <Input
+                  type="text"
+                  placeholder="123"
+                  value={cardCvv}
+                  onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ""))}
+                  maxLength={4}
+                  data-testid="input-card-cvv"
+                />
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium">Cardholder Name</label>
