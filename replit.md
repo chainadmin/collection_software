@@ -1,8 +1,8 @@
-# CollectMax Pro - Debt Collection Management Software
+# DebtFlow Pro - Debt Collection Management Software
 
 ## Overview
 
-CollectMax Pro is a professional debt collection management platform built for enterprise use. The application enables collection agencies to manage debtor accounts, process payments in batches, track portfolio performance, manage collector teams, and monitor liquidation rates across purchased debt portfolios.
+DebtFlow Pro is a professional debt collection management platform built for enterprise use. The application enables collection agencies to manage debtor accounts, process payments via merchant integrations (NMI and USAePay), track portfolio performance, manage collector teams, and monitor liquidation rates across purchased debt portfolios.
 
 The system is designed as a data-heavy enterprise application following Carbon Design System principles, prioritizing efficiency, dense information display, and workflow optimization similar to platforms like Salesforce or HubSpot CRM.
 

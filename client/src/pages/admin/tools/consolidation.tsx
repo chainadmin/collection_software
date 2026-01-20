@@ -77,15 +77,15 @@ export default function Consolidation() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Account Consolidation</h1>
-        <p className="text-muted-foreground">Merge multiple accounts for the same debtor</p>
+        <h1 className="text-2xl font-semibold">Debt Consolidation Companies</h1>
+        <p className="text-muted-foreground">Manage debtors using debt consolidation companies to negotiate payments</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Find Accounts to Consolidate</CardTitle>
-            <CardDescription>Search by name or SSN to find related accounts</CardDescription>
+            <CardTitle className="text-base">Debtors Using Consolidation Services</CardTitle>
+            <CardDescription>Search for debtors who are working with debt consolidation companies</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">

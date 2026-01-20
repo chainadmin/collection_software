@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -90,13 +91,30 @@ function AppContent() {
   });
 
   const currentCollector = collectors[1];
+  const isCollectorRole = currentCollector?.role === "collector";
   
   const isCollectorRoute =
     location.startsWith("/workstation") ||
     location.startsWith("/collector/");
 
+  const isAdminRoute =
+    location === "/" ||
+    location.startsWith("/debtors") ||
+    location.startsWith("/payment-runner") ||
+    location.startsWith("/portfolios") ||
+    location.startsWith("/collectors") ||
+    location.startsWith("/liquidation") ||
+    location.startsWith("/settings") ||
+    location.startsWith("/admin/");
+
+  useEffect(() => {
+    if (isCollectorRole && isAdminRoute && !isCollectorRoute) {
+      setLocation("/workstation");
+    }
+  }, [isCollectorRole, isAdminRoute, isCollectorRoute, setLocation]);
+
   const handleAccountSelect = (debtor: Debtor) => {
-    if (isCollectorRoute) {
+    if (isCollectorRoute || isCollectorRole) {
       setLocation(`/workstation?account=${debtor.id}`);
     } else {
       setLocation(`/debtors/${debtor.id}`);
@@ -108,10 +126,12 @@ function AppContent() {
     "--sidebar-width-icon": "4rem",
   };
 
+  const showCollectorSidebar = isCollectorRole || isCollectorRoute;
+
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
-        {isCollectorRoute ? (
+        {showCollectorSidebar ? (
           <CollectorSidebar
             currentCollector={currentCollector ? {
               name: currentCollector.name,
@@ -147,7 +167,7 @@ function AppContent() {
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="light" storageKey="collectmax-theme">
+    <ThemeProvider defaultTheme="light" storageKey="debtflow-theme">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <AppContent />

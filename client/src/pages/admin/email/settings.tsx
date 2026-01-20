@@ -12,9 +12,9 @@ export default function EmailSettings() {
   const { toast } = useToast();
   const [smtpHost, setSmtpHost] = useState("smtp.example.com");
   const [smtpPort, setSmtpPort] = useState("587");
-  const [smtpUser, setSmtpUser] = useState("noreply@collectmax.com");
-  const [senderName, setSenderName] = useState("CollectMax Pro");
-  const [replyTo, setReplyTo] = useState("collections@collectmax.com");
+  const [smtpUser, setSmtpUser] = useState("noreply@debtflow.com");
+  const [senderName, setSenderName] = useState("DebtFlow Pro");
+  const [replyTo, setReplyTo] = useState("collections@debtflow.com");
   const [enableTracking, setEnableTracking] = useState(true);
   const [dailyLimit, setDailyLimit] = useState("500");
   const [enableScheduling, setEnableScheduling] = useState(true);

@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle, Search, RotateCcw, Calendar } from "lucide-react";
+import { AlertTriangle, Search, RotateCcw, Calendar, Star, StarOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import type { Debtor, Portfolio } from "@shared/schema";
+import type { Debtor, Portfolio, Payment } from "@shared/schema";
 
 export default function Recall() {
   const { toast } = useToast();
@@ -26,6 +26,23 @@ export default function Recall() {
   const { data: debtors = [] } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
   });
+
+  const { data: payments = [] } = useQuery<Payment[]>({
+    queryKey: ["/api/payments/recent"],
+    queryFn: async () => {
+      const res = await fetch("/api/payments/recent?limit=1000");
+      if (!res.ok) throw new Error("Failed to fetch payments");
+      return res.json();
+    },
+  });
+
+  const hasPaymentsOnFile = (debtorId: string) => {
+    return payments.some((p) => p.debtorId === debtorId);
+  };
+
+  const isKeeper = (debtor: Debtor) => {
+    return hasPaymentsOnFile(debtor.id) || debtor.status === "in_payment" || debtor.status === "promise";
+  };
 
   const filteredDebtors = debtors.filter((d) => {
     const matchesPortfolio = selectedPortfolio === "all" || !selectedPortfolio || d.portfolioId === selectedPortfolio;
@@ -147,7 +164,7 @@ export default function Recall() {
                 filteredDebtors.map((debtor) => (
                   <div 
                     key={debtor.id} 
-                    className="flex items-center gap-4 p-3 hover-elevate cursor-pointer"
+                    className={`flex items-center gap-4 p-3 hover-elevate cursor-pointer ${isKeeper(debtor) ? "bg-green-50 dark:bg-green-950/20" : ""}`}
                     onClick={() => toggleAccount(debtor.id)}
                     data-testid={`row-account-${debtor.id}`}
                   >
@@ -155,6 +172,16 @@ export default function Recall() {
                       checked={selectedAccounts.has(debtor.id)}
                       onCheckedChange={() => toggleAccount(debtor.id)}
                     />
+                    <div className="flex items-center gap-2">
+                      {isKeeper(debtor) ? (
+                        <Star className="h-4 w-4 text-green-600 fill-green-600" />
+                      ) : (
+                        <StarOff className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <Badge variant={isKeeper(debtor) ? "default" : "secondary"} className="text-xs">
+                        {isKeeper(debtor) ? "KEEPER" : "Non-Keeper"}
+                      </Badge>
+                    </div>
                     <div className="flex-1 grid grid-cols-5 gap-4 items-center">
                       <div>
                         <p className="font-medium">{debtor.firstName} {debtor.lastName}</p>

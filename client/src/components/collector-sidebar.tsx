@@ -41,7 +41,7 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
             <Building2 className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-sidebar-foreground">CollectMax Pro</span>
+            <span className="text-sm font-semibold text-sidebar-foreground">DebtFlow Pro</span>
             <span className="text-xs text-muted-foreground">Collector Workstation</span>
           </div>
         </Link>

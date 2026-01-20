@@ -87,6 +87,7 @@ export default function Workstation() {
   const [bankOpen, setBankOpen] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(true);
+  const [pendingPaymentsOpen, setPendingPaymentsOpen] = useState(true);
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
@@ -297,7 +298,7 @@ export default function Workstation() {
   });
 
   const addPaymentMutation = useMutation({
-    mutationFn: async (data: { debtorId: string; amount: number; paymentMethod: string }) => {
+    mutationFn: async (data: { debtorId: string; amount: number; paymentMethod: string; cardId?: string }) => {
       if (!currentCollector) throw new Error("No collector found");
       return apiRequest("POST", `/api/debtors/${data.debtorId}/payments`, {
         debtorId: data.debtorId,
@@ -306,6 +307,7 @@ export default function Workstation() {
         paymentDate: new Date().toISOString().split("T")[0],
         status: "pending",
         processedBy: currentCollector.id,
+        cardId: data.cardId,
       });
     },
     onSuccess: () => {
@@ -689,7 +691,7 @@ export default function Workstation() {
       }
       
       try {
-        const newCard = await apiRequest("POST", `/api/debtors/${selectedDebtorId}/cards`, {
+        const response = await apiRequest("POST", `/api/debtors/${selectedDebtorId}/cards`, {
           debtorId: selectedDebtorId,
           cardType,
           cardNumber,
@@ -700,6 +702,7 @@ export default function Workstation() {
           billingZip: cardBillingZip,
           cvv: cardCvv,
         });
+        const newCard = await response.json();
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
       } catch (error) {
@@ -1279,6 +1282,66 @@ export default function Workstation() {
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground">No payment cards on file</p>
+                        )}
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
+
+                <Collapsible open={pendingPaymentsOpen} onOpenChange={setPendingPaymentsOpen}>
+                  <Card>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="pb-2 cursor-pointer" data-testid="trigger-pending-payments">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            Pending Payments
+                            {debtorPayments?.filter((p) => p.status === "pending").length ? (
+                              <Badge variant="secondary" className="ml-1">
+                                {debtorPayments.filter((p) => p.status === "pending").length}
+                              </Badge>
+                            ) : null}
+                          </span>
+                          <ChevronRight
+                            className={`h-4 w-4 transition-transform ${pendingPaymentsOpen ? "rotate-90" : ""}`}
+                          />
+                        </CardTitle>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent>
+                        {debtorPayments?.filter((p) => p.status === "pending").length ? (
+                          <div className="space-y-2">
+                            {debtorPayments
+                              .filter((p) => p.status === "pending")
+                              .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
+                              .map((payment) => (
+                                <div
+                                  key={payment.id}
+                                  className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                                  data-testid={`pending-payment-${payment.id}`}
+                                >
+                                  <div>
+                                    <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {payment.paymentMethod === "ach" && "ACH Transfer"}
+                                      {payment.paymentMethod === "card" && "Credit/Debit Card"}
+                                      {payment.paymentMethod === "check" && "Check"}
+                                      {" "}• {payment.frequency === "one_time" ? "One-time" : payment.frequency}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-sm">{formatDate(payment.paymentDate)}</p>
+                                    <StatusBadge status={payment.status} size="sm" />
+                                  </div>
+                                </div>
+                              ))}
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Total: {formatCurrency(debtorPayments.filter((p) => p.status === "pending").reduce((sum, p) => sum + p.amount, 0))}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No pending payments scheduled</p>
                         )}
                       </CardContent>
                     </CollapsibleContent>
