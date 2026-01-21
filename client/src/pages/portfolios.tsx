@@ -53,7 +53,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, formatDate, calculateLiquidationRate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Portfolio, Collector, PortfolioAssignment } from "@shared/schema";
+import type { Portfolio, Collector, PortfolioAssignment, Client, FeeSchedule } from "@shared/schema";
 
 const addPortfolioSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -64,6 +64,8 @@ const addPortfolioSchema = z.object({
   creditorName: z.string().optional(),
   debtType: z.string().optional(),
   status: z.string().default("active"),
+  clientId: z.string().optional().nullable(),
+  feeScheduleId: z.string().optional().nullable(),
 });
 
 type AddPortfolioForm = z.infer<typeof addPortfolioSchema>;
@@ -82,6 +84,14 @@ export default function Portfolios() {
     queryKey: ["/api/collectors"],
   });
 
+  const { data: clients } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+  });
+
+  const { data: feeSchedules } = useQuery<FeeSchedule[]>({
+    queryKey: ["/api/fee-schedules"],
+  });
+
   const form = useForm<AddPortfolioForm>({
     resolver: zodResolver(addPortfolioSchema),
     defaultValues: {
@@ -93,6 +103,8 @@ export default function Portfolios() {
       creditorName: "",
       debtType: "credit_card",
       status: "active",
+      clientId: null,
+      feeScheduleId: null,
     },
   });
 
@@ -320,6 +332,56 @@ export default function Portfolios() {
                   </FormItem>
                 )}
               />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="clientId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client</FormLabel>
+                      <Select onValueChange={(val) => field.onChange(val === "none" ? null : val)} value={field.value || "none"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-client">
+                            <SelectValue placeholder="Select client" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">No Client</SelectItem>
+                          {clients?.map((client) => (
+                            <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="feeScheduleId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fee Schedule</FormLabel>
+                      <Select onValueChange={(val) => field.onChange(val === "none" ? null : val)} value={field.value || "none"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-fee-schedule">
+                            <SelectValue placeholder="Select fee schedule" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">No Fee Schedule</SelectItem>
+                          {feeSchedules?.filter(f => f.isActive).map((fee) => (
+                            <SelectItem key={fee.id} value={fee.id}>
+                              {fee.name} ({(fee.feePercentage || 0) / 100}%)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
