@@ -21,14 +21,20 @@ export default function ImportExport() {
   const [exportPortfolio, setExportPortfolio] = useState("");
   const [exportFormat, setExportFormat] = useState("csv");
   const [schemaName, setSchemaName] = useState("");
-  const [savedSchemas, setSavedSchemas] = useState<{name: string; mappings: Record<string, string>}[]>([
-    { name: "Standard Account Import", mappings: { "Account Number": "accountNumber", "First Name": "firstName", "Last Name": "lastName", "Balance": "currentBalance" } },
-    { name: "Chase Format", mappings: { "ACCT_NUM": "accountNumber", "FNAME": "firstName", "LNAME": "lastName", "ORIG_BAL": "originalBalance", "CURR_BAL": "currentBalance" } },
-  ]);
+  const [savedSchemas, setSavedSchemas] = useState<{name: string; mappings: Record<string, string>}[]>(() => {
+    try {
+      const stored = localStorage.getItem("debtflow_schema_mappings");
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return [
+      { name: "Standard Account Import", mappings: { "Account Number": "accountNumber", "First Name": "firstName", "Last Name": "lastName", "Balance": "currentBalance" } },
+      { name: "Chase Format", mappings: { "ACCT_NUM": "accountNumber", "FNAME": "firstName", "LNAME": "lastName", "ORIG_BAL": "originalBalance", "CURR_BAL": "currentBalance" } },
+    ];
+  });
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
 
   const systemFields = [
-    { value: "", label: "-- Skip --" },
+    { value: "skip", label: "-- Skip --" },
     { value: "accountNumber", label: "Account Number" },
     { value: "fileNumber", label: "File Number" },
     { value: "firstName", label: "First Name" },
@@ -354,7 +360,7 @@ export default function ImportExport() {
                           </SelectTrigger>
                           <SelectContent>
                             {systemFields.map((field) => (
-                              <SelectItem key={field.value || "skip"} value={field.value || "skip"}>
+                              <SelectItem key={field.value} value={field.value}>
                                 {field.label}
                               </SelectItem>
                             ))}
@@ -379,7 +385,9 @@ export default function ImportExport() {
                         toast({ title: "Error", description: "Please enter a schema name.", variant: "destructive" });
                         return;
                       }
-                      setSavedSchemas([...savedSchemas, { name: schemaName, mappings: columnMappings }]);
+                      const newSchemas = [...savedSchemas, { name: schemaName, mappings: columnMappings }];
+                      setSavedSchemas(newSchemas);
+                      localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
                       setSchemaName("");
                       toast({ title: "Schema Saved", description: `"${schemaName}" has been saved.` });
                     }}
@@ -432,7 +440,9 @@ export default function ImportExport() {
                             variant="ghost" 
                             size="icon"
                             onClick={() => {
-                              setSavedSchemas(savedSchemas.filter((_, i) => i !== index));
+                              const newSchemas = savedSchemas.filter((_, i) => i !== index);
+                              setSavedSchemas(newSchemas);
+                              localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
                               toast({ title: "Schema Deleted" });
                             }}
                             data-testid={`button-delete-schema-${index}`}
