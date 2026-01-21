@@ -10,15 +10,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Receipt, Calendar, Download, Send, DollarSign, FileText, CheckCircle } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import type { Portfolio } from "@shared/schema";
+import type { Portfolio, Client } from "@shared/schema";
 
 export default function Remittance() {
   const { toast } = useToast();
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
   const [dateRange, setDateRange] = useState("this_month");
+  const [selectedClient, setSelectedClient] = useState("");
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
+  });
+
+  const { data: clients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
   });
 
   const sampleRemittances = [
@@ -32,6 +37,44 @@ export default function Remittance() {
   const sentRemittances = sampleRemittances.filter((r) => r.status === "sent");
 
   const totalPending = pendingRemittances.reduce((sum, r) => sum + r.netRemit, 0);
+
+  const clientRemittances = [
+    { 
+      clientId: "1", 
+      clientName: "Chase Bank", 
+      remittanceMethod: "ACH",
+      portfolioCount: 2,
+      pendingAmount: 12875000,
+      lastRemittance: "2024-12-15",
+      nextDue: "2025-01-15",
+      contact: "John Smith",
+      email: "remittance@chase.com"
+    },
+    { 
+      clientId: "2", 
+      clientName: "Capital One", 
+      remittanceMethod: "Wire",
+      portfolioCount: 1,
+      pendingAmount: 6125000,
+      lastRemittance: "2024-12-15",
+      nextDue: "2025-01-15",
+      contact: "Jane Doe",
+      email: "collections@capitalone.com"
+    },
+    { 
+      clientId: "3", 
+      clientName: "Ford Motor Credit", 
+      remittanceMethod: "Check",
+      portfolioCount: 1,
+      pendingAmount: 0,
+      lastRemittance: "2024-12-15",
+      nextDue: "2025-01-15",
+      contact: "Bob Wilson",
+      email: "finance@fordcredit.com"
+    },
+  ];
+
+  const totalClientPending = clientRemittances.reduce((sum, c) => sum + c.pendingAmount, 0);
 
   const handleSendRemittance = (id: string) => {
     toast({ title: "Remittance Sent", description: "Remittance report has been sent to the client." });
@@ -105,8 +148,11 @@ export default function Remittance() {
         </Card>
       </div>
 
-      <Tabs defaultValue="pending" className="space-y-4">
+      <Tabs defaultValue="by-client" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="by-client" data-testid="tab-by-client">
+            By Client
+          </TabsTrigger>
           <TabsTrigger value="pending" data-testid="tab-pending">
             Pending ({pendingRemittances.length})
           </TabsTrigger>
@@ -114,6 +160,77 @@ export default function Remittance() {
             Sent ({sentRemittances.length})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="by-client">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Client Remittance Summary</CardTitle>
+              <CardDescription>Overview of amounts owed to each client</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="text-left p-3 font-medium text-sm">Client</th>
+                      <th className="text-left p-3 font-medium text-sm">Contact</th>
+                      <th className="text-center p-3 font-medium text-sm">Method</th>
+                      <th className="text-center p-3 font-medium text-sm">Portfolios</th>
+                      <th className="text-right p-3 font-medium text-sm">Pending Amount</th>
+                      <th className="text-left p-3 font-medium text-sm">Next Due</th>
+                      <th className="text-right p-3 font-medium text-sm">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {clientRemittances.map((client) => (
+                      <tr key={client.clientId} className="hover-elevate" data-testid={`row-client-remittance-${client.clientId}`}>
+                        <td className="p-3">
+                          <p className="font-medium">{client.clientName}</p>
+                          <p className="text-xs text-muted-foreground">{client.email}</p>
+                        </td>
+                        <td className="p-3 text-sm">{client.contact}</td>
+                        <td className="p-3 text-center">
+                          <Badge variant="secondary">{client.remittanceMethod}</Badge>
+                        </td>
+                        <td className="p-3 text-center text-sm">{client.portfolioCount}</td>
+                        <td className="p-3 text-right">
+                          {client.pendingAmount > 0 ? (
+                            <span className="font-mono font-medium text-yellow-600 dark:text-yellow-400">
+                              {formatCurrency(client.pendingAmount)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">$0.00</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-sm">{formatDate(client.nextDue)}</td>
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="outline" size="sm" data-testid={`button-view-client-${client.clientId}`}>
+                              View Details
+                            </Button>
+                            {client.pendingAmount > 0 && (
+                              <Button size="sm" data-testid={`button-send-client-${client.clientId}`}>
+                                <Send className="h-4 w-4 mr-1" />
+                                Send
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-muted">
+                    <tr>
+                      <td colSpan={4} className="p-3 text-right font-medium">Total Owed to Clients:</td>
+                      <td className="p-3 text-right font-mono font-bold">{formatCurrency(totalClientPending)}</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="pending">
           <Card>
