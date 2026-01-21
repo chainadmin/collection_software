@@ -1,6 +1,8 @@
 import {
   type User,
   type InsertUser,
+  type Client,
+  type InsertClient,
   type Collector,
   type InsertCollector,
   type Portfolio,
@@ -28,6 +30,8 @@ import {
   type DashboardStats,
   type Merchant,
   type InsertMerchant,
+  type FeeSchedule,
+  type InsertFeeSchedule,
   type TimeClockEntry,
   type InsertTimeClockEntry,
   type ImportBatch,
@@ -59,6 +63,18 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
+  getClients(): Promise<Client[]>;
+  getClient(id: string): Promise<Client | undefined>;
+  createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
+  deleteClient(id: string): Promise<boolean>;
+
+  getFeeSchedules(): Promise<FeeSchedule[]>;
+  getFeeSchedule(id: string): Promise<FeeSchedule | undefined>;
+  createFeeSchedule(feeSchedule: InsertFeeSchedule): Promise<FeeSchedule>;
+  updateFeeSchedule(id: string, feeSchedule: Partial<InsertFeeSchedule>): Promise<FeeSchedule | undefined>;
+  deleteFeeSchedule(id: string): Promise<boolean>;
 
   getCollectors(): Promise<Collector[]>;
   getCollector(id: string): Promise<Collector | undefined>;
@@ -208,6 +224,8 @@ export interface IStorage {
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
+  private clients: Map<string, Client>;
+  private feeSchedules: Map<string, FeeSchedule>;
   private collectors: Map<string, Collector>;
   private portfolios: Map<string, Portfolio>;
   private portfolioAssignments: Map<string, PortfolioAssignment>;
@@ -236,6 +254,8 @@ export class MemStorage implements IStorage {
 
   constructor() {
     this.users = new Map();
+    this.clients = new Map();
+    this.feeSchedules = new Map();
     this.collectors = new Map();
     this.portfolios = new Map();
     this.portfolioAssignments = new Map();
@@ -322,6 +342,8 @@ export class MemStorage implements IStorage {
     this.portfolios.set(portfolio1Id, {
       id: portfolio1Id,
       name: "Chase Q4 2024",
+      clientId: null,
+      feeScheduleId: null,
       purchaseDate: "2024-10-15",
       purchasePrice: 50000000,
       totalFaceValue: 250000000,
@@ -333,6 +355,8 @@ export class MemStorage implements IStorage {
     this.portfolios.set(portfolio2Id, {
       id: portfolio2Id,
       name: "Capital One Medical",
+      clientId: null,
+      feeScheduleId: null,
       purchaseDate: "2024-09-01",
       purchasePrice: 25000000,
       totalFaceValue: 175000000,
@@ -344,6 +368,8 @@ export class MemStorage implements IStorage {
     this.portfolios.set(portfolio3Id, {
       id: portfolio3Id,
       name: "Auto Loan Portfolio A",
+      clientId: null,
+      feeScheduleId: null,
       purchaseDate: "2024-08-20",
       purchasePrice: 100000000,
       totalFaceValue: 350000000,
@@ -740,6 +766,87 @@ export class MemStorage implements IStorage {
     return user;
   }
 
+  async getClients(): Promise<Client[]> {
+    return Array.from(this.clients.values());
+  }
+
+  async getClient(id: string): Promise<Client | undefined> {
+    return this.clients.get(id);
+  }
+
+  async createClient(client: InsertClient): Promise<Client> {
+    const id = randomUUID();
+    const newClient: Client = {
+      id,
+      name: client.name,
+      contactName: client.contactName ?? null,
+      email: client.email ?? null,
+      phone: client.phone ?? null,
+      address: client.address ?? null,
+      city: client.city ?? null,
+      state: client.state ?? null,
+      zipCode: client.zipCode ?? null,
+      remittanceEmail: client.remittanceEmail ?? null,
+      remittanceFrequency: client.remittanceFrequency ?? "monthly",
+      remittanceMethod: client.remittanceMethod ?? "check",
+      isActive: client.isActive ?? true,
+      notes: client.notes ?? null,
+      createdDate: client.createdDate,
+    };
+    this.clients.set(id, newClient);
+    return newClient;
+  }
+
+  async updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined> {
+    const existing = this.clients.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...client };
+    this.clients.set(id, updated);
+    return updated;
+  }
+
+  async deleteClient(id: string): Promise<boolean> {
+    return this.clients.delete(id);
+  }
+
+  async getFeeSchedules(): Promise<FeeSchedule[]> {
+    return Array.from(this.feeSchedules.values());
+  }
+
+  async getFeeSchedule(id: string): Promise<FeeSchedule | undefined> {
+    return this.feeSchedules.get(id);
+  }
+
+  async createFeeSchedule(feeSchedule: InsertFeeSchedule): Promise<FeeSchedule> {
+    const id = randomUUID();
+    const newFeeSchedule: FeeSchedule = {
+      id,
+      name: feeSchedule.name,
+      description: feeSchedule.description ?? null,
+      feeType: feeSchedule.feeType,
+      feePercentage: feeSchedule.feePercentage ?? null,
+      flatFeeAmount: feeSchedule.flatFeeAmount ?? null,
+      minimumFee: feeSchedule.minimumFee ?? null,
+      isActive: feeSchedule.isActive ?? true,
+      effectiveDate: feeSchedule.effectiveDate,
+      createdDate: feeSchedule.createdDate,
+    };
+    this.feeSchedules.set(id, newFeeSchedule);
+    return newFeeSchedule;
+  }
+
+  async updateFeeSchedule(id: string, feeSchedule: Partial<InsertFeeSchedule>): Promise<FeeSchedule | undefined> {
+    const existing = this.feeSchedules.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...feeSchedule };
+    this.feeSchedules.set(id, updated);
+    return updated;
+  }
+
+  async deleteFeeSchedule(id: string): Promise<boolean> {
+    return this.feeSchedules.delete(id);
+  }
+
   async getCollectors(): Promise<Collector[]> {
     return Array.from(this.collectors.values());
   }
@@ -794,6 +901,8 @@ export class MemStorage implements IStorage {
     const newPortfolio: Portfolio = {
       id,
       name: portfolio.name,
+      clientId: portfolio.clientId ?? null,
+      feeScheduleId: portfolio.feeScheduleId ?? null,
       purchaseDate: portfolio.purchaseDate,
       purchasePrice: portfolio.purchasePrice,
       totalFaceValue: portfolio.totalFaceValue,
@@ -1236,6 +1345,12 @@ export class MemStorage implements IStorage {
       processorType: merchant.processorType,
       isActive: merchant.isActive ?? true,
       apiKeyRef: merchant.apiKeyRef ?? null,
+      nmiSecurityKey: merchant.nmiSecurityKey ?? null,
+      nmiUsername: merchant.nmiUsername ?? null,
+      nmiPassword: merchant.nmiPassword ?? null,
+      usaepaySourceKey: merchant.usaepaySourceKey ?? null,
+      usaepayPin: merchant.usaepayPin ?? null,
+      testMode: merchant.testMode ?? true,
       createdDate: merchant.createdDate,
     };
     this.merchants.set(id, newMerchant);

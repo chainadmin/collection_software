@@ -3,6 +3,29 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp } from "dr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Clients (creditors/companies who provide debt to collect)
+export const clients = pgTable("clients", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  remittanceEmail: text("remittance_email"),
+  remittanceFrequency: text("remittance_frequency").default("monthly"), // weekly, bi_weekly, monthly
+  remittanceMethod: text("remittance_method").default("check"), // check, ach, wire
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertClientSchema = createInsertSchema(clients).omit({ id: true });
+export type InsertClient = z.infer<typeof insertClientSchema>;
+export type Client = typeof clients.$inferSelect;
+
 // Collectors (users who work accounts)
 export const collectors = pgTable("collectors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -29,6 +52,8 @@ export type Collector = typeof collectors.$inferSelect;
 export const portfolios = pgTable("portfolios", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  clientId: varchar("client_id"), // link to client
+  feeScheduleId: varchar("fee_schedule_id"), // link to fee schedule
   purchaseDate: text("purchase_date").notNull(),
   purchasePrice: integer("purchase_price").notNull(), // in cents
   totalFaceValue: integer("total_face_value").notNull(), // in cents
@@ -276,9 +301,18 @@ export const merchants = pgTable("merchants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   merchantId: text("merchant_id").notNull(),
-  processorType: text("processor_type").notNull(), // stripe, authorize_net, etc.
+  processorType: text("processor_type").notNull(), // nmi, usaepay, stripe, authorize_net
   isActive: boolean("is_active").default(true),
   apiKeyRef: text("api_key_ref"), // reference to secrets
+  // NMI-specific fields
+  nmiSecurityKey: text("nmi_security_key"),
+  nmiUsername: text("nmi_username"),
+  nmiPassword: text("nmi_password"),
+  // USAePay-specific fields
+  usaepaySourceKey: text("usaepay_source_key"),
+  usaepayPin: text("usaepay_pin"),
+  // General settings
+  testMode: boolean("test_mode").default(true),
   createdDate: text("created_date").notNull(),
 });
 
@@ -286,18 +320,18 @@ export const insertMerchantSchema = createInsertSchema(merchants).omit({ id: tru
 export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
 export type Merchant = typeof merchants.$inferSelect;
 
-// Fee Schedules for portfolios/clients
+// Fee Schedules (created first, portfolios link to them)
 export const feeSchedules = pgTable("fee_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  portfolioId: varchar("portfolio_id"),
-  clientName: text("client_name"),
+  description: text("description"),
   feeType: text("fee_type").notNull(), // contingency, flat_fee, hybrid
-  feePercentage: integer("fee_percentage"), // basis points
+  feePercentage: integer("fee_percentage"), // basis points (e.g., 2500 = 25%)
   flatFeeAmount: integer("flat_fee_amount"), // in cents
   minimumFee: integer("minimum_fee"), // in cents
   isActive: boolean("is_active").default(true),
   effectiveDate: text("effective_date").notNull(),
+  createdDate: text("created_date").notNull(),
 });
 
 export const insertFeeScheduleSchema = createInsertSchema(feeSchedules).omit({ id: true });

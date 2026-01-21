@@ -18,23 +18,27 @@ export default function Merchants() {
   const { toast } = useToast();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [merchantName, setMerchantName] = useState("");
-  const [merchantType, setMerchantType] = useState("ach");
+  const [processorType, setProcessorType] = useState("nmi");
   const [merchantIdInput, setMerchantIdInput] = useState("");
+  const [nmiSecurityKey, setNmiSecurityKey] = useState("");
+  const [nmiUsername, setNmiUsername] = useState("");
+  const [nmiPassword, setNmiPassword] = useState("");
+  const [usaepaySourceKey, setUsaepaySourceKey] = useState("");
+  const [usaepayPin, setUsaepayPin] = useState("");
+  const [testMode, setTestMode] = useState(true);
 
   const { data: merchants = [], isLoading } = useQuery<Merchant[]>({
     queryKey: ["/api/merchants"],
   });
 
   const addMerchantMutation = useMutation({
-    mutationFn: async (data: { name: string; merchantId: string; processorType: string }) => {
+    mutationFn: async (data: Partial<Merchant>) => {
       return apiRequest("POST", "/api/merchants", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/merchants"] });
       setShowAddDialog(false);
-      setMerchantName("");
-      setMerchantIdInput("");
-      setMerchantType("ach");
+      resetForm();
       toast({ title: "Merchant Added", description: "New merchant account has been added successfully." });
     },
     onError: () => {
@@ -68,6 +72,18 @@ export default function Merchants() {
     },
   });
 
+  const resetForm = () => {
+    setMerchantName("");
+    setMerchantIdInput("");
+    setProcessorType("nmi");
+    setNmiSecurityKey("");
+    setNmiUsername("");
+    setNmiPassword("");
+    setUsaepaySourceKey("");
+    setUsaepayPin("");
+    setTestMode(true);
+  };
+
   const handleAddMerchant = () => {
     if (!merchantName || !merchantIdInput) {
       toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
@@ -76,7 +92,13 @@ export default function Merchants() {
     addMerchantMutation.mutate({
       name: merchantName,
       merchantId: merchantIdInput,
-      processorType: merchantType,
+      processorType: processorType,
+      nmiSecurityKey: processorType === "nmi" ? nmiSecurityKey : null,
+      nmiUsername: processorType === "nmi" ? nmiUsername : null,
+      nmiPassword: processorType === "nmi" ? nmiPassword : null,
+      usaepaySourceKey: processorType === "usaepay" ? usaepaySourceKey : null,
+      usaepayPin: processorType === "usaepay" ? usaepayPin : null,
+      testMode,
     });
   };
 
@@ -118,15 +140,16 @@ export default function Merchants() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={merchantType} onValueChange={setMerchantType}>
-                  <SelectTrigger data-testid="select-merchant-type">
+                <Label>Processor</Label>
+                <Select value={processorType} onValueChange={setProcessorType}>
+                  <SelectTrigger data-testid="select-processor-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ach">ACH Processing</SelectItem>
-                    <SelectItem value="card">Credit Card</SelectItem>
-                    <SelectItem value="check">Check Processing</SelectItem>
+                    <SelectItem value="nmi">NMI</SelectItem>
+                    <SelectItem value="usaepay">USAePay</SelectItem>
+                    <SelectItem value="stripe">Stripe</SelectItem>
+                    <SelectItem value="authorize_net">Authorize.net</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -138,6 +161,74 @@ export default function Merchants() {
                   onChange={(e) => setMerchantIdInput(e.target.value)}
                   data-testid="input-merchant-id"
                 />
+              </div>
+
+              {processorType === "nmi" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>NMI Security Key</Label>
+                    <Input 
+                      placeholder="Enter NMI security key"
+                      type="password"
+                      value={nmiSecurityKey}
+                      onChange={(e) => setNmiSecurityKey(e.target.value)}
+                      data-testid="input-nmi-security-key"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>NMI Username (optional)</Label>
+                    <Input 
+                      placeholder="Enter NMI username"
+                      value={nmiUsername}
+                      onChange={(e) => setNmiUsername(e.target.value)}
+                      data-testid="input-nmi-username"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>NMI Password (optional)</Label>
+                    <Input 
+                      placeholder="Enter NMI password"
+                      type="password"
+                      value={nmiPassword}
+                      onChange={(e) => setNmiPassword(e.target.value)}
+                      data-testid="input-nmi-password"
+                    />
+                  </div>
+                </>
+              )}
+
+              {processorType === "usaepay" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>USAePay Source Key</Label>
+                    <Input 
+                      placeholder="Enter source key"
+                      type="password"
+                      value={usaepaySourceKey}
+                      onChange={(e) => setUsaepaySourceKey(e.target.value)}
+                      data-testid="input-usaepay-source-key"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>USAePay PIN</Label>
+                    <Input 
+                      placeholder="Enter PIN"
+                      type="password"
+                      value={usaepayPin}
+                      onChange={(e) => setUsaepayPin(e.target.value)}
+                      data-testid="input-usaepay-pin"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-center gap-2">
+                <Switch 
+                  checked={testMode} 
+                  onCheckedChange={setTestMode}
+                  data-testid="switch-test-mode"
+                />
+                <Label>Test Mode (sandbox)</Label>
               </div>
             </div>
             <DialogFooter>

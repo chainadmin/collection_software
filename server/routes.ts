@@ -16,6 +16,122 @@ export async function registerRoutes(
     }
   });
 
+  // Client routes
+  app.get("/api/clients", async (req, res) => {
+    try {
+      const clients = await storage.getClients();
+      res.json(clients);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch clients" });
+    }
+  });
+
+  app.get("/api/clients/:id", async (req, res) => {
+    try {
+      const client = await storage.getClient(req.params.id);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      res.json(client);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch client" });
+    }
+  });
+
+  app.post("/api/clients", async (req, res) => {
+    try {
+      const client = await storage.createClient({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(client);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create client" });
+    }
+  });
+
+  app.patch("/api/clients/:id", async (req, res) => {
+    try {
+      const client = await storage.updateClient(req.params.id, req.body);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      res.json(client);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update client" });
+    }
+  });
+
+  app.delete("/api/clients/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteClient(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete client" });
+    }
+  });
+
+  // Fee Schedule routes
+  app.get("/api/fee-schedules", async (req, res) => {
+    try {
+      const feeSchedules = await storage.getFeeSchedules();
+      res.json(feeSchedules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch fee schedules" });
+    }
+  });
+
+  app.get("/api/fee-schedules/:id", async (req, res) => {
+    try {
+      const feeSchedule = await storage.getFeeSchedule(req.params.id);
+      if (!feeSchedule) {
+        return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      res.json(feeSchedule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch fee schedule" });
+    }
+  });
+
+  app.post("/api/fee-schedules", async (req, res) => {
+    try {
+      const feeSchedule = await storage.createFeeSchedule({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(feeSchedule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create fee schedule" });
+    }
+  });
+
+  app.patch("/api/fee-schedules/:id", async (req, res) => {
+    try {
+      const feeSchedule = await storage.updateFeeSchedule(req.params.id, req.body);
+      if (!feeSchedule) {
+        return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      res.json(feeSchedule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update fee schedule" });
+    }
+  });
+
+  app.delete("/api/fee-schedules/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteFeeSchedule(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete fee schedule" });
+    }
+  });
+
   app.get("/api/collectors", async (req, res) => {
     try {
       const collectors = await storage.getCollectors();

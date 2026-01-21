@@ -38,6 +38,7 @@ import CollectorReporting from "@/pages/admin/reporting/collectors";
 import TimeClock from "@/pages/admin/reporting/time-clock";
 import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
+import Clients from "@/pages/admin/clients";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 
@@ -78,6 +79,7 @@ function Router() {
       <Route path="/admin/reporting/time-clock" component={TimeClock} />
       <Route path="/admin/settings/fees" component={FeeSchedules} />
       <Route path="/admin/settings/server-access" component={ServerAccess} />
+      <Route path="/admin/clients" component={Clients} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -90,7 +92,7 @@ function AppContent() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = collectors[1];
+  const currentCollector = collectors[0];
   const isCollectorRole = currentCollector?.role === "collector";
   
   const isCollectorRoute =

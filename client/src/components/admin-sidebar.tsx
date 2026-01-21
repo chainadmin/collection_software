@@ -110,6 +110,7 @@ const adminSections: NavSection[] = [
 const mainNavItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Workstation", url: "/workstation", icon: Headphones },
+  { title: "Clients", url: "/admin/clients", icon: Building2 },
   { title: "Debtors", url: "/debtors", icon: Users },
   { title: "Portfolios", url: "/portfolios", icon: FolderKanban },
 ];
