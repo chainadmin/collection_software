@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,91 +7,235 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Receipt, Calendar, Download, Send, DollarSign, FileText, CheckCircle } from "lucide-react";
+import { Receipt, Calendar, Download, DollarSign, FileText, Filter, User, Hash } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
-import type { Portfolio, Client } from "@shared/schema";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { Portfolio, Client, Payment, Debtor } from "@shared/schema";
 
 export default function Remittance() {
-  const { toast } = useToast();
-  const [selectedPortfolio, setSelectedPortfolio] = useState("");
-  const [dateRange, setDateRange] = useState("this_month");
-  const [selectedClient, setSelectedClient] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("all");
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState("all");
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(1);
+    return date.toISOString().split("T")[0];
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
 
-  const { data: portfolios = [] } = useQuery<Portfolio[]>({
+  const { data: portfolios = [], isLoading: portfoliosLoading } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
   });
 
-  const { data: clients = [] } = useQuery<Client[]>({
+  const { data: clients = [], isLoading: clientsLoading } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
   });
 
-  const sampleRemittances = [
-    { id: "1", portfolio: "Chase Q4 2024", client: "Chase Bank", period: "Dec 2024", collections: 12500000, fees: 3125000, netRemit: 9375000, status: "pending", dueDate: "2025-01-15" },
-    { id: "2", portfolio: "Capital One Medical", client: "Capital One", period: "Dec 2024", collections: 8750000, fees: 2625000, netRemit: 6125000, status: "pending", dueDate: "2025-01-15" },
-    { id: "3", portfolio: "Chase Q4 2024", client: "Chase Bank", period: "Nov 2024", collections: 14200000, fees: 3550000, netRemit: 10650000, status: "sent", dueDate: "2024-12-15" },
-    { id: "4", portfolio: "Auto Loan Portfolio A", client: "Ford Motor Credit", period: "Nov 2024", collections: 22500000, fees: 4500000, netRemit: 18000000, status: "sent", dueDate: "2024-12-15" },
-  ];
+  const { data: payments = [], isLoading: paymentsLoading } = useQuery<Payment[]>({
+    queryKey: ["/api/payments"],
+  });
 
-  const pendingRemittances = sampleRemittances.filter((r) => r.status === "pending");
-  const sentRemittances = sampleRemittances.filter((r) => r.status === "sent");
+  const { data: debtors = [], isLoading: debtorsLoading } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors"],
+  });
 
-  const totalPending = pendingRemittances.reduce((sum, r) => sum + r.netRemit, 0);
+  const filteredPortfolios = useMemo(() => {
+    if (selectedClientId === "all") return portfolios;
+    return portfolios.filter((p) => p.clientId === selectedClientId);
+  }, [portfolios, selectedClientId]);
 
-  const clientRemittances = [
-    { 
-      clientId: "1", 
-      clientName: "Chase Bank", 
-      remittanceMethod: "ACH",
-      portfolioCount: 2,
-      pendingAmount: 12875000,
-      lastRemittance: "2024-12-15",
-      nextDue: "2025-01-15",
-      contact: "John Smith",
-      email: "remittance@chase.com"
-    },
-    { 
-      clientId: "2", 
-      clientName: "Capital One", 
-      remittanceMethod: "Wire",
-      portfolioCount: 1,
-      pendingAmount: 6125000,
-      lastRemittance: "2024-12-15",
-      nextDue: "2025-01-15",
-      contact: "Jane Doe",
-      email: "collections@capitalone.com"
-    },
-    { 
-      clientId: "3", 
-      clientName: "Ford Motor Credit", 
-      remittanceMethod: "Check",
-      portfolioCount: 1,
-      pendingAmount: 0,
-      lastRemittance: "2024-12-15",
-      nextDue: "2025-01-15",
-      contact: "Bob Wilson",
-      email: "finance@fordcredit.com"
-    },
-  ];
+  const completedPayments = useMemo(() => {
+    return payments.filter((p) => p.status === "completed" || p.status === "processed");
+  }, [payments]);
 
-  const totalClientPending = clientRemittances.reduce((sum, c) => sum + c.pendingAmount, 0);
+  const filteredPayments = useMemo(() => {
+    let filtered = completedPayments;
 
-  const handleSendRemittance = (id: string) => {
-    toast({ title: "Remittance Sent", description: "Remittance report has been sent to the client." });
+    if (selectedPortfolioId !== "all") {
+      const portfolioDebtorIds = debtors
+        .filter((d) => d.portfolioId === selectedPortfolioId)
+        .map((d) => d.id);
+      filtered = filtered.filter((p) => portfolioDebtorIds.includes(p.debtorId));
+    } else if (selectedClientId !== "all") {
+      const clientPortfolioIds = portfolios
+        .filter((p) => p.clientId === selectedClientId)
+        .map((p) => p.id);
+      const clientDebtorIds = debtors
+        .filter((d) => clientPortfolioIds.includes(d.portfolioId))
+        .map((d) => d.id);
+      filtered = filtered.filter((p) => clientDebtorIds.includes(p.debtorId));
+    }
+
+    if (startDate) {
+      filtered = filtered.filter((p) => p.paymentDate && p.paymentDate >= startDate);
+    }
+    if (endDate) {
+      filtered = filtered.filter((p) => p.paymentDate && p.paymentDate <= endDate);
+    }
+
+    return filtered;
+  }, [completedPayments, selectedClientId, selectedPortfolioId, portfolios, debtors, startDate, endDate]);
+
+  const paymentsWithDetails = useMemo(() => {
+    return filteredPayments.map((payment) => {
+      const debtor = debtors.find((d) => d.id === payment.debtorId);
+      const portfolio = debtor ? portfolios.find((p) => p.id === debtor.portfolioId) : null;
+      const client = portfolio ? clients.find((c) => c.id === portfolio.clientId) : null;
+
+      return {
+        ...payment,
+        debtor,
+        portfolio,
+        client,
+      };
+    }).sort((a, b) => {
+      if (!a.paymentDate || !b.paymentDate) return 0;
+      return b.paymentDate.localeCompare(a.paymentDate);
+    });
+  }, [filteredPayments, debtors, portfolios, clients]);
+
+  const totalCollected = useMemo(() => {
+    return filteredPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+  }, [filteredPayments]);
+
+  const summaryByClient = useMemo(() => {
+    const summary: Record<string, { clientName: string; total: number; count: number }> = {};
+    
+    for (const payment of paymentsWithDetails) {
+      const clientId = payment.client?.id || "unknown";
+      const clientName = payment.client?.name || "Unknown Client";
+      
+      if (!summary[clientId]) {
+        summary[clientId] = { clientName, total: 0, count: 0 };
+      }
+      summary[clientId].total += Number(payment.amount);
+      summary[clientId].count += 1;
+    }
+
+    return Object.entries(summary).map(([id, data]) => ({
+      clientId: id,
+      ...data,
+    }));
+  }, [paymentsWithDetails]);
+
+  const summaryByPortfolio = useMemo(() => {
+    const summary: Record<string, { portfolioName: string; clientName: string; total: number; count: number }> = {};
+    
+    for (const payment of paymentsWithDetails) {
+      const portfolioId = payment.portfolio?.id || "unknown";
+      const portfolioName = payment.portfolio?.name || "Unknown Portfolio";
+      const clientName = payment.client?.name || "Unknown Client";
+      
+      if (!summary[portfolioId]) {
+        summary[portfolioId] = { portfolioName, clientName, total: 0, count: 0 };
+      }
+      summary[portfolioId].total += Number(payment.amount);
+      summary[portfolioId].count += 1;
+    }
+
+    return Object.entries(summary).map(([id, data]) => ({
+      portfolioId: id,
+      ...data,
+    }));
+  }, [paymentsWithDetails]);
+
+  const handleExportCSV = () => {
+    const headers = ["Date", "Account #", "Debtor Name", "Client", "Portfolio", "Amount", "Method", "Confirmation"];
+    const rows = paymentsWithDetails.map((p) => [
+      p.paymentDate || "",
+      p.debtor?.accountNumber || "",
+      p.debtor ? `${p.debtor.firstName} ${p.debtor.lastName}` : "",
+      p.client?.name || "",
+      p.portfolio?.name || "",
+      (Number(p.amount) / 100).toFixed(2),
+      p.paymentMethod || "",
+      p.referenceNumber || "",
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `remittance-${startDate}-to-${endDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
+
+  const isLoading = portfoliosLoading || clientsLoading || paymentsLoading || debtorsLoading;
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Remittance</h1>
-          <p className="text-muted-foreground">Client payment remittance reporting</p>
+          <h1 className="text-2xl font-semibold">Remittance Report</h1>
+          <p className="text-muted-foreground">Detailed payment breakdown by client and portfolio</p>
         </div>
-        <Button data-testid="button-generate-report">
-          <FileText className="h-4 w-4 mr-2" />
-          Generate Report
+        <Button onClick={handleExportCSV} disabled={paymentsWithDetails.length === 0} data-testid="button-export-csv">
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
         </Button>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Filter className="h-5 w-5" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <Label>Client</Label>
+              <Select value={selectedClientId} onValueChange={(v) => { setSelectedClientId(v); setSelectedPortfolioId("all"); }}>
+                <SelectTrigger data-testid="select-client">
+                  <SelectValue placeholder="All Clients" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Clients</SelectItem>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Portfolio</Label>
+              <Select value={selectedPortfolioId} onValueChange={setSelectedPortfolioId}>
+                <SelectTrigger data-testid="select-portfolio">
+                  <SelectValue placeholder="All Portfolios" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Portfolios</SelectItem>
+                  {filteredPortfolios.map((portfolio) => (
+                    <SelectItem key={portfolio.id} value={portfolio.id}>{portfolio.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Start Date</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                data-testid="input-start-date"
+              />
+            </div>
+            <div>
+              <Label>End Date</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                data-testid="input-end-date"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -101,21 +245,8 @@ export default function Remittance() {
                 <Receipt className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{pendingRemittances.length}</p>
-                <p className="text-sm text-muted-foreground">Pending</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-yellow-500/10">
-                <DollarSign className="h-6 w-6 text-yellow-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{formatCurrency(totalPending)}</p>
-                <p className="text-sm text-muted-foreground">Due to Clients</p>
+                <p className="text-2xl font-bold">{filteredPayments.length}</p>
+                <p className="text-sm text-muted-foreground">Payments</p>
               </div>
             </div>
           </CardContent>
@@ -124,11 +255,11 @@ export default function Remittance() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-lg bg-green-500/10">
-                <CheckCircle className="h-6 w-6 text-green-500" />
+                <DollarSign className="h-6 w-6 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{sentRemittances.length}</p>
-                <p className="text-sm text-muted-foreground">Sent This Month</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalCollected)}</p>
+                <p className="text-sm text-muted-foreground">Total Collected</p>
               </div>
             </div>
           </CardContent>
@@ -136,185 +267,236 @@ export default function Remittance() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <Calendar className="h-6 w-6" />
+              <div className="p-3 rounded-lg bg-blue-500/10">
+                <FileText className="h-6 w-6 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">Jan 15</p>
-                <p className="text-sm text-muted-foreground">Next Due Date</p>
+                <p className="text-2xl font-bold">{summaryByClient.length}</p>
+                <p className="text-sm text-muted-foreground">Clients</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-lg bg-purple-500/10">
+                <Calendar className="h-6 w-6 text-purple-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{summaryByPortfolio.length}</p>
+                <p className="text-sm text-muted-foreground">Portfolios</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Tabs defaultValue="by-client" className="space-y-4">
+      <Tabs defaultValue="details" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="details" data-testid="tab-details">
+            Payment Details
+          </TabsTrigger>
           <TabsTrigger value="by-client" data-testid="tab-by-client">
             By Client
           </TabsTrigger>
-          <TabsTrigger value="pending" data-testid="tab-pending">
-            Pending ({pendingRemittances.length})
-          </TabsTrigger>
-          <TabsTrigger value="sent" data-testid="tab-sent">
-            Sent ({sentRemittances.length})
+          <TabsTrigger value="by-portfolio" data-testid="tab-by-portfolio">
+            By Portfolio
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="details">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Payment Details</CardTitle>
+              <CardDescription>Individual payment breakdown with debtor information</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : paymentsWithDetails.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  No payments found for the selected filters
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-3 font-medium text-sm">Date</th>
+                        <th className="text-left p-3 font-medium text-sm">Account #</th>
+                        <th className="text-left p-3 font-medium text-sm">Debtor</th>
+                        <th className="text-left p-3 font-medium text-sm">Client</th>
+                        <th className="text-left p-3 font-medium text-sm">Portfolio</th>
+                        <th className="text-right p-3 font-medium text-sm">Amount</th>
+                        <th className="text-center p-3 font-medium text-sm">Method</th>
+                        <th className="text-left p-3 font-medium text-sm">Reference #</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {paymentsWithDetails.map((payment) => (
+                        <tr key={payment.id} className="hover-elevate" data-testid={`row-payment-${payment.id}`}>
+                          <td className="p-3 text-sm">{formatDate(payment.paymentDate || "")}</td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1">
+                              <Hash className="h-3 w-3 text-muted-foreground" />
+                              <span className="font-mono text-sm">{payment.debtor?.accountNumber || "-"}</span>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">
+                                {payment.debtor ? `${payment.debtor.firstName} ${payment.debtor.lastName}` : "-"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-3 text-sm">{payment.client?.name || "-"}</td>
+                          <td className="p-3 text-sm">{payment.portfolio?.name || "-"}</td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(Number(payment.amount))}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <Badge variant="secondary">{payment.paymentMethod || "-"}</Badge>
+                          </td>
+                          <td className="p-3 text-sm font-mono text-muted-foreground">
+                            {payment.referenceNumber || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted">
+                      <tr>
+                        <td colSpan={5} className="p-3 text-right font-medium">Total:</td>
+                        <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency(totalCollected)}
+                        </td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="by-client">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Client Remittance Summary</CardTitle>
-              <CardDescription>Overview of amounts owed to each client</CardDescription>
+              <CardTitle className="text-lg">Summary by Client</CardTitle>
+              <CardDescription>Collections grouped by client</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="text-left p-3 font-medium text-sm">Client</th>
-                      <th className="text-left p-3 font-medium text-sm">Contact</th>
-                      <th className="text-center p-3 font-medium text-sm">Method</th>
-                      <th className="text-center p-3 font-medium text-sm">Portfolios</th>
-                      <th className="text-right p-3 font-medium text-sm">Pending Amount</th>
-                      <th className="text-left p-3 font-medium text-sm">Next Due</th>
-                      <th className="text-right p-3 font-medium text-sm">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {clientRemittances.map((client) => (
-                      <tr key={client.clientId} className="hover-elevate" data-testid={`row-client-remittance-${client.clientId}`}>
-                        <td className="p-3">
-                          <p className="font-medium">{client.clientName}</p>
-                          <p className="text-xs text-muted-foreground">{client.email}</p>
-                        </td>
-                        <td className="p-3 text-sm">{client.contact}</td>
-                        <td className="p-3 text-center">
-                          <Badge variant="secondary">{client.remittanceMethod}</Badge>
-                        </td>
-                        <td className="p-3 text-center text-sm">{client.portfolioCount}</td>
-                        <td className="p-3 text-right">
-                          {client.pendingAmount > 0 ? (
-                            <span className="font-mono font-medium text-yellow-600 dark:text-yellow-400">
-                              {formatCurrency(client.pendingAmount)}
+              {isLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : summaryByClient.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  No payments found for the selected filters
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-3 font-medium text-sm">Client</th>
+                        <th className="text-center p-3 font-medium text-sm">Payment Count</th>
+                        <th className="text-right p-3 font-medium text-sm">Total Collected</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {summaryByClient.map((row) => (
+                        <tr key={row.clientId} className="hover-elevate" data-testid={`row-client-summary-${row.clientId}`}>
+                          <td className="p-3 font-medium">{row.clientName}</td>
+                          <td className="p-3 text-center">{row.count}</td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(row.total)}
                             </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">$0.00</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-sm">{formatDate(client.nextDue)}</td>
-                        <td className="p-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button variant="outline" size="sm" data-testid={`button-view-client-${client.clientId}`}>
-                              View Details
-                            </Button>
-                            {client.pendingAmount > 0 && (
-                              <Button size="sm" data-testid={`button-send-client-${client.clientId}`}>
-                                <Send className="h-4 w-4 mr-1" />
-                                Send
-                              </Button>
-                            )}
-                          </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted">
+                      <tr>
+                        <td className="p-3 font-medium">Total</td>
+                        <td className="p-3 text-center font-medium">{filteredPayments.length}</td>
+                        <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency(totalCollected)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-muted">
-                    <tr>
-                      <td colSpan={4} className="p-3 text-right font-medium">Total Owed to Clients:</td>
-                      <td className="p-3 text-right font-mono font-bold">{formatCurrency(totalClientPending)}</td>
-                      <td colSpan={2}></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="pending">
+        <TabsContent value="by-portfolio">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Pending Remittances</CardTitle>
-              <CardDescription>Ready for client disbursement</CardDescription>
+              <CardTitle className="text-lg">Summary by Portfolio</CardTitle>
+              <CardDescription>Collections grouped by portfolio</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {pendingRemittances.map((remit) => (
-                  <div key={remit.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`row-remittance-${remit.id}`}>
-                    <div className="flex-1 grid grid-cols-5 gap-4 items-center">
-                      <div>
-                        <p className="font-medium">{remit.portfolio}</p>
-                        <p className="text-sm text-muted-foreground">{remit.client}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm">{remit.period}</p>
-                        <p className="text-xs text-muted-foreground">Due: {formatDate(remit.dueDate)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-mono">{formatCurrency(remit.collections)}</p>
-                        <p className="text-xs text-muted-foreground">Collected</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-mono text-muted-foreground">-{formatCurrency(remit.fees)}</p>
-                        <p className="text-xs text-muted-foreground">Fees (25%)</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono font-medium">{formatCurrency(remit.netRemit)}</p>
-                        <p className="text-xs text-muted-foreground">Net Remit</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      <Button variant="outline" size="sm" data-testid={`button-download-${remit.id}`}>
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button size="sm" onClick={() => handleSendRemittance(remit.id)} data-testid={`button-send-${remit.id}`}>
-                        <Send className="h-4 w-4 mr-1" />
-                        Send
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="sent">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Sent Remittances</CardTitle>
-              <CardDescription>Previously disbursed to clients</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {sentRemittances.map((remit) => (
-                  <div key={remit.id} className="flex items-center justify-between p-4 border rounded-lg opacity-75" data-testid={`row-remittance-${remit.id}`}>
-                    <div className="flex-1 grid grid-cols-5 gap-4 items-center">
-                      <div>
-                        <p className="font-medium">{remit.portfolio}</p>
-                        <p className="text-sm text-muted-foreground">{remit.client}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm">{remit.period}</p>
-                        <Badge variant="secondary" className="mt-1">Sent</Badge>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-mono">{formatCurrency(remit.collections)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-mono text-muted-foreground">-{formatCurrency(remit.fees)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono">{formatCurrency(remit.netRemit)}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm" className="ml-4">
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+              {isLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : summaryByPortfolio.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  No payments found for the selected filters
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-3 font-medium text-sm">Portfolio</th>
+                        <th className="text-left p-3 font-medium text-sm">Client</th>
+                        <th className="text-center p-3 font-medium text-sm">Payment Count</th>
+                        <th className="text-right p-3 font-medium text-sm">Total Collected</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {summaryByPortfolio.map((row) => (
+                        <tr key={row.portfolioId} className="hover-elevate" data-testid={`row-portfolio-summary-${row.portfolioId}`}>
+                          <td className="p-3 font-medium">{row.portfolioName}</td>
+                          <td className="p-3 text-sm text-muted-foreground">{row.clientName}</td>
+                          <td className="p-3 text-center">{row.count}</td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(row.total)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted">
+                      <tr>
+                        <td colSpan={2} className="p-3 font-medium">Total</td>
+                        <td className="p-3 text-center font-medium">{filteredPayments.length}</td>
+                        <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency(totalCollected)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

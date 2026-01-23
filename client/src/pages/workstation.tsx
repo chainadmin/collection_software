@@ -27,7 +27,10 @@ import {
   Calculator,
   Plus,
   Filter,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
+import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -95,6 +98,7 @@ export default function Workstation() {
   const [cardBillingZip, setCardBillingZip] = useState("");
   const [cardCvv, setCardCvv] = useState("");
   const [cardType, setCardType] = useState("visa");
+  const [binLookupResult, setBinLookupResult] = useState<BinLookupResult | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedCardId, setSelectedCardId] = useState<string>("");
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
@@ -349,6 +353,7 @@ export default function Workstation() {
       setCardHolderName("");
       setCardBillingZip("");
       setCardCvv("");
+      setBinLookupResult(null);
       toast({ title: "Card added", description: "Payment card has been saved on file." });
     },
   });
@@ -416,11 +421,38 @@ export default function Workstation() {
     lastSavedNoteRef.current = "";
   }, [selectedDebtorId]);
 
+  const handleCardNumberChange = (value: string) => {
+    const cleaned = value.replace(/\D/g, '');
+    setCardNumber(cleaned);
+    
+    if (cleaned.length >= 6) {
+      const result = lookupBin(cleaned);
+      setBinLookupResult(result);
+      if (result.cardBrand) {
+        const detectedType = getCardTypeFromNumber(cleaned);
+        setCardType(detectedType);
+      }
+    } else {
+      setBinLookupResult(null);
+    }
+  };
+
   const handleAddCard = () => {
     if (!selectedDebtorId || !cardNumber || !cardExpiry || !cardHolderName) {
       toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
       return;
     }
+    
+    const binResult = lookupBin(cardNumber);
+    if (!binResult.isValid) {
+      toast({ 
+        title: "Card Validation Failed", 
+        description: binResult.error || "Invalid card number", 
+        variant: "destructive" 
+      });
+      return;
+    }
+    
     const cardNumberLast4 = cardNumber.slice(-4);
     const expiryParts = cardExpiry.split("/");
     if (expiryParts.length !== 2) {
@@ -429,7 +461,7 @@ export default function Workstation() {
     }
     addCardMutation.mutate({
       debtorId: selectedDebtorId,
-      cardType,
+      cardType: binResult.cardBrand?.toLowerCase() || cardType,
       cardNumber,
       cardNumberLast4,
       expiryMonth: expiryParts[0],
@@ -1480,10 +1512,24 @@ export default function Workstation() {
                 type="text"
                 placeholder="1234 5678 9012 3456"
                 value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ""))}
-                maxLength={16}
+                onChange={(e) => handleCardNumberChange(e.target.value)}
+                maxLength={19}
                 data-testid="input-card-number"
               />
+              {binLookupResult && (
+                <div className={`mt-2 flex items-center gap-2 text-sm ${binLookupResult.isValid ? 'text-green-600' : 'text-red-600'}`}>
+                  {binLookupResult.isValid ? (
+                    <ShieldCheck className="h-4 w-4" />
+                  ) : (
+                    <ShieldAlert className="h-4 w-4" />
+                  )}
+                  <span>
+                    {binLookupResult.isValid 
+                      ? `${binLookupResult.cardBrand} - ${binLookupResult.issuer}`
+                      : binLookupResult.error}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

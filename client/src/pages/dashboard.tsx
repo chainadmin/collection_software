@@ -150,7 +150,7 @@ export default function Dashboard() {
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <FolderKanban className="h-10 w-10 text-muted-foreground/50 mb-2" />
                 <p className="text-sm text-muted-foreground">No portfolios yet</p>
-                <Button variant="link" size="sm" asChild>
+                <Button variant="ghost" size="sm" asChild>
                   <Link href="/portfolios?action=add">Add your first portfolio</Link>
                 </Button>
               </div>
@@ -286,7 +286,7 @@ export default function Dashboard() {
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Users className="h-10 w-10 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">No accounts to display</p>
-              <Button variant="link" size="sm" asChild>
+              <Button variant="ghost" size="sm" asChild>
                 <Link href="/debtors?action=add">Add your first debtor</Link>
               </Button>
             </div>

@@ -87,6 +87,7 @@ export const debtors = pgTable("debtors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   portfolioId: varchar("portfolio_id").notNull(),
   assignedCollectorId: varchar("assigned_collector_id"),
+  linkedAccountId: varchar("linked_account_id"), // links accounts for same person across portfolios (by SSN)
   fileNumber: text("file_number"), // unique tracking number for the account
   accountNumber: text("account_number").notNull(),
   firstName: text("first_name").notNull(),
@@ -101,6 +102,7 @@ export const debtors = pgTable("debtors", {
   zipCode: text("zip_code"),
   originalCreditor: text("original_creditor"),
   clientName: text("client_name"),
+  clientId: varchar("client_id"), // link to client for remittance tracking
   originalBalance: integer("original_balance").notNull(), // in cents
   currentBalance: integer("current_balance").notNull(), // in cents
   status: text("status").notNull().default("newbiz"), // newbiz, 1st_message, final, promise, payments_pending, decline, open, in_payment, settled, closed, disputed

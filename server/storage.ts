@@ -120,6 +120,9 @@ export interface IStorage {
   deletePaymentCard(id: string): Promise<boolean>;
 
   getPayments(debtorId?: string, batchId?: string): Promise<Payment[]>;
+  getAllPayments(): Promise<Payment[]>;
+  getPayment(id: string): Promise<Payment | undefined>;
+  getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
   getRecentPayments(limit?: number): Promise<Payment[]>;
   getPendingPayments(): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -389,6 +392,7 @@ export class MemStorage implements IStorage {
       id: debtor1Id,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
+      linkedAccountId: null,
       fileNumber: "FILE-2024-001001",
       accountNumber: "ACC-2024-00001",
       firstName: "Robert",
@@ -403,6 +407,7 @@ export class MemStorage implements IStorage {
       zipCode: "78701",
       originalCreditor: "Chase Bank",
       clientName: "Chase Financial Recovery",
+      clientId: null,
       originalBalance: 1245000,
       currentBalance: 1089500,
       status: "open",
@@ -413,6 +418,7 @@ export class MemStorage implements IStorage {
       id: debtor2Id,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
+      linkedAccountId: null,
       fileNumber: "FILE-2024-001002",
       accountNumber: "ACC-2024-00002",
       firstName: "Jennifer",
@@ -427,6 +433,7 @@ export class MemStorage implements IStorage {
       zipCode: "77001",
       originalCreditor: "Chase Bank",
       clientName: "Chase Financial Recovery",
+      clientId: null,
       originalBalance: 875000,
       currentBalance: 450000,
       status: "in_payment",
@@ -437,6 +444,7 @@ export class MemStorage implements IStorage {
       id: debtor3Id,
       portfolioId: portfolio2Id,
       assignedCollectorId: collector3Id,
+      linkedAccountId: null,
       fileNumber: "FILE-2024-001003",
       accountNumber: "ACC-2024-00003",
       firstName: "David",
@@ -451,6 +459,7 @@ export class MemStorage implements IStorage {
       zipCode: "75201",
       originalCreditor: "Capital One Medical",
       clientName: "CapOne Recovery Services",
+      clientId: null,
       originalBalance: 325000,
       currentBalance: 325000,
       status: "disputed",
@@ -461,6 +470,7 @@ export class MemStorage implements IStorage {
       id: debtor4Id,
       portfolioId: portfolio3Id,
       assignedCollectorId: collector1Id,
+      linkedAccountId: null,
       fileNumber: "FILE-2024-001004",
       accountNumber: "ACC-2024-00004",
       firstName: "Amanda",
@@ -475,6 +485,7 @@ export class MemStorage implements IStorage {
       zipCode: "78201",
       originalCreditor: "Ford Motor Credit",
       clientName: "Ford Credit Recovery",
+      clientId: null,
       originalBalance: 4567800,
       currentBalance: 3890000,
       status: "open",
@@ -485,6 +496,7 @@ export class MemStorage implements IStorage {
       id: debtor5Id,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
+      linkedAccountId: null,
       fileNumber: "FILE-2024-001005",
       accountNumber: "ACC-2024-00005",
       firstName: "Christopher",
@@ -499,6 +511,7 @@ export class MemStorage implements IStorage {
       zipCode: "76101",
       originalCreditor: "Chase Bank",
       clientName: "Chase Financial Recovery",
+      clientId: null,
       originalBalance: 2150000,
       currentBalance: 0,
       status: "settled",
@@ -968,6 +981,7 @@ export class MemStorage implements IStorage {
       id,
       portfolioId: debtor.portfolioId,
       assignedCollectorId: debtor.assignedCollectorId ?? null,
+      linkedAccountId: debtor.linkedAccountId ?? null,
       fileNumber: debtor.fileNumber ?? null,
       accountNumber: debtor.accountNumber,
       firstName: debtor.firstName,
@@ -982,6 +996,7 @@ export class MemStorage implements IStorage {
       zipCode: debtor.zipCode ?? null,
       originalCreditor: debtor.originalCreditor ?? null,
       clientName: debtor.clientName ?? null,
+      clientId: debtor.clientId ?? null,
       originalBalance: debtor.originalBalance,
       currentBalance: debtor.currentBalance,
       status: debtor.status ?? "open",
@@ -1146,6 +1161,18 @@ export class MemStorage implements IStorage {
     return payments;
   }
 
+  async getAllPayments(): Promise<Payment[]> {
+    return Array.from(this.payments.values());
+  }
+
+  async getPayment(id: string): Promise<Payment | undefined> {
+    return this.payments.get(id);
+  }
+
+  async getPaymentsForDebtor(debtorId: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter((p) => p.debtorId === debtorId);
+  }
+
   async getRecentPayments(limit: number = 10): Promise<Payment[]> {
     return Array.from(this.payments.values())
       .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
@@ -1289,30 +1316,29 @@ export class MemStorage implements IStorage {
     const portfolios = Array.from(this.portfolios.values());
 
     const today = new Date().toISOString().split("T")[0];
-    const collectionsToday = payments
-      .filter((p) => p.paymentDate === today && p.status === "processed")
+    const completedPayments = payments.filter((p) => p.status === "completed" || p.status === "processed");
+    
+    const collectionsToday = completedPayments
+      .filter((p) => p.paymentDate === today)
       .reduce((sum, p) => sum + p.amount, 0);
 
     const thisMonth = new Date().toISOString().slice(0, 7);
-    const collectionsThisMonth = payments
-      .filter((p) => p.paymentDate.startsWith(thisMonth) && p.status === "processed")
+    const collectionsThisMonth = completedPayments
+      .filter((p) => p.paymentDate.startsWith(thisMonth))
       .reduce((sum, p) => sum + p.amount, 0);
 
     const activeAccounts = debtors.filter((d) => d.status === "open" || d.status === "in_payment").length;
     const accountsInPayment = debtors.filter((d) => d.status === "in_payment").length;
 
     const totalPortfolioValue = portfolios.reduce((sum, p) => sum + p.totalFaceValue, 0);
-    const totalCollected = payments
-      .filter((p) => p.status === "processed")
-      .reduce((sum, p) => sum + p.amount, 0);
+    const totalCollected = completedPayments.reduce((sum, p) => sum + p.amount, 0);
 
     const recoveryRate = totalPortfolioValue > 0
       ? Math.round((totalCollected / totalPortfolioValue) * 10000) / 100
       : 0;
 
-    const processedPayments = payments.filter((p) => p.status === "processed");
-    const avgCollectionAmount = processedPayments.length > 0
-      ? Math.round(processedPayments.reduce((sum, p) => sum + p.amount, 0) / processedPayments.length)
+    const avgCollectionAmount = completedPayments.length > 0
+      ? Math.round(completedPayments.reduce((sum, p) => sum + p.amount, 0) / completedPayments.length)
       : 0;
 
     return {

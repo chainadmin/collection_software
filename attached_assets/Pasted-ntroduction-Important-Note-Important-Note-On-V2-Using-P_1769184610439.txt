@@ -1,0 +1,196 @@
+ntroduction
+Important Note
+Important Note On V2
+Using Postman
+Using Postman to Test the API
+Step 1: Open Postman
+Step 2: Set the HTTP Method to POST or GET
+Step 3: Enter the API Endpoint URL
+Step 4: Configure the Request Body (if specified)
+Step 5: Add Headers
+Step 6: Add Authorization (Bearer Token)
+POST: Login (V1)
+Request Body
+Response
+Error
+POST: Login (V2)
+Request Body
+Response
+GET: /getportfoliolist (V1)
+Request Body
+Response
+GET: /getportfoliolist (V2)
+Request Body
+Response
+Errors
+GET: /getaccountbysocial/<ssn>  (V1)
+Request Body
+Response
+Error
+GET: /getaccountbysocial/<ssn>  (V2)
+POST: get_accounts_in_portfolio  (V1)
+Request Body
+Response
+Error
+POST: get_accounts_in_portfolio  (V2)
+Request
+Response
+GET: getattempts/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: getattempts/<filenumber>  (V2)
+Response
+GET: /getemails/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getemails/<filenumber>  (V2)
+Response
+Errors
+GET: /getemailstats/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getemailstats/<filenumber>  (V2)
+Response
+GET: /getphones/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getphones/<filenumber>  (V2)
+Response
+GET: /getnotes/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getnotes/<filenumber>  (V2)
+GET: /getpayments/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getpayments/<filenumber>  (V2)
+Response
+GET: /getaccount/<filenumber>  (V1)
+Request Body
+Response
+Error
+GET: /getaccount/<filenumber>  (V2)
+Response
+POST /insertphone  (V1)
+Request Body
+Response
+Error
+POST /insertphone  (V2)
+Request
+Response
+PUT /updatephone  (V1)
+Request Body
+Response
+Error
+PUT /updatephone  (V2)
+Request
+Response
+Errors
+POST /insertattempt  (V1)
+Response
+Error
+POST /insertattempt  (V2)
+Request
+Response
+Error
+POST /InsertNoteline  (V1)
+Request Body
+Response
+Error
+POST /InsertNoteline  (V2)
+Request
+Response
+Error
+PUT /updatepermissions  (V1)
+Request Body
+Response
+Error
+PUT /updatepermissions  (V2)
+Request
+Response
+Error
+PUT /updatedbase  (V1)
+Request Body
+Response
+Error
+PUT /updatedbase  (V2)
+Request
+Response
+Error
+POST insert_payplan_external  (V1)
+Request Body
+POST insert_payplan_external  (V2)
+Request
+Response
+Error
+POST insert_payments_external  (V1)
+Request Body
+Response
+Error
+POST insert_payments_external  (V2)
+Request
+Response
+POST /createCallback  (V1)
+Request Body
+Response
+Error
+POST /createCallback  (V2)
+POST /run_payment_external  (V1)
+Request Body
+Response
+Error
+POST /run_payment_external  (V2)
+Request
+Response
+POST /getAIaccountdata  (V1)
+Request Body
+Response
+Error
+POST /getAIaccountdata  (V2)
+Request
+Response
+POST /getAIpaymentdata  (V1)
+Request Body
+Response
+Error
+POST /getAIpaymentdata  (V2)
+Request
+Response
+POST /get_lastpayinfo  (V1)
+Successful Response
+POST /get_lastpayinfo  (V2)
+Request
+Response
+POST /update_payment_external  (V1)
+Validation Rules
+Successful Response
+Error Response – Missing Fields
+Error Response – Missing File Number
+POST /update_payment_external  (V2)
+Request
+Response
+POST /send_email_c2c  (V1)
+Request Body
+Response
+Error Response
+POST /send_email_c2c  (V2)
+POST /send_text (V1)
+Request Body
+Response
+Error Response
+POST /send_text (V2)
+POST /searchbyphone   (V1)
+Request Body
+Response
+Error
+POST /searchbyphone   (V2)
+Request Body
+Response
+Valid Account Permission Fields
+Advanced Query Builder

@@ -717,6 +717,134 @@ export async function registerRoutes(
     }
   });
 
+  // Get all payments
+  app.get("/api/payments", async (req, res) => {
+    try {
+      const payments = await storage.getAllPayments();
+      res.json(payments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payments" });
+    }
+  });
+
+  // Process a single payment
+  app.post("/api/payments/:id/process", async (req, res) => {
+    try {
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+
+      // Simulate payment processing (in production, this would call NMI/USAePay)
+      const success = Math.random() > 0.2; // 80% success rate for demo
+      const declineReason = success ? null : "Insufficient funds";
+      
+      const updatedPayment = await storage.updatePayment(req.params.id, {
+        status: success ? "processed" : "failed",
+        notes: success ? payment.notes : `DECLINED: ${declineReason}`,
+      });
+
+      // If failed, add decline reason to debtor notes
+      if (!success) {
+        const debtor = await storage.getDebtor(payment.debtorId);
+        if (debtor) {
+          await storage.createNote({
+            debtorId: payment.debtorId,
+            collectorId: payment.processedBy || "system",
+            content: `Payment of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
+            noteType: "payment",
+            createdDate: new Date().toISOString().split("T")[0],
+          });
+        }
+      }
+
+      res.json({ ...updatedPayment, declineReason });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to process payment" });
+    }
+  });
+
+  // Re-run a failed payment
+  app.post("/api/payments/:id/rerun", async (req, res) => {
+    try {
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+
+      // Reset to pending first, then process
+      await storage.updatePayment(req.params.id, { status: "pending" });
+
+      // Simulate payment processing (in production, this would call NMI/USAePay)
+      const success = Math.random() > 0.3; // 70% success rate for re-runs
+      const declineReason = success ? null : "Card declined - retry failed";
+      
+      const updatedPayment = await storage.updatePayment(req.params.id, {
+        status: success ? "processed" : "failed",
+        notes: success ? "Payment re-run successful" : `DECLINED: ${declineReason}`,
+      });
+
+      // If failed, add decline reason to debtor notes
+      if (!success) {
+        await storage.createNote({
+          debtorId: payment.debtorId,
+          collectorId: payment.processedBy || "system",
+          content: `Payment re-run of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
+          noteType: "payment",
+          createdDate: new Date().toISOString().split("T")[0],
+        });
+      }
+
+      res.json({ ...updatedPayment, declineReason });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to re-run payment" });
+    }
+  });
+
+  // Reverse a processed payment
+  app.post("/api/payments/:id/reverse", async (req, res) => {
+    try {
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+
+      const { reason } = req.body;
+
+      // Reverse the payment
+      const updatedPayment = await storage.updatePayment(req.params.id, {
+        status: "refunded",
+        notes: `REVERSED: ${reason || "No reason provided"}`,
+      });
+
+      // Cancel all future scheduled payments for this debtor
+      const allPayments = await storage.getPaymentsForDebtor(payment.debtorId);
+      const futurePayments = allPayments.filter(
+        (p) => p.status === "pending" && new Date(p.paymentDate) > new Date()
+      );
+      
+      for (const futurePayment of futurePayments) {
+        await storage.updatePayment(futurePayment.id, {
+          status: "cancelled",
+          notes: `Cancelled due to payment reversal on ${new Date().toISOString().split("T")[0]}`,
+        });
+      }
+
+      // Add note to debtor account
+      await storage.createNote({
+        debtorId: payment.debtorId,
+        collectorId: payment.processedBy || "system",
+        content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${futurePayments.length} future payment(s) cancelled.`,
+        noteType: "payment",
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+
+      res.json({ ...updatedPayment, cancelledPayments: futurePayments.length });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reverse payment" });
+    }
+  });
+
   // Import Batches API
   app.get("/api/import-batches", async (req, res) => {
     try {
@@ -795,6 +923,208 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete import mapping" });
+    }
+  });
+
+  // Import Data API - handles partial imports, upserts, and SSN-based linking
+  app.post("/api/import/debtors", async (req, res) => {
+    try {
+      const { portfolioId, clientId, records, mappings } = req.body;
+      
+      if (!portfolioId || !clientId || !records || !mappings) {
+        return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
+      }
+
+      const results = {
+        created: 0,
+        updated: 0,
+        linked: 0,
+        errors: [] as string[],
+      };
+
+      const existingDebtors = await storage.getDebtors(portfolioId);
+      const allDebtors = await storage.getDebtors();
+
+      for (const record of records) {
+        try {
+          const mappedData: any = {};
+          
+          for (const [csvColumn, systemField] of Object.entries(mappings)) {
+            if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
+              let value = record[csvColumn];
+              
+              if (systemField === "originalBalance" || systemField === "currentBalance") {
+                value = Math.round(parseFloat(value.replace(/[$,]/g, '')) * 100) || 0;
+              }
+              
+              mappedData[systemField] = value;
+            }
+          }
+
+          if (!mappedData.accountNumber && !mappedData.ssn) {
+            results.errors.push(`Row missing account number and SSN - skipped`);
+            continue;
+          }
+
+          const existingInPortfolio = existingDebtors.find(
+            (d) => (mappedData.accountNumber && d.accountNumber === mappedData.accountNumber) ||
+                   (mappedData.ssn && d.ssn === mappedData.ssn)
+          );
+
+          if (existingInPortfolio) {
+            await storage.updateDebtor(existingInPortfolio.id, mappedData);
+            results.updated++;
+            continue;
+          }
+
+          let linkedAccountId: string | null = null;
+          if (mappedData.ssn) {
+            const linkedDebtor = allDebtors.find(
+              (d) => d.ssn === mappedData.ssn && d.portfolioId !== portfolioId
+            );
+            if (linkedDebtor) {
+              linkedAccountId = linkedDebtor.id;
+              results.linked++;
+            }
+          }
+
+          const newDebtor = await storage.createDebtor({
+            portfolioId,
+            clientId,
+            linkedAccountId,
+            accountNumber: mappedData.accountNumber || `AUTO-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            firstName: mappedData.firstName || "Unknown",
+            lastName: mappedData.lastName || "Unknown",
+            email: mappedData.email || null,
+            address: mappedData.address || null,
+            city: mappedData.city || null,
+            state: mappedData.state || null,
+            zipCode: mappedData.zipCode || null,
+            dateOfBirth: mappedData.dateOfBirth || null,
+            ssn: mappedData.ssn || null,
+            ssnLast4: mappedData.ssnLast4 || (mappedData.ssn ? mappedData.ssn.slice(-4) : null),
+            originalBalance: mappedData.originalBalance || 0,
+            currentBalance: mappedData.currentBalance || mappedData.originalBalance || 0,
+            originalCreditor: mappedData.originalCreditor || null,
+            clientName: mappedData.clientName || null,
+            fileNumber: mappedData.fileNumber || null,
+            status: mappedData.status || "open",
+            lastContactDate: mappedData.lastContactDate || null,
+          });
+
+          if (mappedData.phone) {
+            await storage.createDebtorContact({
+              debtorId: newDebtor.id,
+              type: "phone",
+              value: mappedData.phone,
+              label: "Primary",
+              isPrimary: true,
+              isValid: true,
+            });
+          }
+
+          results.created++;
+        } catch (err: any) {
+          results.errors.push(err.message || "Unknown error processing record");
+        }
+      }
+
+      const portfolio = await storage.getPortfolio(portfolioId);
+      if (portfolio) {
+        const updatedDebtors = await storage.getDebtors(portfolioId);
+        const totalFaceValue = updatedDebtors.reduce((sum, d) => sum + d.originalBalance, 0);
+        await storage.updatePortfolio(portfolioId, {
+          totalAccounts: updatedDebtors.length,
+          totalFaceValue,
+        });
+      }
+
+      res.json({
+        success: true,
+        results,
+        message: `Import complete: ${results.created} created, ${results.updated} updated, ${results.linked} linked across portfolios`,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to import debtors" });
+    }
+  });
+
+  // Import Contacts API - adds contacts to existing debtors
+  app.post("/api/import/contacts", async (req, res) => {
+    try {
+      const { portfolioId, records, mappings } = req.body;
+      
+      if (!portfolioId || !records || !mappings) {
+        return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });
+      }
+
+      const results = {
+        added: 0,
+        matched: 0,
+        errors: [] as string[],
+      };
+
+      const debtors = await storage.getDebtors(portfolioId);
+
+      for (const record of records) {
+        try {
+          const mappedData: any = {};
+          
+          for (const [csvColumn, systemField] of Object.entries(mappings)) {
+            if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
+              mappedData[systemField] = record[csvColumn];
+            }
+          }
+
+          let matchedDebtor = null;
+          if (mappedData.accountNumber) {
+            matchedDebtor = debtors.find((d) => d.accountNumber === mappedData.accountNumber);
+          } else if (mappedData.ssn) {
+            matchedDebtor = debtors.find((d) => d.ssn === mappedData.ssn);
+          }
+
+          if (!matchedDebtor) {
+            results.errors.push(`No matching debtor found for record`);
+            continue;
+          }
+
+          results.matched++;
+
+          if (mappedData.phone) {
+            await storage.createDebtorContact({
+              debtorId: matchedDebtor.id,
+              type: "phone",
+              value: mappedData.phone,
+              label: mappedData.phoneLabel || null,
+              isPrimary: false,
+              isValid: true,
+            });
+            results.added++;
+          }
+
+          if (mappedData.email) {
+            await storage.createDebtorContact({
+              debtorId: matchedDebtor.id,
+              type: "email",
+              value: mappedData.email,
+              label: mappedData.emailLabel || null,
+              isPrimary: false,
+              isValid: true,
+            });
+            results.added++;
+          }
+        } catch (err: any) {
+          results.errors.push(err.message || "Unknown error processing record");
+        }
+      }
+
+      res.json({
+        success: true,
+        results,
+        message: `Import complete: ${results.added} contacts added to ${results.matched} debtors`,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to import contacts" });
     }
   });
 

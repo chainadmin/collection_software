@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { FileUp, FileDown, Upload, Download, FileText, CheckCircle, Settings, Save, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { FileUp, FileDown, Upload, Download, FileText, CheckCircle, Plus, ArrowRight, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Portfolio, Client } from "@shared/schema";
 
 export default function ImportExport() {
@@ -17,10 +18,20 @@ export default function ImportExport() {
   const [importType, setImportType] = useState("accounts");
   const [importClientId, setImportClientId] = useState("");
   const [importPortfolioId, setImportPortfolioId] = useState("");
+  const [createNewPortfolio, setCreateNewPortfolio] = useState(false);
+  const [newPortfolioName, setNewPortfolioName] = useState("");
   const [exportType, setExportType] = useState("accounts");
   const [exportPortfolio, setExportPortfolio] = useState("");
   const [exportFormat, setExportFormat] = useState("csv");
+  
+  const [importStep, setImportStep] = useState<"select" | "mapping" | "preview">("select");
+  const [csvColumns, setCsvColumns] = useState<string[]>([]);
+  const [csvData, setCsvData] = useState<string[][]>([]);
+  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
+  const [selectedSchemaId, setSelectedSchemaId] = useState("");
   const [schemaName, setSchemaName] = useState("");
+  const [showSaveSchemaDialog, setShowSaveSchemaDialog] = useState(false);
+  
   const [savedSchemas, setSavedSchemas] = useState<{name: string; mappings: Record<string, string>}[]>(() => {
     try {
       const stored = localStorage.getItem("debtflow_schema_mappings");
@@ -31,7 +42,6 @@ export default function ImportExport() {
       { name: "Chase Format", mappings: { "ACCT_NUM": "accountNumber", "FNAME": "firstName", "LNAME": "lastName", "ORIG_BAL": "originalBalance", "CURR_BAL": "currentBalance" } },
     ];
   });
-  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
 
   const systemFields = [
     { value: "skip", label: "-- Skip --" },
@@ -53,9 +63,20 @@ export default function ImportExport() {
     { value: "clientName", label: "Client Name" },
     { value: "status", label: "Status" },
     { value: "lastContactDate", label: "Last Contact Date" },
+    { value: "phone", label: "Phone Number" },
+    { value: "clientId", label: "Client ID" },
+    { value: "portfolioId", label: "Portfolio ID" },
   ];
 
-  const sampleCsvColumns = ["ACCT_NUM", "FIRST_NAME", "LAST_NAME", "STREET", "CITY", "STATE", "ZIP", "BALANCE", "ORIG_BAL", "CREDITOR"];
+  const contactFields = [
+    { value: "skip", label: "-- Skip --" },
+    { value: "accountNumber", label: "Account Number (to match)" },
+    { value: "ssn", label: "SSN (to match)" },
+    { value: "phone", label: "Phone Number" },
+    { value: "phoneLabel", label: "Phone Label" },
+    { value: "email", label: "Email" },
+    { value: "emailLabel", label: "Email Label" },
+  ];
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
@@ -67,20 +88,184 @@ export default function ImportExport() {
 
   const filteredPortfolios = importClientId 
     ? portfolios.filter(p => p.clientId === importClientId)
-    : portfolios;
+    : [];
 
-  const handleImport = () => {
+  const createPortfolioMutation = useMutation({
+    mutationFn: async (data: { name: string; clientId: string }) => {
+      const res = await apiRequest("POST", "/api/portfolios", {
+        name: data.name,
+        clientId: data.clientId,
+        purchaseDate: new Date().toISOString().split('T')[0],
+        purchasePrice: 0,
+        totalFaceValue: 0,
+        totalAccounts: 0,
+        status: "active",
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
+      setImportPortfolioId(data.id);
+      setCreateNewPortfolio(false);
+      setNewPortfolioName("");
+      toast({ title: "Portfolio Created", description: `Portfolio "${data.name}" has been created.` });
+    },
+  });
+
+  const parseCSV = (text: string): { columns: string[]; data: string[][] } => {
+    const lines = text.trim().split('\n');
+    if (lines.length === 0) return { columns: [], data: [] };
+    
+    const columns = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const data = lines.slice(1).map(line => {
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim());
+      return values;
+    });
+    
+    return { columns, data };
+  };
+
+  const handleFileSelect = async (file: File | null) => {
+    setImportFile(file);
+    if (!file) {
+      setCsvColumns([]);
+      setCsvData([]);
+      return;
+    }
+
+    const text = await file.text();
+    const { columns, data } = parseCSV(text);
+    setCsvColumns(columns);
+    setCsvData(data);
+    
+    const initialMappings: Record<string, string> = {};
+    columns.forEach(col => {
+      initialMappings[col] = "skip";
+    });
+    setColumnMappings(initialMappings);
+  };
+
+  const handleContinueToMapping = () => {
     if (!importFile) {
       toast({ title: "Error", description: "Please select a file to import.", variant: "destructive" });
       return;
     }
-    if (importType === "accounts" && !importPortfolioId) {
-      toast({ title: "Error", description: "Please select a portfolio for account import.", variant: "destructive" });
+    
+    const requiresClientPortfolio = importType === "accounts" || importType === "contacts";
+    
+    if (requiresClientPortfolio && !importClientId) {
+      toast({ title: "Error", description: "Please select a client.", variant: "destructive" });
       return;
     }
-    toast({ 
-      title: "Import Started", 
-      description: `Importing ${importType} from ${importFile.name}...` 
+    if (requiresClientPortfolio && !importPortfolioId && !createNewPortfolio) {
+      toast({ title: "Error", description: "Please select a portfolio or create a new one.", variant: "destructive" });
+      return;
+    }
+    if (createNewPortfolio && !newPortfolioName.trim()) {
+      toast({ title: "Error", description: "Please enter a name for the new portfolio.", variant: "destructive" });
+      return;
+    }
+
+    if (createNewPortfolio) {
+      createPortfolioMutation.mutate({ name: newPortfolioName, clientId: importClientId });
+      return;
+    }
+
+    setImportStep("mapping");
+  };
+
+  const handleApplySchema = (schemaName: string) => {
+    const schema = savedSchemas.find(s => s.name === schemaName);
+    if (schema) {
+      const newMappings = { ...columnMappings };
+      csvColumns.forEach(col => {
+        if (schema.mappings[col]) {
+          newMappings[col] = schema.mappings[col];
+        }
+      });
+      setColumnMappings(newMappings);
+      setSelectedSchemaId(schemaName);
+      toast({ title: "Schema Applied", description: `"${schemaName}" mappings have been applied.` });
+    }
+  };
+
+  const handleSaveSchema = () => {
+    if (!schemaName.trim()) {
+      toast({ title: "Error", description: "Please enter a schema name.", variant: "destructive" });
+      return;
+    }
+    const mappingsToSave = Object.fromEntries(
+      Object.entries(columnMappings).filter(([_, val]) => val !== "skip")
+    );
+    const newSchemas = [...savedSchemas, { name: schemaName, mappings: mappingsToSave }];
+    setSavedSchemas(newSchemas);
+    localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
+    setSchemaName("");
+    setShowSaveSchemaDialog(false);
+    toast({ title: "Schema Saved", description: `"${schemaName}" has been saved for future use.` });
+  };
+
+  const importMutation = useMutation({
+    mutationFn: async (data: { records: any[]; mappings: Record<string, string>; portfolioId: string; clientId: string; importType: string }) => {
+      const endpoint = data.importType === "contacts" ? "/api/import/contacts" : "/api/import/debtors";
+      const res = await apiRequest("POST", endpoint, {
+        portfolioId: data.portfolioId,
+        clientId: data.clientId,
+        records: data.records,
+        mappings: data.mappings,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
+      toast({ 
+        title: "Import Complete", 
+        description: data.message || `Successfully imported records.` 
+      });
+      setImportStep("select");
+      setImportFile(null);
+      setCsvColumns([]);
+      setCsvData([]);
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Import Failed", 
+        description: error.message || "An error occurred during import.", 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleImport = async () => {
+    const records = csvData.map(row => {
+      const record: Record<string, string> = {};
+      csvColumns.forEach((col, idx) => {
+        record[col] = row[idx] || "";
+      });
+      return record;
+    });
+
+    importMutation.mutate({
+      records,
+      mappings: columnMappings,
+      portfolioId: importPortfolioId,
+      clientId: importClientId,
+      importType,
     });
   };
 
@@ -89,6 +274,18 @@ export default function ImportExport() {
       title: "Export Started", 
       description: `Exporting ${exportType} in ${exportFormat.toUpperCase()} format...` 
     });
+  };
+
+  const getFieldsForType = () => {
+    if (importType === "contacts") return contactFields;
+    return systemFields;
+  };
+
+  const handleDeleteSchema = (index: number) => {
+    const newSchemas = savedSchemas.filter((_, i) => i !== index);
+    setSavedSchemas(newSchemas);
+    localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
+    toast({ title: "Schema Deleted" });
   };
 
   return (
@@ -108,128 +305,248 @@ export default function ImportExport() {
             <FileDown className="h-4 w-4 mr-2" />
             Export
           </TabsTrigger>
-          <TabsTrigger value="mapping" data-testid="tab-mapping">
-            <Settings className="h-4 w-4 mr-2" />
-            Schema Mapping
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="import" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {importStep === "select" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    Upload File
+                  </CardTitle>
+                  <CardDescription>Select a file and configure import settings</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Import Type</Label>
+                    <Select value={importType} onValueChange={setImportType}>
+                      <SelectTrigger data-testid="select-import-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="accounts">Debtor Accounts</SelectItem>
+                        <SelectItem value="payments">Payment History</SelectItem>
+                        <SelectItem value="contacts">Contact Information</SelectItem>
+                        <SelectItem value="employment">Employment Records</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {(importType === "accounts" || importType === "contacts") && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Client *</Label>
+                        <Select value={importClientId} onValueChange={(val) => {
+                          setImportClientId(val);
+                          setImportPortfolioId("");
+                          setCreateNewPortfolio(false);
+                        }}>
+                          <SelectTrigger data-testid="select-import-client">
+                            <SelectValue placeholder="Select a client" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {clients.length === 0 ? (
+                              <SelectItem value="none" disabled>No clients available</SelectItem>
+                            ) : (
+                              clients.map((client) => (
+                                <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Select the client these accounts belong to</p>
+                      </div>
+
+                      {importClientId && (
+                        <div className="space-y-2">
+                          <Label>Portfolio *</Label>
+                          <Select 
+                            value={createNewPortfolio ? "new" : importPortfolioId} 
+                            onValueChange={(val) => {
+                              if (val === "new") {
+                                setCreateNewPortfolio(true);
+                                setImportPortfolioId("");
+                              } else {
+                                setCreateNewPortfolio(false);
+                                setImportPortfolioId(val);
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid="select-import-portfolio">
+                              <SelectValue placeholder="Select portfolio" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="new">
+                                <div className="flex items-center gap-2">
+                                  <Plus className="h-4 w-4" />
+                                  Create New Portfolio
+                                </div>
+                              </SelectItem>
+                              {filteredPortfolios.map((portfolio) => (
+                                <SelectItem key={portfolio.id} value={portfolio.id}>{portfolio.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">Accounts will be imported into this portfolio</p>
+                        </div>
+                      )}
+
+                      {createNewPortfolio && (
+                        <div className="space-y-2">
+                          <Label>New Portfolio Name *</Label>
+                          <Input 
+                            value={newPortfolioName}
+                            onChange={(e) => setNewPortfolioName(e.target.value)}
+                            placeholder="Enter portfolio name"
+                            data-testid="input-new-portfolio-name"
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>File</Label>
+                    <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                      <Input 
+                        type="file" 
+                        accept=".csv,.xlsx,.xls"
+                        onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                        className="hidden"
+                        id="import-file"
+                        data-testid="input-import-file"
+                      />
+                      <label htmlFor="import-file" className="cursor-pointer">
+                        <FileText className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground mb-1">
+                          {importFile ? importFile.name : "Click to select file"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">CSV, XLSX supported</p>
+                      </label>
+                    </div>
+                  </div>
+
+                  {importFile && csvColumns.length > 0 && (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <p className="text-sm font-medium">File Preview</p>
+                      <p className="text-xs text-muted-foreground">{csvColumns.length} columns, {csvData.length} rows detected</p>
+                    </div>
+                  )}
+
+                  <Button 
+                    onClick={handleContinueToMapping} 
+                    disabled={!importFile || ((importType === "accounts" || importType === "contacts") && !importClientId)}
+                    className="w-full" 
+                    data-testid="button-continue-mapping"
+                  >
+                    Continue to Mapping
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Import Templates</CardTitle>
+                  <CardDescription>Download sample templates for importing</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {["Debtor Accounts", "Payment History", "Contact Info", "Employment"].map((template) => (
+                    <div key={template} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">{template} Template</span>
+                      </div>
+                      <Button variant="ghost" size="sm" data-testid={`button-download-${template.toLowerCase().replace(/\s+/g, "-")}`}>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {importStep === "mapping" && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Upload File
-                </CardTitle>
-                <CardDescription>Select a file to import data from</CardDescription>
+                <CardTitle className="text-lg">Map Columns</CardTitle>
+                <CardDescription>
+                  Match your CSV columns to system fields. You can use a saved schema or create a new mapping.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Import Type</Label>
-                  <Select value={importType} onValueChange={setImportType}>
-                    <SelectTrigger data-testid="select-import-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="accounts">Debtor Accounts</SelectItem>
-                      <SelectItem value="payments">Payment History</SelectItem>
-                      <SelectItem value="contacts">Contact Information</SelectItem>
-                      <SelectItem value="employment">Employment Records</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <Label>Use Saved Schema (Optional)</Label>
+                    <Select value={selectedSchemaId} onValueChange={handleApplySchema}>
+                      <SelectTrigger data-testid="select-saved-schema">
+                        <SelectValue placeholder="Select a schema to apply" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {savedSchemas.map((schema, idx) => (
+                          <SelectItem key={idx} value={schema.name}>{schema.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowSaveSchemaDialog(true)}
+                    data-testid="button-save-new-schema"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Current Mapping
+                  </Button>
                 </div>
 
-                {importType === "accounts" && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Client (Optional)</Label>
-                      <Select value={importClientId} onValueChange={(val) => {
-                        setImportClientId(val === "all" ? "" : val);
-                        setImportPortfolioId("");
-                      }}>
-                        <SelectTrigger data-testid="select-import-client">
-                          <SelectValue placeholder="All clients" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Clients</SelectItem>
-                          {clients.map((client) => (
-                            <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">Filter portfolios by client</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Target Portfolio *</Label>
-                      <Select value={importPortfolioId} onValueChange={setImportPortfolioId}>
-                        <SelectTrigger data-testid="select-import-portfolio">
-                          <SelectValue placeholder="Select portfolio" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {filteredPortfolios.length === 0 ? (
-                            <SelectItem value="none" disabled>No portfolios available</SelectItem>
-                          ) : (
-                            filteredPortfolios.map((portfolio) => (
-                              <SelectItem key={portfolio.id} value={portfolio.id}>{portfolio.name}</SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">Accounts will be imported into this portfolio</p>
-                    </div>
-                  </>
-                )}
-
-                <div className="space-y-2">
-                  <Label>File</Label>
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                    <Input 
-                      type="file" 
-                      accept=".csv,.xlsx,.xls"
-                      onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                      className="hidden"
-                      id="import-file"
-                      data-testid="input-import-file"
-                    />
-                    <label htmlFor="import-file" className="cursor-pointer">
-                      <FileText className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground mb-1">
-                        {importFile ? importFile.name : "Click to select file"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">CSV, XLSX supported</p>
-                    </label>
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="grid grid-cols-3 gap-4 p-3 bg-muted font-medium text-sm">
+                    <span>CSV Column</span>
+                    <span>Sample Data</span>
+                    <span>Map To</span>
+                  </div>
+                  <div className="divide-y max-h-96 overflow-y-auto">
+                    {csvColumns.map((col, idx) => (
+                      <div key={col} className="grid grid-cols-3 gap-4 p-3 items-center">
+                        <span className="text-sm font-mono">{col}</span>
+                        <span className="text-sm text-muted-foreground truncate">
+                          {csvData[0]?.[idx] || "-"}
+                        </span>
+                        <Select 
+                          value={columnMappings[col] || "skip"} 
+                          onValueChange={(val) => setColumnMappings({...columnMappings, [col]: val})}
+                        >
+                          <SelectTrigger data-testid={`select-mapping-${col}`}>
+                            <SelectValue placeholder="Select field" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getFieldsForType().map((field) => (
+                              <SelectItem key={field.value} value={field.value}>
+                                {field.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <Button onClick={handleImport} disabled={!importFile} className="w-full" data-testid="button-import">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Start Import
-                </Button>
+                <div className="flex justify-between">
+                  <Button variant="outline" onClick={() => setImportStep("select")} data-testid="button-back">
+                    Back
+                  </Button>
+                  <Button onClick={handleImport} data-testid="button-import">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import {csvData.length} Records
+                  </Button>
+                </div>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Import Templates</CardTitle>
-                <CardDescription>Download sample templates for importing</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {["Debtor Accounts", "Payment History", "Contact Info", "Employment"].map((template) => (
-                  <div key={template} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{template} Template</span>
-                    </div>
-                    <Button variant="ghost" size="sm" data-testid={`button-download-${template.toLowerCase().replace(/\s+/g, "-")}`}>
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
+          )}
         </TabsContent>
 
         <TabsContent value="export" className="space-y-4">
@@ -323,142 +640,33 @@ export default function ImportExport() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="mapping" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Column Mapping
-                </CardTitle>
-                <CardDescription>
-                  Map CSV columns to system fields for importing
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  When you upload a CSV file, the system will detect the column headers.
-                  Map each CSV column to the corresponding system field below.
-                </p>
-                
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="grid grid-cols-2 gap-4 p-3 bg-muted font-medium text-sm">
-                    <span>CSV Column</span>
-                    <span>System Field</span>
-                  </div>
-                  <div className="divide-y max-h-80 overflow-y-auto">
-                    {sampleCsvColumns.map((col) => (
-                      <div key={col} className="grid grid-cols-2 gap-4 p-3 items-center">
-                        <span className="text-sm font-mono">{col}</span>
-                        <Select 
-                          value={columnMappings[col] || ""} 
-                          onValueChange={(val) => setColumnMappings({...columnMappings, [col]: val})}
-                        >
-                          <SelectTrigger data-testid={`select-mapping-${col}`}>
-                            <SelectValue placeholder="Select field" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {systemFields.map((field) => (
-                              <SelectItem key={field.value} value={field.value}>
-                                {field.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <Input 
-                    placeholder="Schema name" 
-                    value={schemaName}
-                    onChange={(e) => setSchemaName(e.target.value)}
-                    className="flex-1"
-                    data-testid="input-schema-name"
-                  />
-                  <Button 
-                    onClick={() => {
-                      if (!schemaName) {
-                        toast({ title: "Error", description: "Please enter a schema name.", variant: "destructive" });
-                        return;
-                      }
-                      const newSchemas = [...savedSchemas, { name: schemaName, mappings: columnMappings }];
-                      setSavedSchemas(newSchemas);
-                      localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
-                      setSchemaName("");
-                      toast({ title: "Schema Saved", description: `"${schemaName}" has been saved.` });
-                    }}
-                    data-testid="button-save-schema"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Schema
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Saved Schemas</CardTitle>
-                <CardDescription>
-                  Reuse saved column mappings for future imports
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {savedSchemas.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No saved schemas yet.</p>
-                    <p className="text-sm">Create a column mapping and save it.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {savedSchemas.map((schema, index) => (
-                      <div key={schema.name} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <p className="font-medium">{schema.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {Object.keys(schema.mappings).length} field mappings
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => {
-                              setColumnMappings(schema.mappings);
-                              toast({ title: "Schema Loaded", description: `"${schema.name}" mappings applied.` });
-                            }}
-                            data-testid={`button-load-schema-${index}`}
-                          >
-                            Load
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => {
-                              const newSchemas = savedSchemas.filter((_, i) => i !== index);
-                              setSavedSchemas(newSchemas);
-                              localStorage.setItem("debtflow_schema_mappings", JSON.stringify(newSchemas));
-                              toast({ title: "Schema Deleted" });
-                            }}
-                            data-testid={`button-delete-schema-${index}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
       </Tabs>
+
+      <Dialog open={showSaveSchemaDialog} onOpenChange={setShowSaveSchemaDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Schema Mapping</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Schema Name</Label>
+              <Input 
+                value={schemaName}
+                onChange={(e) => setSchemaName(e.target.value)}
+                placeholder="e.g., Chase Format, Standard Import"
+                data-testid="input-save-schema-name"
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              This will save your current column mappings for reuse on future imports.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveSchemaDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveSchema} data-testid="button-confirm-save-schema">Save Schema</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
