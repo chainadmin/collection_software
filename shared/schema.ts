@@ -588,3 +588,39 @@ export const remittanceItems = pgTable("remittance_items", {
 export const insertRemittanceItemSchema = createInsertSchema(remittanceItems).omit({ id: true });
 export type InsertRemittanceItem = z.infer<typeof insertRemittanceItemSchema>;
 export type RemittanceItem = typeof remittanceItems.$inferSelect;
+
+// API Tokens (for external integrations like SMS/TXT software)
+export const apiTokens = pgTable("api_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(), // descriptive name for the token
+  token: text("token").notNull().unique(), // bearer token
+  isActive: boolean("is_active").default(true),
+  permissions: text("permissions").array(), // array of allowed endpoints
+  createdDate: text("created_date").notNull(),
+  lastUsedDate: text("last_used_date"),
+  expiresAt: text("expires_at"), // optional expiration
+});
+
+export const insertApiTokenSchema = createInsertSchema(apiTokens).omit({ id: true });
+export type InsertApiToken = z.infer<typeof insertApiTokenSchema>;
+export type ApiToken = typeof apiTokens.$inferSelect;
+
+// Communication Attempts (call/text/email attempts for tracking)
+export const communicationAttempts = pgTable("communication_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  debtorId: varchar("debtor_id").notNull(),
+  collectorId: varchar("collector_id"),
+  attemptType: text("attempt_type").notNull(), // call, text, email
+  direction: text("direction").notNull().default("outbound"), // inbound, outbound
+  phoneNumber: text("phone_number"),
+  emailAddress: text("email_address"),
+  outcome: text("outcome"), // connected, no_answer, voicemail, busy, wrong_number, delivered, opened, clicked
+  duration: integer("duration"), // call duration in seconds
+  notes: text("notes"),
+  externalId: text("external_id"), // ID from external SMS/email provider
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertCommunicationAttemptSchema = createInsertSchema(communicationAttempts).omit({ id: true });
+export type InsertCommunicationAttempt = z.infer<typeof insertCommunicationAttemptSchema>;
+export type CommunicationAttempt = typeof communicationAttempts.$inferSelect;

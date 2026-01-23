@@ -58,6 +58,10 @@ import {
   type InsertRemittanceItem,
   type Remittance,
   type InsertRemittance,
+  type ApiToken,
+  type InsertApiToken,
+  type CommunicationAttempt,
+  type InsertCommunicationAttempt,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -230,6 +234,21 @@ export interface IStorage {
 
   // Payments by date
   getPaymentsByDate(date: string): Promise<Payment[]>;
+
+  // API Tokens
+  getApiTokens(): Promise<ApiToken[]>;
+  getApiTokenByToken(token: string): Promise<ApiToken | undefined>;
+  createApiToken(token: InsertApiToken): Promise<ApiToken>;
+  updateApiTokenLastUsed(id: string): Promise<void>;
+  deleteApiToken(id: string): Promise<boolean>;
+
+  // Communication Attempts
+  getCommunicationAttempts(debtorId: string): Promise<CommunicationAttempt[]>;
+  createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt>;
+
+  // Helper methods for external API
+  getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined>;
+  getCollectorByUsername(username: string): Promise<Collector | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -262,6 +281,8 @@ export class MemStorage implements IStorage {
   private workQueueItems: Map<string, WorkQueueItem>;
   private remittances: Map<string, Remittance>;
   private remittanceItems: Map<string, RemittanceItem>;
+  private apiTokens: Map<string, ApiToken>;
+  private communicationAttempts: Map<string, CommunicationAttempt>;
 
   constructor() {
     this.users = new Map();
@@ -293,6 +314,8 @@ export class MemStorage implements IStorage {
     this.workQueueItems = new Map();
     this.remittances = new Map();
     this.remittanceItems = new Map();
+    this.apiTokens = new Map();
+    this.communicationAttempts = new Map();
     this.seedData();
   }
 
@@ -1865,6 +1888,79 @@ export class MemStorage implements IStorage {
   // Payments by date
   async getPaymentsByDate(date: string): Promise<Payment[]> {
     return Array.from(this.payments.values()).filter((p) => p.paymentDate === date);
+  }
+
+  // API Tokens
+  async getApiTokens(): Promise<ApiToken[]> {
+    return Array.from(this.apiTokens.values());
+  }
+
+  async getApiTokenByToken(token: string): Promise<ApiToken | undefined> {
+    return Array.from(this.apiTokens.values()).find((t) => t.token === token);
+  }
+
+  async createApiToken(token: InsertApiToken): Promise<ApiToken> {
+    const id = randomUUID();
+    const newToken: ApiToken = {
+      id,
+      name: token.name,
+      token: token.token,
+      isActive: token.isActive ?? true,
+      permissions: token.permissions ?? null,
+      createdDate: token.createdDate,
+      lastUsedDate: token.lastUsedDate ?? null,
+      expiresAt: token.expiresAt ?? null,
+    };
+    this.apiTokens.set(id, newToken);
+    return newToken;
+  }
+
+  async updateApiTokenLastUsed(id: string): Promise<void> {
+    const existing = this.apiTokens.get(id);
+    if (existing) {
+      existing.lastUsedDate = new Date().toISOString();
+      this.apiTokens.set(id, existing);
+    }
+  }
+
+  async deleteApiToken(id: string): Promise<boolean> {
+    return this.apiTokens.delete(id);
+  }
+
+  // Communication Attempts
+  async getCommunicationAttempts(debtorId: string): Promise<CommunicationAttempt[]> {
+    return Array.from(this.communicationAttempts.values())
+      .filter((a) => a.debtorId === debtorId)
+      .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
+  }
+
+  async createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt> {
+    const id = randomUUID();
+    const newAttempt: CommunicationAttempt = {
+      id,
+      debtorId: attempt.debtorId,
+      collectorId: attempt.collectorId ?? null,
+      attemptType: attempt.attemptType,
+      direction: attempt.direction ?? "outbound",
+      phoneNumber: attempt.phoneNumber ?? null,
+      emailAddress: attempt.emailAddress ?? null,
+      outcome: attempt.outcome ?? null,
+      duration: attempt.duration ?? null,
+      notes: attempt.notes ?? null,
+      externalId: attempt.externalId ?? null,
+      createdDate: attempt.createdDate,
+    };
+    this.communicationAttempts.set(id, newAttempt);
+    return newAttempt;
+  }
+
+  // Helper methods for external API
+  async getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined> {
+    return Array.from(this.debtors.values()).find((d) => d.fileNumber === fileNumber);
+  }
+
+  async getCollectorByUsername(username: string): Promise<Collector | undefined> {
+    return Array.from(this.collectors.values()).find((c) => c.username === username);
   }
 }
 

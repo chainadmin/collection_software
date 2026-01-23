@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { registerExternalApiRoutes } from "./external-api";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1577,6 +1578,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to update remittance item" });
     }
   });
+
+  // Register external API routes for SMS/TXT software integration
+  registerExternalApiRoutes(app);
 
   return httpServer;
 }
