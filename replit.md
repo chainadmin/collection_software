@@ -88,3 +88,34 @@ Preferred communication style: Simple, everyday language.
 - **Vite**: Frontend dev server and bundler with HMR
 - **esbuild**: Fast server-side TypeScript bundling
 - **Replit plugins**: Development banner and cartographer for Replit environment
+
+### Payment Runner Features
+- **Batch Processing**: Process pending payments in batches through merchant gateways
+- **Re-run Failed**: Re-run individual failed/declined payments with updated info
+- **Run Single Payment**: Process individual payments outside of batch runs
+- **Reverse Payments**: Reverse completed payments and auto-cancel future scheduled payments
+- **Decline Notes**: Auto-add decline reasons to account notes when payments fail
+
+### Import/Export Features
+- **Flexible Partial Imports**: Import accounts, contacts, payments, notes independently
+- **Upsert Logic**: Same portfolio/account updates existing; different portfolio/same SSN creates linked account
+- **Cross-Portfolio Linking**: linkedAccountId field enables person linking via SSN across portfolios
+- **Schema Mapping**: Save and reuse column mappings; clientId and portfolioId are mappable fields
+- **Client/Portfolio Selection**: Required for accounts and contacts imports
+
+### Card Validation
+- **BIN Lookup**: Client-side card validation using BIN database (no gateway authorization)
+- **Issuer Detection**: Identifies card brand (Visa, Mastercard, Amex, Discover)
+- **Luhn Validation**: Validates card number checksum
+- **Real-time Feedback**: Visual indicators in workstation payment recording
+
+### Remittance Reports
+- **Portfolio/Client Filters**: Filter by specific client, portfolio, or date range
+- **Payment Status**: Includes both "completed" and "processed" payment statuses
+- **Per-Payment Breakdown**: Shows debtor details, account numbers, client/portfolio info
+- **CSV Export**: Export filtered payment data for external reporting
+
+### Recall Management
+- **Recall Reasons**: "Recall" and "Monthly Payors" categorization
+- **Flexible Filtering**: Filter by client only, portfolio only, or both combined
+- **Batch Export**: Export recall lists with full account details
