@@ -102,6 +102,10 @@ Preferred communication style: Simple, everyday language.
 - **Cross-Portfolio Linking**: linkedAccountId field enables person linking via SSN across portfolios
 - **Schema Mapping**: Save and reuse column mappings; clientId and portfolioId are mappable fields
 - **Client/Portfolio Selection**: Required for accounts and contacts imports
+- **Comprehensive Account Data**: Import includes multiple phones (1-5), emails (1-3), employment info, and up to 3 references with full address
+- **Reference Support**: Personal/professional references with name, relationship, phone, address, and notes
+- **Employment Import**: Employer name, phone, address, position, and salary
+- **Legacy Compatibility**: Supports legacy phone/email fields for backward compatibility with old import formats
 
 ### Card Validation
 - **BIN Lookup**: Client-side card validation using BIN database (no gateway authorization)
