@@ -148,6 +148,25 @@ export const insertEmploymentRecordSchema = createInsertSchema(employmentRecords
 export type InsertEmploymentRecord = z.infer<typeof insertEmploymentRecordSchema>;
 export type EmploymentRecord = typeof employmentRecords.$inferSelect;
 
+// References (personal/professional contacts for debtor)
+export const debtorReferences = pgTable("debtor_references", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  debtorId: varchar("debtor_id").notNull(),
+  name: text("name").notNull(),
+  relationship: text("relationship"), // spouse, parent, sibling, friend, coworker, neighbor, etc.
+  phone: text("phone"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  notes: text("notes"),
+  addedDate: text("added_date"),
+});
+
+export const insertDebtorReferenceSchema = createInsertSchema(debtorReferences).omit({ id: true });
+export type InsertDebtorReference = z.infer<typeof insertDebtorReferenceSchema>;
+export type DebtorReference = typeof debtorReferences.$inferSelect;
+
 // Bank Accounts
 export const bankAccounts = pgTable("bank_accounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

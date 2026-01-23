@@ -362,6 +362,52 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/debtors/:id/references", async (req, res) => {
+    try {
+      const references = await storage.getDebtorReferences(req.params.id);
+      res.json(references);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch references" });
+    }
+  });
+
+  app.post("/api/debtors/:id/references", async (req, res) => {
+    try {
+      const reference = await storage.createDebtorReference({
+        ...req.body,
+        debtorId: req.params.id,
+        addedDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(reference);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create reference" });
+    }
+  });
+
+  app.patch("/api/references/:id", async (req, res) => {
+    try {
+      const reference = await storage.updateDebtorReference(req.params.id, req.body);
+      if (!reference) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      res.json(reference);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update reference" });
+    }
+  });
+
+  app.delete("/api/references/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteDebtorReference(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete reference" });
+    }
+  });
+
   app.get("/api/debtors/:id/bank-accounts", async (req, res) => {
     try {
       const accounts = await storage.getBankAccounts(req.params.id);
@@ -1010,17 +1056,92 @@ export async function registerRoutes(
             fileNumber: mappedData.fileNumber || null,
             status: mappedData.status || "open",
             lastContactDate: mappedData.lastContactDate || null,
+            nextFollowUpDate: mappedData.nextFollowUpDate || null,
           });
 
-          if (mappedData.phone) {
-            await storage.createDebtorContact({
+          // Create phone contacts - handle legacy "phone" field and phone1-5
+          const phoneFields = [
+            { phone: mappedData.phone1 || mappedData.phone, label: mappedData.phone1Label },
+            { phone: mappedData.phone2, label: mappedData.phone2Label },
+            { phone: mappedData.phone3, label: mappedData.phone3Label },
+            { phone: mappedData.phone4, label: mappedData.phone4Label },
+            { phone: mappedData.phone5, label: mappedData.phone5Label },
+          ];
+          
+          let phoneCount = 0;
+          for (let i = 0; i < phoneFields.length; i++) {
+            const { phone, label } = phoneFields[i];
+            if (phone && phone.trim()) {
+              await storage.createDebtorContact({
+                debtorId: newDebtor.id,
+                type: "phone",
+                value: phone.trim(),
+                label: label || (phoneCount === 0 ? "Primary" : `Phone ${phoneCount + 1}`),
+                isPrimary: phoneCount === 0,
+                isValid: true,
+              });
+              phoneCount++;
+            }
+          }
+
+          // Create email contacts - handle legacy "email" field (in debtor record) and email1-3
+          const emailFields = [
+            { email: mappedData.email1, label: mappedData.email1Label },
+            { email: mappedData.email2, label: mappedData.email2Label },
+            { email: mappedData.email3, label: mappedData.email3Label },
+          ];
+          
+          let emailCount = 0;
+          for (let i = 0; i < emailFields.length; i++) {
+            const { email, label } = emailFields[i];
+            if (email && email.trim()) {
+              await storage.createDebtorContact({
+                debtorId: newDebtor.id,
+                type: "email",
+                value: email.trim(),
+                label: label || (emailCount === 0 ? "Primary" : `Email ${emailCount + 1}`),
+                isPrimary: emailCount === 0,
+                isValid: true,
+              });
+              emailCount++;
+            }
+          }
+
+          // Create employment record if employer info provided
+          if (mappedData.employerName && mappedData.employerName.trim()) {
+            await storage.createEmploymentRecord({
               debtorId: newDebtor.id,
-              type: "phone",
-              value: mappedData.phone,
-              label: "Primary",
-              isPrimary: true,
-              isValid: true,
+              employerName: mappedData.employerName.trim(),
+              employerPhone: mappedData.employerPhone || null,
+              employerAddress: mappedData.employerAddress || null,
+              position: mappedData.position || null,
+              salary: mappedData.salary ? Math.round(parseFloat(mappedData.salary.replace(/[$,]/g, '')) * 100) : null,
+              isCurrent: true,
             });
+          }
+
+          // Create references (up to 3)
+          const refFields = [
+            { name: mappedData.ref1Name, relationship: mappedData.ref1Relationship, phone: mappedData.ref1Phone, address: mappedData.ref1Address, city: mappedData.ref1City, state: mappedData.ref1State, zipCode: mappedData.ref1ZipCode, notes: mappedData.ref1Notes },
+            { name: mappedData.ref2Name, relationship: mappedData.ref2Relationship, phone: mappedData.ref2Phone, address: mappedData.ref2Address, city: mappedData.ref2City, state: mappedData.ref2State, zipCode: mappedData.ref2ZipCode, notes: mappedData.ref2Notes },
+            { name: mappedData.ref3Name, relationship: mappedData.ref3Relationship, phone: mappedData.ref3Phone, address: mappedData.ref3Address, city: mappedData.ref3City, state: mappedData.ref3State, zipCode: mappedData.ref3ZipCode, notes: mappedData.ref3Notes },
+          ];
+          
+          for (const ref of refFields) {
+            if (ref.name && ref.name.trim()) {
+              await storage.createDebtorReference({
+                debtorId: newDebtor.id,
+                name: ref.name.trim(),
+                relationship: ref.relationship || null,
+                phone: ref.phone || null,
+                address: ref.address || null,
+                city: ref.city || null,
+                state: ref.state || null,
+                zipCode: ref.zipCode || null,
+                notes: ref.notes || null,
+                addedDate: new Date().toISOString().split("T")[0],
+              });
+            }
           }
 
           results.created++;

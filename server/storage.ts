@@ -15,6 +15,8 @@ import {
   type InsertDebtorContact,
   type EmploymentRecord,
   type InsertEmploymentRecord,
+  type DebtorReference,
+  type InsertDebtorReference,
   type BankAccount,
   type InsertBankAccount,
   type PaymentCard,
@@ -108,6 +110,11 @@ export interface IStorage {
   createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord>;
   updateEmploymentRecord(id: string, record: Partial<InsertEmploymentRecord>): Promise<EmploymentRecord | undefined>;
   deleteEmploymentRecord(id: string): Promise<boolean>;
+
+  getDebtorReferences(debtorId: string): Promise<DebtorReference[]>;
+  createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference>;
+  updateDebtorReference(id: string, reference: Partial<InsertDebtorReference>): Promise<DebtorReference | undefined>;
+  deleteDebtorReference(id: string): Promise<boolean>;
 
   getBankAccounts(debtorId: string): Promise<BankAccount[]>;
   createBankAccount(account: InsertBankAccount): Promise<BankAccount>;
@@ -235,6 +242,7 @@ export class MemStorage implements IStorage {
   private debtors: Map<string, Debtor>;
   private debtorContacts: Map<string, DebtorContact>;
   private employmentRecords: Map<string, EmploymentRecord>;
+  private debtorReferences: Map<string, DebtorReference>;
   private bankAccounts: Map<string, BankAccount>;
   private paymentCards: Map<string, PaymentCard>;
   private payments: Map<string, Payment>;
@@ -265,6 +273,7 @@ export class MemStorage implements IStorage {
     this.debtors = new Map();
     this.debtorContacts = new Map();
     this.employmentRecords = new Map();
+    this.debtorReferences = new Map();
     this.bankAccounts = new Map();
     this.paymentCards = new Map();
     this.payments = new Map();
@@ -1083,6 +1092,41 @@ export class MemStorage implements IStorage {
 
   async deleteEmploymentRecord(id: string): Promise<boolean> {
     return this.employmentRecords.delete(id);
+  }
+
+  async getDebtorReferences(debtorId: string): Promise<DebtorReference[]> {
+    return Array.from(this.debtorReferences.values()).filter((r) => r.debtorId === debtorId);
+  }
+
+  async createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference> {
+    const id = randomUUID();
+    const newReference: DebtorReference = {
+      id,
+      debtorId: reference.debtorId,
+      name: reference.name,
+      relationship: reference.relationship ?? null,
+      phone: reference.phone ?? null,
+      address: reference.address ?? null,
+      city: reference.city ?? null,
+      state: reference.state ?? null,
+      zipCode: reference.zipCode ?? null,
+      notes: reference.notes ?? null,
+      addedDate: reference.addedDate ?? new Date().toISOString().split("T")[0],
+    };
+    this.debtorReferences.set(id, newReference);
+    return newReference;
+  }
+
+  async updateDebtorReference(id: string, reference: Partial<InsertDebtorReference>): Promise<DebtorReference | undefined> {
+    const existing = this.debtorReferences.get(id);
+    if (!existing) return undefined;
+    const updated: DebtorReference = { ...existing, ...reference };
+    this.debtorReferences.set(id, updated);
+    return updated;
+  }
+
+  async deleteDebtorReference(id: string): Promise<boolean> {
+    return this.debtorReferences.delete(id);
   }
 
   async getBankAccounts(debtorId: string): Promise<BankAccount[]> {
