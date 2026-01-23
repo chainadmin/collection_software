@@ -75,6 +75,7 @@ import type {
   Payment,
   PaymentCard,
   TimeClockEntry,
+  DebtorReference,
 } from "@shared/schema";
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
@@ -87,8 +88,32 @@ export default function Workstation() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("ach");
   const [employmentOpen, setEmploymentOpen] = useState(false);
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
+  
+  // Additional info dialogs
+  const [showAdditionalInfoDialog, setShowAdditionalInfoDialog] = useState(false);
+  const [showAddEmploymentDialog, setShowAddEmploymentDialog] = useState(false);
+  const [showAddReferenceDialog, setShowAddReferenceDialog] = useState(false);
+  
+  // Employment form state
+  const [empEmployerName, setEmpEmployerName] = useState("");
+  const [empEmployerPhone, setEmpEmployerPhone] = useState("");
+  const [empEmployerAddress, setEmpEmployerAddress] = useState("");
+  const [empPosition, setEmpPosition] = useState("");
+  const [empSalary, setEmpSalary] = useState("");
+  const [empIsCurrent, setEmpIsCurrent] = useState(true);
+  
+  // Reference form state
+  const [refName, setRefName] = useState("");
+  const [refRelationship, setRefRelationship] = useState("");
+  const [refPhone, setRefPhone] = useState("");
+  const [refAddress, setRefAddress] = useState("");
+  const [refCity, setRefCity] = useState("");
+  const [refState, setRefState] = useState("");
+  const [refZipCode, setRefZipCode] = useState("");
+  const [refNotes, setRefNotes] = useState("");
   const [notesOpen, setNotesOpen] = useState(true);
   const [pendingPaymentsOpen, setPendingPaymentsOpen] = useState(true);
   const [showCardDialog, setShowCardDialog] = useState(false);
@@ -199,6 +224,11 @@ export default function Workstation() {
 
   const { data: employment } = useQuery<EmploymentRecord[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "employment"],
+    enabled: !!selectedDebtorId,
+  });
+
+  const { data: references } = useQuery<DebtorReference[]>({
+    queryKey: ["/api/debtors", selectedDebtorId, "references"],
     enabled: !!selectedDebtorId,
   });
 
@@ -381,6 +411,45 @@ export default function Workstation() {
       setEditContactType("phone");
       setEditContactLabel("");
       toast({ title: "Contact added", description: "New contact added." });
+    },
+  });
+
+  const addEmploymentMutation = useMutation({
+    mutationFn: async (data: { debtorId: string; employerName: string; employerPhone?: string; employerAddress?: string; position?: string; salary?: number; isCurrent?: boolean }) => {
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/employment`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "employment"] });
+      setShowAddEmploymentDialog(false);
+      setEmpEmployerName("");
+      setEmpEmployerPhone("");
+      setEmpEmployerAddress("");
+      setEmpPosition("");
+      setEmpSalary("");
+      setEmpIsCurrent(true);
+      toast({ title: "Employment added", description: "Employment record saved." });
+    },
+  });
+
+  const addReferenceMutation = useMutation({
+    mutationFn: async (data: { debtorId: string; name: string; relationship?: string; phone?: string; address?: string; city?: string; state?: string; zipCode?: string; notes?: string }) => {
+      return apiRequest("POST", `/api/debtors/${data.debtorId}/references`, {
+        ...data,
+        addedDate: new Date().toISOString().split("T")[0],
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "references"] });
+      setShowAddReferenceDialog(false);
+      setRefName("");
+      setRefRelationship("");
+      setRefPhone("");
+      setRefAddress("");
+      setRefCity("");
+      setRefState("");
+      setRefZipCode("");
+      setRefNotes("");
+      toast({ title: "Reference added", description: "Reference record saved." });
     },
   });
 
@@ -1071,6 +1140,16 @@ export default function Workstation() {
               </Button>
               <Button
                 size="sm"
+                variant="outline"
+                onClick={() => setShowAdditionalInfoDialog(true)}
+                disabled={!isReady || !selectedDebtorId}
+                data-testid="button-additional-info"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                Additional Info
+              </Button>
+              <Button
+                size="sm"
                 onClick={() => setShowPaymentDialog(true)}
                 disabled={!isReady}
                 data-testid="button-record-payment"
@@ -1191,6 +1270,20 @@ export default function Workstation() {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <CardContent>
+                        <div className="flex justify-end mb-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAddEmploymentDialog(true);
+                            }}
+                            data-testid="button-add-employment"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add
+                          </Button>
+                        </div>
                         {employment && employment.length > 0 ? (
                           <div className="space-y-2">
                             {employment.map((record) => (
@@ -1217,6 +1310,69 @@ export default function Workstation() {
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground">No employment records</p>
+                        )}
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
+
+                <Collapsible open={referencesOpen} onOpenChange={setReferencesOpen}>
+                  <Card>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            References
+                          </span>
+                          <ChevronRight
+                            className={`h-4 w-4 transition-transform ${referencesOpen ? "rotate-90" : ""}`}
+                          />
+                        </CardTitle>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent>
+                        <div className="flex justify-end mb-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAddReferenceDialog(true);
+                            }}
+                            data-testid="button-add-reference"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add
+                          </Button>
+                        </div>
+                        {references && references.length > 0 ? (
+                          <div className="space-y-2">
+                            {references.map((ref) => (
+                              <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
+                                  {ref.relationship && (
+                                    <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
+                                  )}
+                                </div>
+                                {ref.phone && (
+                                  <p className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}`}>{ref.phone}</p>
+                                )}
+                                {(ref.address || ref.city || ref.state) && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
+                                  </p>
+                                )}
+                                {ref.notes && (
+                                  <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No references on file</p>
                         )}
                       </CardContent>
                     </CollapsibleContent>
@@ -1999,6 +2155,332 @@ export default function Workstation() {
             <Button onClick={handleBulkAddNotes} disabled={!bulkNotesText.trim()}>
               Add All
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddEmploymentDialog} onOpenChange={setShowAddEmploymentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Employment Record</DialogTitle>
+            <DialogDescription>
+              Add employer information for this account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Employer Name *</label>
+              <Input
+                value={empEmployerName}
+                onChange={(e) => setEmpEmployerName(e.target.value)}
+                placeholder="Company name"
+                data-testid="input-employer-name"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Phone</label>
+              <Input
+                value={empEmployerPhone}
+                onChange={(e) => setEmpEmployerPhone(e.target.value)}
+                placeholder="Employer phone number"
+                data-testid="input-employer-phone"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Address</label>
+              <Input
+                value={empEmployerAddress}
+                onChange={(e) => setEmpEmployerAddress(e.target.value)}
+                placeholder="Employer address"
+                data-testid="input-employer-address"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Position/Title</label>
+              <Input
+                value={empPosition}
+                onChange={(e) => setEmpPosition(e.target.value)}
+                placeholder="Job title"
+                data-testid="input-employer-position"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Annual Salary</label>
+              <Input
+                type="number"
+                value={empSalary}
+                onChange={(e) => setEmpSalary(e.target.value)}
+                placeholder="Annual salary"
+                data-testid="input-employer-salary"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="emp-is-current"
+                checked={empIsCurrent}
+                onChange={(e) => setEmpIsCurrent(e.target.checked)}
+                data-testid="checkbox-employer-current"
+              />
+              <label htmlFor="emp-is-current" className="text-sm">Current employer</label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddEmploymentDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedDebtorId && empEmployerName) {
+                  addEmploymentMutation.mutate({
+                    debtorId: selectedDebtorId,
+                    employerName: empEmployerName,
+                    employerPhone: empEmployerPhone || undefined,
+                    employerAddress: empEmployerAddress || undefined,
+                    position: empPosition || undefined,
+                    salary: empSalary ? parseFloat(empSalary) : undefined,
+                    isCurrent: empIsCurrent,
+                  });
+                }
+              }}
+              disabled={!empEmployerName || addEmploymentMutation.isPending}
+              data-testid="button-save-employment"
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddReferenceDialog} onOpenChange={setShowAddReferenceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Reference</DialogTitle>
+            <DialogDescription>
+              Add a personal or professional reference for this account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium">Name *</label>
+              <Input
+                value={refName}
+                onChange={(e) => setRefName(e.target.value)}
+                placeholder="Reference name"
+                data-testid="input-reference-name"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Relationship</label>
+              <Select value={refRelationship} onValueChange={setRefRelationship}>
+                <SelectTrigger data-testid="select-reference-relationship">
+                  <SelectValue placeholder="Select relationship" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="spouse">Spouse</SelectItem>
+                  <SelectItem value="parent">Parent</SelectItem>
+                  <SelectItem value="sibling">Sibling</SelectItem>
+                  <SelectItem value="friend">Friend</SelectItem>
+                  <SelectItem value="coworker">Coworker</SelectItem>
+                  <SelectItem value="neighbor">Neighbor</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Phone</label>
+              <Input
+                value={refPhone}
+                onChange={(e) => setRefPhone(e.target.value)}
+                placeholder="Phone number"
+                data-testid="input-reference-phone"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Address</label>
+              <Input
+                value={refAddress}
+                onChange={(e) => setRefAddress(e.target.value)}
+                placeholder="Street address"
+                data-testid="input-reference-address"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-sm font-medium">City</label>
+                <Input
+                  value={refCity}
+                  onChange={(e) => setRefCity(e.target.value)}
+                  placeholder="City"
+                  data-testid="input-reference-city"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">State</label>
+                <Input
+                  value={refState}
+                  onChange={(e) => setRefState(e.target.value)}
+                  placeholder="State"
+                  data-testid="input-reference-state"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">ZIP</label>
+                <Input
+                  value={refZipCode}
+                  onChange={(e) => setRefZipCode(e.target.value)}
+                  placeholder="ZIP"
+                  data-testid="input-reference-zip"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Notes</label>
+              <Textarea
+                value={refNotes}
+                onChange={(e) => setRefNotes(e.target.value)}
+                placeholder="Additional notes about this reference"
+                data-testid="textarea-reference-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddReferenceDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedDebtorId && refName) {
+                  addReferenceMutation.mutate({
+                    debtorId: selectedDebtorId,
+                    name: refName,
+                    relationship: refRelationship || undefined,
+                    phone: refPhone || undefined,
+                    address: refAddress || undefined,
+                    city: refCity || undefined,
+                    state: refState || undefined,
+                    zipCode: refZipCode || undefined,
+                    notes: refNotes || undefined,
+                  });
+                }
+              }}
+              disabled={!refName || addReferenceMutation.isPending}
+              data-testid="button-save-reference"
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAdditionalInfoDialog} onOpenChange={setShowAdditionalInfoDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Additional Information</DialogTitle>
+            <DialogDescription>
+              Complete account details including contacts, employment, and references.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  Contacts ({contacts?.length || 0})
+                </h3>
+                <Button size="sm" variant="outline" onClick={() => { setShowAdditionalInfoDialog(false); setShowAddContactDialog(true); }}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add
+                </Button>
+              </div>
+              {contacts && contacts.length > 0 ? (
+                <div className="space-y-2">
+                  {contacts.map((contact) => (
+                    <div key={contact.id} className="p-2 rounded bg-muted/50 flex items-center justify-between">
+                      <div>
+                        <span className="font-mono text-sm">{contact.value}</span>
+                        {contact.label && <Badge variant="outline" className="ml-2 text-xs">{contact.label}</Badge>}
+                      </div>
+                      <Badge variant="secondary" className="text-xs">{contact.type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No contacts on file</p>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  Employment ({employment?.length || 0})
+                </h3>
+                <Button size="sm" variant="outline" onClick={() => { setShowAdditionalInfoDialog(false); setShowAddEmploymentDialog(true); }}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add
+                </Button>
+              </div>
+              {employment && employment.length > 0 ? (
+                <div className="space-y-2">
+                  {employment.map((record) => (
+                    <div key={record.id} className="p-3 rounded bg-muted/50">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium">{record.employerName}</p>
+                        {record.isCurrent && <Badge variant="secondary" className="text-xs">Current</Badge>}
+                      </div>
+                      {record.position && <p className="text-sm text-muted-foreground">{record.position}</p>}
+                      {record.employerPhone && <p className="text-xs font-mono mt-1">{record.employerPhone}</p>}
+                      {record.employerAddress && <p className="text-xs text-muted-foreground">{record.employerAddress}</p>}
+                      {record.salary && <p className="text-xs text-muted-foreground">Salary: {formatCurrency(record.salary)}/year</p>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No employment records</p>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  References ({references?.length || 0})
+                </h3>
+                <Button size="sm" variant="outline" onClick={() => { setShowAdditionalInfoDialog(false); setShowAddReferenceDialog(true); }}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add
+                </Button>
+              </div>
+              {references && references.length > 0 ? (
+                <div className="space-y-2">
+                  {references.map((ref) => (
+                    <div key={ref.id} className="p-3 rounded bg-muted/50">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium">{ref.name}</p>
+                        {ref.relationship && <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>}
+                      </div>
+                      {ref.phone && <p className="text-xs font-mono mt-1">{ref.phone}</p>}
+                      {(ref.address || ref.city || ref.state) && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
+                        </p>
+                      )}
+                      {ref.notes && <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No references on file</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowAdditionalInfoDialog(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
