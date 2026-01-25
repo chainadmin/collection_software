@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 
+// TODO: Extract organizationId from session context when auth is implemented
+const DEFAULT_ORG_ID = "default-org";
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -15,6 +18,76 @@ export async function registerRoutes(
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  // Organization routes
+  app.get("/api/organizations", async (req, res) => {
+    try {
+      const organizations = await storage.getOrganizations();
+      res.json(organizations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch organizations" });
+    }
+  });
+
+  app.get("/api/organizations/:id", async (req, res) => {
+    try {
+      const organization = await storage.getOrganization(req.params.id);
+      if (!organization) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      res.json(organization);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch organization" });
+    }
+  });
+
+  app.get("/api/organizations/slug/:slug", async (req, res) => {
+    try {
+      const organization = await storage.getOrganizationBySlug(req.params.slug);
+      if (!organization) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      res.json(organization);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch organization" });
+    }
+  });
+
+  app.post("/api/organizations", async (req, res) => {
+    try {
+      const organization = await storage.createOrganization({
+        ...req.body,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+      res.status(201).json(organization);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create organization" });
+    }
+  });
+
+  app.patch("/api/organizations/:id", async (req, res) => {
+    try {
+      const organization = await storage.updateOrganization(req.params.id, req.body);
+      if (!organization) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      res.json(organization);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update organization" });
+    }
+  });
+
+  app.delete("/api/organizations/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteOrganization(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete organization" });
     }
   });
 
@@ -337,6 +410,7 @@ export async function registerRoutes(
       const contact = await storage.createDebtorContact({
         ...req.body,
         debtorId: req.params.id,
+        organizationId: DEFAULT_ORG_ID,
       });
       res.status(201).json(contact);
     } catch (error) {
@@ -370,6 +444,7 @@ export async function registerRoutes(
       const record = await storage.createEmploymentRecord({
         ...req.body,
         debtorId: req.params.id,
+        organizationId: DEFAULT_ORG_ID,
       });
       res.status(201).json(record);
     } catch (error) {
@@ -404,6 +479,7 @@ export async function registerRoutes(
         ...req.body,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
+        organizationId: DEFAULT_ORG_ID,
       });
       res.status(201).json(reference);
     } catch (error) {
@@ -536,6 +612,7 @@ export async function registerRoutes(
       const note = await storage.createNote({
         ...req.body,
         debtorId: req.params.id,
+        organizationId: DEFAULT_ORG_ID,
       });
       res.status(201).json(note);
     } catch (error) {
@@ -749,6 +826,7 @@ export async function registerRoutes(
       const entry = await storage.createTimeClockEntry({
         collectorId,
         clockIn: new Date().toISOString(),
+        organizationId: DEFAULT_ORG_ID,
       });
       res.status(201).json(entry);
     } catch (error) {
@@ -827,6 +905,7 @@ export async function registerRoutes(
             content: `Payment of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
             noteType: "payment",
             createdDate: new Date().toISOString().split("T")[0],
+            organizationId: DEFAULT_ORG_ID,
           });
         }
       }
@@ -865,6 +944,7 @@ export async function registerRoutes(
           content: `Payment re-run of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
           noteType: "payment",
           createdDate: new Date().toISOString().split("T")[0],
+          organizationId: DEFAULT_ORG_ID,
         });
       }
 
@@ -918,6 +998,7 @@ export async function registerRoutes(
         content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${futurePayments.length} future payment(s) cancelled.`,
         noteType: "payment",
         createdDate: new Date().toISOString().split("T")[0],
+        organizationId: DEFAULT_ORG_ID,
       });
 
       res.json({ ...updatedPayment, cancelledPayments: futurePayments.length });
@@ -959,6 +1040,7 @@ export async function registerRoutes(
         content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully.`,
         noteType: "payment",
         createdDate: new Date().toISOString().split("T")[0],
+        organizationId: DEFAULT_ORG_ID,
       });
 
       res.json(updatedPayment);
@@ -996,6 +1078,7 @@ export async function registerRoutes(
           content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully (bulk post).`,
           noteType: "payment",
           createdDate: new Date().toISOString().split("T")[0],
+          organizationId: DEFAULT_ORG_ID,
         });
         count++;
       }
@@ -1172,6 +1255,7 @@ export async function registerRoutes(
             status: mappedData.status || "open",
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
+            organizationId: DEFAULT_ORG_ID,
           });
 
           // Create phone contacts - handle legacy "phone" field and phone1-5
@@ -1194,6 +1278,7 @@ export async function registerRoutes(
                 label: label || (phoneCount === 0 ? "Primary" : `Phone ${phoneCount + 1}`),
                 isPrimary: phoneCount === 0,
                 isValid: true,
+                organizationId: DEFAULT_ORG_ID,
               });
               phoneCount++;
             }
@@ -1217,6 +1302,7 @@ export async function registerRoutes(
                 label: label || (emailCount === 0 ? "Primary" : `Email ${emailCount + 1}`),
                 isPrimary: emailCount === 0,
                 isValid: true,
+                organizationId: DEFAULT_ORG_ID,
               });
               emailCount++;
             }
@@ -1232,6 +1318,7 @@ export async function registerRoutes(
               position: mappedData.position || null,
               salary: mappedData.salary ? Math.round(parseFloat(mappedData.salary.replace(/[$,]/g, '')) * 100) : null,
               isCurrent: true,
+              organizationId: DEFAULT_ORG_ID,
             });
           }
 
@@ -1255,6 +1342,7 @@ export async function registerRoutes(
                 zipCode: ref.zipCode || null,
                 notes: ref.notes || null,
                 addedDate: new Date().toISOString().split("T")[0],
+                organizationId: DEFAULT_ORG_ID,
               });
             }
           }
@@ -1334,6 +1422,7 @@ export async function registerRoutes(
               label: mappedData.phoneLabel || null,
               isPrimary: false,
               isValid: true,
+              organizationId: DEFAULT_ORG_ID,
             });
             results.added++;
           }
@@ -1346,6 +1435,7 @@ export async function registerRoutes(
               label: mappedData.emailLabel || null,
               isPrimary: false,
               isValid: true,
+              organizationId: DEFAULT_ORG_ID,
             });
             results.added++;
           }
