@@ -41,6 +41,7 @@ import ServerAccess from "@/pages/admin/settings/server-access";
 import Clients from "@/pages/admin/clients";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
+import { OrganizationProvider } from "@/lib/organization-context";
 
 function Router() {
   const [, setLocation] = useLocation();
@@ -171,10 +172,12 @@ function App() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="debtflow-theme">
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <AppContent />
-          <Toaster />
-        </TooltipProvider>
+        <OrganizationProvider>
+          <TooltipProvider>
+            <AppContent />
+            <Toaster />
+          </TooltipProvider>
+        </OrganizationProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

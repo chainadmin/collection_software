@@ -32,7 +32,16 @@ Preferred communication style: Simple, everyday language.
 - **Validation**: Drizzle-Zod for automatic schema-to-validation conversion
 - **Storage Abstraction**: `server/storage.ts` provides an interface layer over database operations
 
+### Multi-Organization Architecture
+- **Organization Isolation**: Each collection agency operates as a separate organization with complete data isolation
+- **Organization Table**: Contains company name, slug, address, timezone, and settings
+- **Organization Scoping**: All data tables include organizationId foreign key for tenant isolation
+- **Organization Context**: Frontend OrganizationProvider manages current organization state
+- **Header-Based Routing**: X-Organization-Id header used for organization context in API requests
+- **Default Organization**: Uses "default-org" ID for backward compatibility during migration
+
 ### Key Domain Models
+- **Organizations**: Collection agencies with company details and settings
 - **Collectors**: Staff members who work accounts (roles: admin, manager, collector)
 - **Portfolios**: Groups of purchased debt accounts with face value and purchase price tracking
 - **Debtors**: Individual accounts with contact info, employment, and bank account records

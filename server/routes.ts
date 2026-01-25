@@ -3,8 +3,16 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 
-// TODO: Extract organizationId from session context when auth is implemented
+// Organization ID is extracted from X-Organization-Id header or defaults to default-org
 const DEFAULT_ORG_ID = "default-org";
+
+function getOrgId(req: { headers: Record<string, string | string[] | undefined> }): string {
+  const headerValue = req.headers["x-organization-id"];
+  if (typeof headerValue === "string" && headerValue.length > 0) {
+    return headerValue;
+  }
+  return DEFAULT_ORG_ID;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -94,7 +102,8 @@ export async function registerRoutes(
   // Client routes
   app.get("/api/clients", async (req, res) => {
     try {
-      const clients = await storage.getClients();
+      const orgId = getOrgId(req);
+      const clients = await storage.getClients(orgId);
       res.json(clients);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch clients" });
