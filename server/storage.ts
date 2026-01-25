@@ -152,7 +152,7 @@ export interface IStorage {
   getLiquidationSnapshots(portfolioId?: string): Promise<LiquidationSnapshot[]>;
   createLiquidationSnapshot(snapshot: InsertLiquidationSnapshot): Promise<LiquidationSnapshot>;
 
-  getDashboardStats(): Promise<DashboardStats>;
+  getDashboardStats(dateRange?: string): Promise<DashboardStats>;
 
   // Merchants
   getMerchants(): Promise<Merchant[]>;
@@ -1013,7 +1013,7 @@ export class MemStorage implements IStorage {
     const matchedDebtorIds = new Set<string>();
 
     // Search debtors by name, account number, file number, SSN
-    for (const debtor of this.debtors.values()) {
+    Array.from(this.debtors.values()).forEach((debtor) => {
       const searchableFields = [
         debtor.firstName,
         debtor.lastName,
@@ -1031,19 +1031,19 @@ export class MemStorage implements IStorage {
       if (searchableFields.some(f => f.includes(normalizedQuery))) {
         matchedDebtorIds.add(debtor.id);
       }
-    }
+    });
 
     // Search contacts (phones and emails)
-    for (const contact of this.debtorContacts.values()) {
+    Array.from(this.debtorContacts.values()).forEach((contact) => {
       const normalizedValue = contact.value.toLowerCase().replace(/[^a-z0-9]/g, '');
       const normalizedLabel = (contact.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       if (normalizedValue.includes(normalizedQuery) || normalizedLabel.includes(normalizedQuery)) {
         matchedDebtorIds.add(contact.debtorId);
       }
-    }
+    });
 
     // Search employment records (employer name and phone)
-    for (const emp of this.employmentRecords.values()) {
+    Array.from(this.employmentRecords.values()).forEach((emp) => {
       const searchableFields = [
         emp.employerName,
         emp.employerPhone,
@@ -1053,10 +1053,10 @@ export class MemStorage implements IStorage {
       if (searchableFields.some(f => f.includes(normalizedQuery))) {
         matchedDebtorIds.add(emp.debtorId);
       }
-    }
+    });
 
     // Search references (name and phone)
-    for (const ref of this.debtorReferences.values()) {
+    Array.from(this.debtorReferences.values()).forEach((ref) => {
       const searchableFields = [
         ref.name,
         ref.phone,
@@ -1066,7 +1066,7 @@ export class MemStorage implements IStorage {
       if (searchableFields.some(f => f.includes(normalizedQuery))) {
         matchedDebtorIds.add(ref.debtorId);
       }
-    }
+    });
 
     return Array.from(matchedDebtorIds)
       .map(id => this.debtors.get(id))
@@ -1443,35 +1443,69 @@ export class MemStorage implements IStorage {
     return newSnapshot;
   }
 
-  async getDashboardStats(): Promise<DashboardStats> {
+  async getDashboardStats(dateRange?: string): Promise<DashboardStats> {
     const debtors = Array.from(this.debtors.values());
     const payments = Array.from(this.payments.values());
     const portfolios = Array.from(this.portfolios.values());
 
-    const today = new Date().toISOString().split("T")[0];
-    const completedPayments = payments.filter((p) => p.status === "completed" || p.status === "processed");
+    const now = new Date();
+    const today = now.toISOString().split("T")[0];
+    
+    // Calculate date range based on selection
+    let startDate: string;
+    let endDate: string = today;
+    
+    switch (dateRange) {
+      case "today":
+        startDate = today;
+        break;
+      case "this_week": {
+        const dayOfWeek = now.getDay();
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+        startDate = monday.toISOString().split("T")[0];
+        break;
+      }
+      case "this_quarter": {
+        const quarter = Math.floor(now.getMonth() / 3);
+        const quarterStart = new Date(now.getFullYear(), quarter * 3, 1);
+        startDate = quarterStart.toISOString().split("T")[0];
+        break;
+      }
+      case "this_year": {
+        startDate = `${now.getFullYear()}-01-01`;
+        break;
+      }
+      case "this_month":
+      default: {
+        startDate = now.toISOString().slice(0, 7) + "-01";
+        break;
+      }
+    }
+
+    const completedPayments = payments.filter((p) => p.status === "completed" || p.status === "processed" || p.status === "posted");
+    
+    // Filter by date range
+    const rangePayments = completedPayments.filter((p) => p.paymentDate >= startDate && p.paymentDate <= endDate);
     
     const collectionsToday = completedPayments
       .filter((p) => p.paymentDate === today)
       .reduce((sum, p) => sum + p.amount, 0);
 
-    const thisMonth = new Date().toISOString().slice(0, 7);
-    const collectionsThisMonth = completedPayments
-      .filter((p) => p.paymentDate.startsWith(thisMonth))
-      .reduce((sum, p) => sum + p.amount, 0);
+    const collectionsThisMonth = rangePayments.reduce((sum, p) => sum + p.amount, 0);
 
     const activeAccounts = debtors.filter((d) => d.status === "open" || d.status === "in_payment").length;
     const accountsInPayment = debtors.filter((d) => d.status === "in_payment").length;
 
     const totalPortfolioValue = portfolios.reduce((sum, p) => sum + p.totalFaceValue, 0);
-    const totalCollected = completedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalCollected = rangePayments.reduce((sum, p) => sum + p.amount, 0);
 
     const recoveryRate = totalPortfolioValue > 0
       ? Math.round((totalCollected / totalPortfolioValue) * 10000) / 100
       : 0;
 
-    const avgCollectionAmount = completedPayments.length > 0
-      ? Math.round(completedPayments.reduce((sum, p) => sum + p.amount, 0) / completedPayments.length)
+    const avgCollectionAmount = rangePayments.length > 0
+      ? Math.round(rangePayments.reduce((sum, p) => sum + p.amount, 0) / rangePayments.length)
       : 0;
 
     return {

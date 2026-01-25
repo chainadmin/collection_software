@@ -11,6 +11,9 @@ type StatusType =
   | "suspended"
   | "pending"
   | "processed"
+  | "posted"
+  | "declined"
+  | "reversed"
   | "failed"
   | "refunded"
   | "draft"
@@ -29,7 +32,10 @@ const statusConfig: Record<StatusType, { label: string; className: string }> = {
   inactive: { label: "Inactive", className: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400" },
   suspended: { label: "Suspended", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
-  processed: { label: "Processed", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  processed: { label: "Processed", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  posted: { label: "Posted", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  declined: { label: "Declined", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  reversed: { label: "Reversed", className: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
   failed: { label: "Failed", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
   refunded: { label: "Refunded", className: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
   draft: { label: "Draft", className: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400" },

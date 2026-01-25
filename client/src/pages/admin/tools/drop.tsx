@@ -18,10 +18,12 @@ import type { Debtor, Portfolio, Collector } from "@shared/schema";
 export default function DropAccounts() {
   const { toast } = useToast();
   const [selectedPortfolio, setSelectedPortfolio] = useState<string>("");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [selectedCollector, setSelectedCollector] = useState<string>("");
   const [dropNotes, setDropNotes] = useState("");
+  const [dropQuantity, setDropQuantity] = useState<string>("");
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
@@ -75,16 +77,23 @@ export default function DropAccounts() {
 
   const filteredDebtors = debtors.filter((d) => {
     const matchesPortfolio = selectedPortfolio === "all" || !selectedPortfolio || d.portfolioId === selectedPortfolio;
+    const matchesStatus = selectedStatus === "all" || d.status === selectedStatus;
     const matchesSearch = !searchTerm || 
       d.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.fileNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-    const isWorkable = d.status === "open" || d.status === "in_payment";
-    return matchesPortfolio && matchesSearch && isWorkable;
+    return matchesPortfolio && matchesStatus && matchesSearch;
   });
 
   const unassignedDebtors = filteredDebtors.filter((d) => !d.assignedCollectorId);
+
+  const handleSelectQuantity = () => {
+    const qty = parseInt(dropQuantity) || 0;
+    if (qty <= 0) return;
+    const toSelect = unassignedDebtors.slice(0, qty).map((d) => d.id);
+    setSelectedAccounts(new Set(toSelect));
+  };
 
   const toggleAccount = (id: string) => {
     const newSelected = new Set(selectedAccounts);
@@ -182,6 +191,25 @@ export default function DropAccounts() {
               </Select>
             </div>
             <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger data-testid="select-status">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="newbiz">New Business</SelectItem>
+                  <SelectItem value="1st_message">1st Message</SelectItem>
+                  <SelectItem value="final">Final</SelectItem>
+                  <SelectItem value="promise">Promise</SelectItem>
+                  <SelectItem value="payments_pending">Payments Pending</SelectItem>
+                  <SelectItem value="decline">Decline</SelectItem>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="in_payment">In Payment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -193,6 +221,30 @@ export default function DropAccounts() {
                   data-testid="input-search"
                 />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Quick Select Quantity</Label>
+              <div className="flex gap-2">
+                <Input 
+                  type="number"
+                  placeholder="# of accounts" 
+                  value={dropQuantity}
+                  onChange={(e) => setDropQuantity(e.target.value)}
+                  className="flex-1"
+                  data-testid="input-quantity"
+                />
+                <Button 
+                  variant="outline" 
+                  onClick={handleSelectQuantity}
+                  disabled={!dropQuantity || parseInt(dropQuantity) <= 0}
+                  data-testid="button-select-quantity"
+                >
+                  Select
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select the first N accounts from the filtered list
+              </p>
             </div>
           </CardContent>
         </Card>

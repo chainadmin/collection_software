@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight, XCircle, AlertTriangle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
+import type { Payment, Debtor } from "@shared/schema";
 
 interface DashboardStats {
   collectionsToday: number;
@@ -19,10 +21,35 @@ interface DashboardStats {
 
 export default function CompanyDashboard() {
   const [dateRange, setDateRange] = useState("this_month");
+  const today = new Date().toISOString().split("T")[0];
 
   const { data: stats } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: ["/api/dashboard/stats", dateRange],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/stats?dateRange=${dateRange}`);
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      return res.json();
+    },
   });
+
+  const { data: payments = [] } = useQuery<Payment[]>({
+    queryKey: ["/api/payments"],
+  });
+
+  const { data: debtors = [] } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors"],
+  });
+
+  const todaysDeclines = payments.filter(
+    (p) => (p.status === "failed" || p.status === "declined") && p.paymentDate === today
+  );
+
+  const totalDeclinedAmount = todaysDeclines.reduce((sum, p) => sum + p.amount, 0);
+
+  const getDebtorName = (debtorId: string) => {
+    const debtor = debtors.find((d) => d.id === debtorId);
+    return debtor ? `${debtor.firstName} ${debtor.lastName}` : "Unknown";
+  };
 
   const monthlyData = [
     { month: "Jul", collections: 1850000, target: 2000000 },
@@ -234,6 +261,66 @@ export default function CompanyDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Today's Declines Whiteboard
+            </CardTitle>
+            <CardDescription>Office-wide declined payments for {new Date().toLocaleDateString()}</CardDescription>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Total Declined</p>
+              <p className="text-xl font-bold font-mono text-destructive" data-testid="text-total-declined">
+                {formatCurrency(totalDeclinedAmount)}
+              </p>
+            </div>
+            <Badge variant="destructive" className="text-lg px-3 py-1" data-testid="badge-decline-count">
+              {todaysDeclines.length} declines
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {todaysDeclines.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No declined payments today
+            </div>
+          ) : (
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {todaysDeclines.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                    data-testid={`decline-row-${payment.id}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <XCircle className="h-5 w-5 text-destructive" />
+                      <div>
+                        <p className="font-medium">{getDebtorName(payment.debtorId)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {payment.paymentMethod.toUpperCase()} - {payment.notes || "No reason provided"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono font-medium text-destructive">
+                        {formatCurrency(payment.amount)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Ref: {payment.referenceNumber || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

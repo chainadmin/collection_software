@@ -14,6 +14,8 @@ import {
   RotateCcw,
   Undo2,
   PlayCircle,
+  CheckSquare,
+  ArrowUpCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,8 +79,8 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Payment was successful." });
-      } else if (data.status === "failed") {
-        toast({ title: "Payment Failed", description: data.declineReason || "Payment was declined.", variant: "destructive" });
+      } else if (data.status === "declined" || data.status === "failed") {
+        toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
     },
@@ -98,8 +100,8 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Re-run was successful." });
-      } else if (data.status === "failed") {
-        toast({ title: "Payment Failed", description: data.declineReason || "Payment was declined again.", variant: "destructive" });
+      } else if (data.status === "declined" || data.status === "failed") {
+        toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined again.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
     },
@@ -124,6 +126,36 @@ export default function PaymentRunner() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to reverse payment.", variant: "destructive" });
+    },
+  });
+
+  const postPaymentMutation = useMutation({
+    mutationFn: async (paymentId: string) => {
+      const res = await apiRequest("POST", `/api/payments/${paymentId}/post`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      toast({ title: "Payment Posted", description: "Payment has been posted successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to post payment.", variant: "destructive" });
+    },
+  });
+
+  const postAllProcessedMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/payments/post-all-processed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      toast({ title: "Payments Posted", description: `${data.count} payments have been posted.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to post payments.", variant: "destructive" });
     },
   });
 
@@ -169,8 +201,15 @@ export default function PaymentRunner() {
     return new Date(p.paymentDate) < new Date(format(new Date(), "yyyy-MM-dd"));
   }) || [];
 
-  const failedPayments = allPayments?.filter((p) => p.status === "failed") || [];
+  const declinedPayments = allPayments?.filter((p) => p.status === "declined" || p.status === "failed") || [];
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
+  const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
+  const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
+  
+  const processedTotal = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+  const declinedTotal = declinedPayments.reduce((sum, p) => sum + p.amount, 0);
+  const postedTotal = postedPayments.reduce((sum, p) => sum + p.amount, 0);
+  const reversedTotal = reversedPayments.reduce((sum, p) => sum + p.amount, 0);
 
   const activeMerchants = merchants?.filter((m) => m.isActive) || [];
   const hasNMI = activeMerchants.some((m) => m.processorType === "nmi");
@@ -179,12 +218,13 @@ export default function PaymentRunner() {
   const totalPending = pendingPayments?.length || 0;
   const totalPendingAmount = pendingPayments?.reduce((sum, p) => sum + p.amount, 0) || 0;
 
-  const renderPaymentActions = (payment: PaymentWithDebtor, isFailed: boolean = false, isProcessed: boolean = false) => {
+  const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, isProcessed: boolean = false) => {
     const isProcessing = processingPaymentId === payment.id;
+    const isPosting = postPaymentMutation.isPending;
     
     return (
       <div className="flex items-center gap-1">
-        {isFailed && (
+        {isDeclined && (
           <Button
             variant="ghost"
             size="icon"
@@ -200,7 +240,7 @@ export default function PaymentRunner() {
             )}
           </Button>
         )}
-        {!isFailed && !isProcessed && (
+        {!isDeclined && !isProcessed && (
           <Button
             variant="ghost"
             size="icon"
@@ -217,15 +257,31 @@ export default function PaymentRunner() {
           </Button>
         )}
         {isProcessed && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleOpenReverse(payment)}
-            title="Reverse payment"
-            data-testid={`button-reverse-${payment.id}`}
-          >
-            <Undo2 className="h-4 w-4" />
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => postPaymentMutation.mutate(payment.id)}
+              disabled={isPosting}
+              title="Post payment"
+              data-testid={`button-post-${payment.id}`}
+            >
+              {isPosting ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckSquare className="h-4 w-4 text-green-600" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleOpenReverse(payment)}
+              title="Reverse payment"
+              data-testid={`button-reverse-${payment.id}`}
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          </>
         )}
       </div>
     );
@@ -294,29 +350,36 @@ export default function PaymentRunner() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <StatCard
-          title="Total Pending"
-          value={totalPending.toLocaleString()}
-          subtitle="payments scheduled"
+          title="Pending"
+          value={formatCurrency(totalPendingAmount)}
+          subtitle={`${totalPending} payment${totalPending !== 1 ? 's' : ''}`}
           icon={Clock}
         />
         <StatCard
-          title="Pending Amount"
-          value={formatCurrency(totalPendingAmount)}
-          icon={CreditCard}
+          title="Processed"
+          value={formatCurrency(processedTotal)}
+          subtitle={`${processedPayments.length} awaiting post`}
+          icon={ArrowUpCircle}
         />
         <StatCard
-          title="Due Today"
-          value={todayPayments.length.toLocaleString()}
-          subtitle={formatCurrency(todayPayments.reduce((sum, p) => sum + p.amount, 0))}
+          title="Posted"
+          value={formatCurrency(postedTotal)}
+          subtitle={`${postedPayments.length} completed`}
           icon={CheckCircle}
         />
         <StatCard
-          title="Failed"
-          value={failedPayments.length.toLocaleString()}
-          subtitle={failedPayments.length > 0 ? "needs re-run" : "none"}
-          icon={failedPayments.length > 0 ? XCircle : CheckCircle}
+          title="Declined"
+          value={formatCurrency(declinedTotal)}
+          subtitle={declinedPayments.length > 0 ? `${declinedPayments.length} needs re-run` : "none"}
+          icon={declinedPayments.length > 0 ? XCircle : CheckCircle}
+        />
+        <StatCard
+          title="Reversed"
+          value={formatCurrency(reversedTotal)}
+          subtitle={`${reversedPayments.length} reversed`}
+          icon={Undo2}
         />
       </div>
 
@@ -422,17 +485,17 @@ export default function PaymentRunner() {
         </CardContent>
       </Card>
 
-      {failedPayments.length > 0 && (
+      {declinedPayments.length > 0 && (
         <Card className="border-red-200 dark:border-red-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
               <XCircle className="h-5 w-5" />
-              Failed Payments
+              Declined Payments
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {failedPayments.map((payment) => (
+              {declinedPayments.map((payment) => (
                 <div
                   key={payment.id}
                   className="flex items-center gap-3 p-3 rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20"
@@ -497,11 +560,23 @@ export default function PaymentRunner() {
 
       {processedPayments && processedPayments.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2 flex-wrap">
             <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              Recent Processed Payments
+              <ArrowUpCircle className="h-5 w-5 text-blue-500" />
+              Processed Payments (Awaiting Post)
             </CardTitle>
+            <Button
+              onClick={() => postAllProcessedMutation.mutate()}
+              disabled={postAllProcessedMutation.isPending}
+              data-testid="button-post-all"
+            >
+              {postAllProcessedMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckSquare className="h-4 w-4 mr-2" />
+              )}
+              Post All Processed ({processedPayments.length})
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">

@@ -213,7 +213,7 @@ export const payments = pgTable("payments", {
   amount: integer("amount").notNull(), // in cents
   paymentDate: text("payment_date").notNull(),
   paymentMethod: text("payment_method").notNull(), // ach, card, check, cash
-  status: text("status").notNull().default("pending"), // pending, processed, failed, refunded
+  status: text("status").notNull().default("pending"), // pending, processed, posted, declined, reversed
   referenceNumber: text("reference_number"),
   processedBy: varchar("processed_by"),
   notes: text("notes"),

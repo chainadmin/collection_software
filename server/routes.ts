@@ -10,7 +10,8 @@ export async function registerRoutes(
   
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
-      const stats = await storage.getDashboardStats();
+      const dateRange = (req.query.dateRange as string) || "this_month";
+      const stats = await storage.getDashboardStats(dateRange);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
@@ -812,11 +813,11 @@ export async function registerRoutes(
       const declineReason = success ? null : "Insufficient funds";
       
       const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: success ? "processed" : "failed",
+        status: success ? "processed" : "declined",
         notes: success ? payment.notes : `DECLINED: ${declineReason}`,
       });
 
-      // If failed, add decline reason to debtor notes
+      // If declined, add decline reason to debtor notes
       if (!success) {
         const debtor = await storage.getDebtor(payment.debtorId);
         if (debtor) {
@@ -852,11 +853,11 @@ export async function registerRoutes(
       const declineReason = success ? null : "Card declined - retry failed";
       
       const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: success ? "processed" : "failed",
+        status: success ? "processed" : "declined",
         notes: success ? "Payment re-run successful" : `DECLINED: ${declineReason}`,
       });
 
-      // If failed, add decline reason to debtor notes
+      // If declined, add decline reason to debtor notes
       if (!success) {
         await storage.createNote({
           debtorId: payment.debtorId,
@@ -873,19 +874,27 @@ export async function registerRoutes(
     }
   });
 
-  // Reverse a processed payment
+  // Reverse a processed payment (admin/manager only)
   app.post("/api/payments/:id/reverse", async (req, res) => {
     try {
+      const { reason, collectorId } = req.body;
+      
+      // Check for admin/manager permission
+      if (collectorId) {
+        const collector = await storage.getCollector(collectorId);
+        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+          return res.status(403).json({ error: "Only admins and managers can reverse payments" });
+        }
+      }
+
       const payment = await storage.getPayment(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      const { reason } = req.body;
-
       // Reverse the payment
       const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: "refunded",
+        status: "reversed",
         notes: `REVERSED: ${reason || "No reason provided"}`,
       });
 
@@ -914,6 +923,86 @@ export async function registerRoutes(
       res.json({ ...updatedPayment, cancelledPayments: futurePayments.length });
     } catch (error) {
       res.status(500).json({ error: "Failed to reverse payment" });
+    }
+  });
+
+  // Post a single processed payment (admin/manager only)
+  app.post("/api/payments/:id/post", async (req, res) => {
+    try {
+      const { collectorId } = req.body;
+      
+      // Check for admin/manager permission
+      if (collectorId) {
+        const collector = await storage.getCollector(collectorId);
+        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+          return res.status(403).json({ error: "Only admins and managers can post payments" });
+        }
+      }
+
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+
+      if (payment.status !== "processed") {
+        return res.status(400).json({ error: "Only processed payments can be posted" });
+      }
+
+      const updatedPayment = await storage.updatePayment(req.params.id, {
+        status: "posted",
+      });
+
+      // Add note to debtor account
+      await storage.createNote({
+        debtorId: payment.debtorId,
+        collectorId: payment.processedBy || "system",
+        content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully.`,
+        noteType: "payment",
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+
+      res.json(updatedPayment);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to post payment" });
+    }
+  });
+
+  // Post all processed payments in bulk (admin/manager only)
+  app.post("/api/payments/post-all-processed", async (req, res) => {
+    try {
+      const { collectorId } = req.body;
+      
+      // Check for admin/manager permission
+      if (collectorId) {
+        const collector = await storage.getCollector(collectorId);
+        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+          return res.status(403).json({ error: "Only admins and managers can post payments" });
+        }
+      }
+
+      const payments = await storage.getPayments();
+      const processedPayments = payments.filter((p) => p.status === "processed");
+      
+      let count = 0;
+      for (const payment of processedPayments) {
+        await storage.updatePayment(payment.id, {
+          status: "posted",
+        });
+        
+        // Add note to each debtor account
+        await storage.createNote({
+          debtorId: payment.debtorId,
+          collectorId: payment.processedBy || "system",
+          content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully (bulk post).`,
+          noteType: "payment",
+          createdDate: new Date().toISOString().split("T")[0],
+        });
+        count++;
+      }
+
+      res.json({ count, message: `${count} payments posted successfully` });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to post payments" });
     }
   });
 
