@@ -30,7 +30,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Payment, Debtor, Merchant } from "@shared/schema";
+import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
 
 interface PaymentWithDebtor extends Payment {
   debtor?: Debtor;
@@ -59,6 +59,13 @@ export default function PaymentRunner() {
   const { data: merchants } = useQuery<Merchant[]>({
     queryKey: ["/api/merchants"],
   });
+
+  const { data: collectors } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
+  });
+
+  // Get current collector (admin/manager for payment operations)
+  const currentCollector = collectors?.find((c) => c.role === "admin" || c.role === "manager") || collectors?.[0];
 
   const getDebtorName = (debtorId: string) => {
     const debtor = debtors?.find((d) => d.id === debtorId);
@@ -113,7 +120,10 @@ export default function PaymentRunner() {
 
   const reversePaymentMutation = useMutation({
     mutationFn: async ({ paymentId, reason }: { paymentId: string; reason: string }) => {
-      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse`, { reason });
+      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse`, { 
+        reason, 
+        collectorId: currentCollector?.id 
+      });
       return res.json();
     },
     onSuccess: () => {
@@ -131,7 +141,9 @@ export default function PaymentRunner() {
 
   const postPaymentMutation = useMutation({
     mutationFn: async (paymentId: string) => {
-      const res = await apiRequest("POST", `/api/payments/${paymentId}/post`);
+      const res = await apiRequest("POST", `/api/payments/${paymentId}/post`, {
+        collectorId: currentCollector?.id
+      });
       return res.json();
     },
     onSuccess: () => {
@@ -146,7 +158,9 @@ export default function PaymentRunner() {
 
   const postAllProcessedMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/payments/post-all-processed");
+      const res = await apiRequest("POST", "/api/payments/post-all-processed", {
+        collectorId: currentCollector?.id
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -218,6 +232,8 @@ export default function PaymentRunner() {
   const totalPending = pendingPayments?.length || 0;
   const totalPendingAmount = pendingPayments?.reduce((sum, p) => sum + p.amount, 0) || 0;
 
+  const canPostOrReverse = currentCollector?.role === "admin" || currentCollector?.role === "manager";
+
   const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, isProcessed: boolean = false) => {
     const isProcessing = processingPaymentId === payment.id;
     const isPosting = postPaymentMutation.isPending;
@@ -256,7 +272,7 @@ export default function PaymentRunner() {
             )}
           </Button>
         )}
-        {isProcessed && (
+        {isProcessed && canPostOrReverse && (
           <>
             <Button
               variant="ghost"
@@ -565,18 +581,20 @@ export default function PaymentRunner() {
               <ArrowUpCircle className="h-5 w-5 text-blue-500" />
               Processed Payments (Awaiting Post)
             </CardTitle>
-            <Button
-              onClick={() => postAllProcessedMutation.mutate()}
-              disabled={postAllProcessedMutation.isPending}
-              data-testid="button-post-all"
-            >
-              {postAllProcessedMutation.isPending ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <CheckSquare className="h-4 w-4 mr-2" />
-              )}
-              Post All Processed ({processedPayments.length})
-            </Button>
+            {canPostOrReverse && (
+              <Button
+                onClick={() => postAllProcessedMutation.mutate()}
+                disabled={postAllProcessedMutation.isPending}
+                data-testid="button-post-all"
+              >
+                {postAllProcessedMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                )}
+                Post All Processed ({processedPayments.length})
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
