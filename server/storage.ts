@@ -1,6 +1,8 @@
 import {
   type User,
   type InsertUser,
+  type Organization,
+  type InsertOrganization,
   type Client,
   type InsertClient,
   type Collector,
@@ -65,12 +67,25 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
+// Default organization ID for existing data
+const DEFAULT_ORG_ID = "default-org";
+
 export interface IStorage {
+  // Organizations
+  getOrganizations(): Promise<Organization[]>;
+  getOrganization(id: string): Promise<Organization | undefined>;
+  getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
+  createOrganization(org: InsertOrganization): Promise<Organization>;
+  updateOrganization(id: string, org: Partial<InsertOrganization>): Promise<Organization | undefined>;
+  deleteOrganization(id: string): Promise<boolean>;
+
+  // Users (global - not organization scoped)
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
-  getClients(): Promise<Client[]>;
+  // All methods below are organization-scoped (orgId is optional for backward compatibility)
+  getClients(orgId?: string): Promise<Client[]>;
   getClient(id: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
@@ -253,6 +268,7 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
+  private organizations: Map<string, Organization>;
   private users: Map<string, User>;
   private clients: Map<string, Client>;
   private feeSchedules: Map<string, FeeSchedule>;
@@ -286,6 +302,7 @@ export class MemStorage implements IStorage {
   private communicationAttempts: Map<string, CommunicationAttempt>;
 
   constructor() {
+    this.organizations = new Map();
     this.users = new Map();
     this.clients = new Map();
     this.feeSchedules = new Map();
@@ -321,12 +338,31 @@ export class MemStorage implements IStorage {
   }
 
   private seedData() {
+    // Create default organization
+    this.organizations.set(DEFAULT_ORG_ID, {
+      id: DEFAULT_ORG_ID,
+      name: "CollectMax Agency",
+      slug: "collectmax",
+      address: "123 Main Street",
+      city: "Austin",
+      state: "TX",
+      zipCode: "78701",
+      phone: "(512) 555-0100",
+      email: "admin@collectmax.com",
+      website: "https://collectmax.com",
+      timezone: "America/Chicago",
+      isActive: true,
+      createdDate: new Date().toISOString(),
+      settings: null,
+    });
+
     const collector1Id = randomUUID();
     const collector2Id = randomUUID();
     const collector3Id = randomUUID();
     
     this.collectors.set(collector1Id, {
       id: collector1Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Sarah Johnson",
       email: "sarah.johnson@collectmax.com",
       username: "sjohnson",
@@ -342,6 +378,7 @@ export class MemStorage implements IStorage {
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Michael Chen",
       email: "michael.chen@collectmax.com",
       username: "mchen",
@@ -357,6 +394,7 @@ export class MemStorage implements IStorage {
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Emily Rodriguez",
       email: "emily.rodriguez@collectmax.com",
       username: "erodriguez",
@@ -377,6 +415,7 @@ export class MemStorage implements IStorage {
 
     this.portfolios.set(portfolio1Id, {
       id: portfolio1Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Chase Q4 2024",
       clientId: null,
       feeScheduleId: null,
@@ -390,6 +429,7 @@ export class MemStorage implements IStorage {
     });
     this.portfolios.set(portfolio2Id, {
       id: portfolio2Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Capital One Medical",
       clientId: null,
       feeScheduleId: null,
@@ -403,6 +443,7 @@ export class MemStorage implements IStorage {
     });
     this.portfolios.set(portfolio3Id, {
       id: portfolio3Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "Auto Loan Portfolio A",
       clientId: null,
       feeScheduleId: null,
@@ -423,6 +464,7 @@ export class MemStorage implements IStorage {
 
     this.debtors.set(debtor1Id, {
       id: debtor1Id,
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
       linkedAccountId: null,
@@ -449,6 +491,7 @@ export class MemStorage implements IStorage {
     });
     this.debtors.set(debtor2Id, {
       id: debtor2Id,
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
       linkedAccountId: null,
@@ -475,6 +518,7 @@ export class MemStorage implements IStorage {
     });
     this.debtors.set(debtor3Id, {
       id: debtor3Id,
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio2Id,
       assignedCollectorId: collector3Id,
       linkedAccountId: null,
@@ -501,6 +545,7 @@ export class MemStorage implements IStorage {
     });
     this.debtors.set(debtor4Id, {
       id: debtor4Id,
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio3Id,
       assignedCollectorId: collector1Id,
       linkedAccountId: null,
@@ -527,6 +572,7 @@ export class MemStorage implements IStorage {
     });
     this.debtors.set(debtor5Id, {
       id: debtor5Id,
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio1Id,
       assignedCollectorId: collector2Id,
       linkedAccountId: null,
@@ -554,6 +600,7 @@ export class MemStorage implements IStorage {
 
     this.debtorContacts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       type: "phone",
       value: "5551234567",
@@ -564,6 +611,7 @@ export class MemStorage implements IStorage {
     });
     this.debtorContacts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       type: "phone",
       value: "5559876543",
@@ -574,6 +622,7 @@ export class MemStorage implements IStorage {
     });
     this.debtorContacts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       type: "email",
       value: "robert.williams@email.com",
@@ -584,6 +633,7 @@ export class MemStorage implements IStorage {
     });
     this.debtorContacts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor2Id,
       type: "phone",
       value: "5552223333",
@@ -595,6 +645,7 @@ export class MemStorage implements IStorage {
 
     this.employmentRecords.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       employerName: "TechCorp Industries",
       employerPhone: "5555550100",
@@ -607,6 +658,7 @@ export class MemStorage implements IStorage {
     });
     this.employmentRecords.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor2Id,
       employerName: "Healthcare Plus",
       employerPhone: "5555550200",
@@ -620,6 +672,7 @@ export class MemStorage implements IStorage {
 
     this.bankAccounts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       bankName: "Bank of America",
       accountType: "checking",
@@ -630,6 +683,7 @@ export class MemStorage implements IStorage {
     });
     this.bankAccounts.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       bankName: "Chase Bank",
       accountType: "savings",
@@ -646,6 +700,7 @@ export class MemStorage implements IStorage {
 
     this.payments.set(payment1Id, {
       id: payment1Id,
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor2Id,
       batchId: null,
       amount: 15000,
@@ -663,6 +718,7 @@ export class MemStorage implements IStorage {
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor5Id,
       batchId: null,
       amount: 2150000,
@@ -680,6 +736,7 @@ export class MemStorage implements IStorage {
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       batchId: null,
       amount: 155500,
@@ -697,6 +754,7 @@ export class MemStorage implements IStorage {
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor4Id,
       batchId: null,
       amount: 50000,
@@ -718,6 +776,7 @@ export class MemStorage implements IStorage {
 
     this.paymentBatches.set(batch1Id, {
       id: batch1Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "December ACH Batch 1",
       createdBy: collector1Id,
       createdDate: "2024-12-01",
@@ -731,6 +790,7 @@ export class MemStorage implements IStorage {
     });
     this.paymentBatches.set(batch2Id, {
       id: batch2Id,
+      organizationId: DEFAULT_ORG_ID,
       name: "December Card Batch",
       createdBy: collector1Id,
       createdDate: "2024-12-10",
@@ -745,6 +805,7 @@ export class MemStorage implements IStorage {
 
     this.notes.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       collectorId: collector2Id,
       content: "Debtor agreed to make a payment of $1,555 on 12/10. Will follow up next week.",
@@ -753,6 +814,7 @@ export class MemStorage implements IStorage {
     });
     this.notes.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor1Id,
       collectorId: collector2Id,
       content: "Payment received as promised. Debtor is cooperative and willing to set up payment plan.",
@@ -761,6 +823,7 @@ export class MemStorage implements IStorage {
     });
     this.notes.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       debtorId: debtor3Id,
       collectorId: collector3Id,
       content: "Debtor is disputing the debt. Claims balance was already paid to original creditor. Requesting validation.",
@@ -770,6 +833,7 @@ export class MemStorage implements IStorage {
 
     this.liquidationSnapshots.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio1Id,
       snapshotDate: "2024-12-01",
       totalCollected: 12500000,
@@ -779,6 +843,7 @@ export class MemStorage implements IStorage {
     });
     this.liquidationSnapshots.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio2Id,
       snapshotDate: "2024-12-01",
       totalCollected: 8750000,
@@ -788,6 +853,7 @@ export class MemStorage implements IStorage {
     });
     this.liquidationSnapshots.set(randomUUID(), {
       id: randomUUID(),
+      organizationId: DEFAULT_ORG_ID,
       portfolioId: portfolio3Id,
       snapshotDate: "2024-12-01",
       totalCollected: 21000000,
@@ -795,6 +861,53 @@ export class MemStorage implements IStorage {
       accountsWorked: 1500,
       liquidationRate: 600,
     });
+  }
+
+  // Organization CRUD methods
+  async getOrganizations(): Promise<Organization[]> {
+    return Array.from(this.organizations.values());
+  }
+
+  async getOrganization(id: string): Promise<Organization | undefined> {
+    return this.organizations.get(id);
+  }
+
+  async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
+    return Array.from(this.organizations.values()).find(o => o.slug === slug);
+  }
+
+  async createOrganization(org: InsertOrganization): Promise<Organization> {
+    const id = randomUUID();
+    const newOrg: Organization = {
+      id,
+      name: org.name,
+      slug: org.slug,
+      address: org.address ?? null,
+      city: org.city ?? null,
+      state: org.state ?? null,
+      zipCode: org.zipCode ?? null,
+      phone: org.phone ?? null,
+      email: org.email ?? null,
+      website: org.website ?? null,
+      timezone: org.timezone ?? "America/New_York",
+      isActive: org.isActive ?? true,
+      createdDate: org.createdDate,
+      settings: org.settings ?? null,
+    };
+    this.organizations.set(id, newOrg);
+    return newOrg;
+  }
+
+  async updateOrganization(id: string, org: Partial<InsertOrganization>): Promise<Organization | undefined> {
+    const existing = this.organizations.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...org };
+    this.organizations.set(id, updated);
+    return updated;
+  }
+
+  async deleteOrganization(id: string): Promise<boolean> {
+    return this.organizations.delete(id);
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -812,8 +925,12 @@ export class MemStorage implements IStorage {
     return user;
   }
 
-  async getClients(): Promise<Client[]> {
-    return Array.from(this.clients.values());
+  async getClients(orgId?: string): Promise<Client[]> {
+    const clients = Array.from(this.clients.values());
+    if (orgId) {
+      return clients.filter(c => c.organizationId === orgId);
+    }
+    return clients;
   }
 
   async getClient(id: string): Promise<Client | undefined> {
@@ -824,6 +941,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newClient: Client = {
       id,
+      organizationId: client.organizationId,
       name: client.name,
       contactName: client.contactName ?? null,
       email: client.email ?? null,
@@ -867,6 +985,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newFeeSchedule: FeeSchedule = {
       id,
+      organizationId: feeSchedule.organizationId,
       name: feeSchedule.name,
       description: feeSchedule.description ?? null,
       feeType: feeSchedule.feeType,
@@ -905,6 +1024,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newCollector: Collector = {
       id,
+      organizationId: collector.organizationId,
       name: collector.name,
       email: collector.email,
       username: collector.username,
@@ -946,6 +1066,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newPortfolio: Portfolio = {
       id,
+      organizationId: portfolio.organizationId,
       name: portfolio.name,
       clientId: portfolio.clientId ?? null,
       feeScheduleId: portfolio.feeScheduleId ?? null,
@@ -1077,6 +1198,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newDebtor: Debtor = {
       id,
+      organizationId: debtor.organizationId,
       portfolioId: debtor.portfolioId,
       assignedCollectorId: debtor.assignedCollectorId ?? null,
       linkedAccountId: debtor.linkedAccountId ?? null,
@@ -1125,6 +1247,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newContact: DebtorContact = {
       id,
+      organizationId: contact.organizationId,
       debtorId: contact.debtorId,
       type: contact.type,
       value: contact.value,
@@ -1157,6 +1280,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newRecord: EmploymentRecord = {
       id,
+      organizationId: record.organizationId,
       debtorId: record.debtorId,
       employerName: record.employerName,
       employerPhone: record.employerPhone ?? null,
@@ -1191,6 +1315,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newReference: DebtorReference = {
       id,
+      organizationId: reference.organizationId,
       debtorId: reference.debtorId,
       name: reference.name,
       relationship: reference.relationship ?? null,
@@ -1226,6 +1351,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newAccount: BankAccount = {
       id,
+      organizationId: account.organizationId,
       debtorId: account.debtorId,
       bankName: account.bankName,
       accountType: account.accountType,
@@ -1258,6 +1384,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newCard: PaymentCard = {
       id,
+      organizationId: card.organizationId,
       debtorId: card.debtorId,
       cardType: card.cardType,
       cardholderName: card.cardholderName,
@@ -1322,6 +1449,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newPayment: Payment = {
       id,
+      organizationId: payment.organizationId,
       debtorId: payment.debtorId,
       batchId: payment.batchId ?? null,
       amount: payment.amount,
@@ -1361,6 +1489,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newBatch: PaymentBatch = {
       id,
+      organizationId: batch.organizationId,
       name: batch.name,
       createdBy: batch.createdBy,
       createdDate: batch.createdDate,
@@ -1420,6 +1549,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newNote: Note = {
       id,
+      organizationId: note.organizationId,
       debtorId: note.debtorId,
       collectorId: note.collectorId,
       content: note.content,
@@ -1533,6 +1663,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newMerchant: Merchant = {
       id,
+      organizationId: merchant.organizationId,
       name: merchant.name,
       merchantId: merchant.merchantId,
       processorType: merchant.processorType,
@@ -1580,6 +1711,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newEntry: TimeClockEntry = {
       id,
+      organizationId: entry.organizationId,
       collectorId: entry.collectorId,
       clockIn: entry.clockIn,
       clockOut: entry.clockOut ?? null,
@@ -1611,6 +1743,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newBatch: ImportBatch = {
       id,
+      organizationId: batch.organizationId,
       name: batch.name,
       fileName: batch.fileName,
       importType: batch.importType,
@@ -1651,6 +1784,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newMapping: ImportMapping = {
       id,
+      organizationId: mapping.organizationId,
       name: mapping.name,
       importType: mapping.importType,
       fieldMappings: mapping.fieldMappings,
@@ -1687,6 +1821,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newBatch: DropBatch = {
       id,
+      organizationId: batch.organizationId,
       name: batch.name,
       portfolioId: batch.portfolioId ?? null,
       totalAccounts: batch.totalAccounts ?? 0,
@@ -1719,6 +1854,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newItem: DropItem = {
       id,
+      organizationId: item.organizationId,
       dropBatchId: item.dropBatchId,
       debtorId: item.debtorId,
       collectorId: item.collectorId,
@@ -1750,6 +1886,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newBatch: RecallBatch = {
       id,
+      organizationId: batch.organizationId,
       name: batch.name,
       portfolioId: batch.portfolioId ?? null,
       clientName: batch.clientName ?? null,
@@ -1781,6 +1918,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newItem: RecallItem = {
       id,
+      organizationId: item.organizationId,
       recallBatchId: item.recallBatchId,
       debtorId: item.debtorId,
       isKeeper: item.isKeeper ?? false,
@@ -1931,6 +2069,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newRemittance: Remittance = {
       id,
+      organizationId: remittance.organizationId,
       portfolioId: remittance.portfolioId,
       clientName: remittance.clientName,
       amount: remittance.amount,
