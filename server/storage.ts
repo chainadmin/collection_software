@@ -101,6 +101,7 @@ export interface IStorage {
   getDebtors(portfolioId?: string, collectorId?: string): Promise<Debtor[]>;
   getDebtor(id: string): Promise<Debtor | undefined>;
   getRecentDebtors(limit?: number): Promise<Debtor[]>;
+  searchDebtors(query: string): Promise<Debtor[]>;
   createDebtor(debtor: InsertDebtor): Promise<Debtor>;
   updateDebtor(id: string, debtor: Partial<InsertDebtor>): Promise<Debtor | undefined>;
   deleteDebtor(id: string): Promise<boolean>;
@@ -1005,6 +1006,71 @@ export class MemStorage implements IStorage {
     return Array.from(this.debtors.values())
       .filter((d) => d.status === "open" || d.status === "in_payment")
       .slice(0, limit);
+  }
+
+  async searchDebtors(query: string): Promise<Debtor[]> {
+    const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matchedDebtorIds = new Set<string>();
+
+    // Search debtors by name, account number, file number, SSN
+    for (const debtor of this.debtors.values()) {
+      const searchableFields = [
+        debtor.firstName,
+        debtor.lastName,
+        `${debtor.firstName} ${debtor.lastName}`,
+        debtor.accountNumber,
+        debtor.fileNumber,
+        debtor.ssn,
+        debtor.ssnLast4,
+        debtor.email,
+        debtor.address,
+        debtor.city,
+        debtor.zipCode,
+      ].filter(Boolean).map(f => f!.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+      if (searchableFields.some(f => f.includes(normalizedQuery))) {
+        matchedDebtorIds.add(debtor.id);
+      }
+    }
+
+    // Search contacts (phones and emails)
+    for (const contact of this.debtorContacts.values()) {
+      const normalizedValue = contact.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const normalizedLabel = (contact.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normalizedValue.includes(normalizedQuery) || normalizedLabel.includes(normalizedQuery)) {
+        matchedDebtorIds.add(contact.debtorId);
+      }
+    }
+
+    // Search employment records (employer name and phone)
+    for (const emp of this.employmentRecords.values()) {
+      const searchableFields = [
+        emp.employerName,
+        emp.employerPhone,
+        emp.position,
+      ].filter(Boolean).map(f => f!.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+      if (searchableFields.some(f => f.includes(normalizedQuery))) {
+        matchedDebtorIds.add(emp.debtorId);
+      }
+    }
+
+    // Search references (name and phone)
+    for (const ref of this.debtorReferences.values()) {
+      const searchableFields = [
+        ref.name,
+        ref.phone,
+        ref.relationship,
+      ].filter(Boolean).map(f => f!.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+      if (searchableFields.some(f => f.includes(normalizedQuery))) {
+        matchedDebtorIds.add(ref.debtorId);
+      }
+    }
+
+    return Array.from(matchedDebtorIds)
+      .map(id => this.debtors.get(id))
+      .filter((d): d is Debtor => d !== undefined);
   }
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {

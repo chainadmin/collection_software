@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   Search,
   Plus,
@@ -76,8 +77,20 @@ export default function Debtors() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showAddDialog, setShowAddDialog] = useState(false);
 
+  const debouncedSearchQuery = useDebounce(searchQuery.trim(), 300);
+
   const { data: debtors, isLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
+  });
+
+  const { data: searchResults, isLoading: isSearching } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors/search", debouncedSearchQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/debtors/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+    enabled: debouncedSearchQuery.length > 0,
   });
 
   const { data: portfolios } = useQuery<Portfolio[]>({
@@ -121,14 +134,13 @@ export default function Debtors() {
     },
   });
 
-  const filteredDebtors = debtors?.filter((debtor) => {
-    const matchesSearch =
-      searchQuery === "" ||
-      `${debtor.firstName} ${debtor.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      debtor.accountNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || debtor.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredDebtors = useMemo(() => {
+    const baseList = debouncedSearchQuery.length > 0 ? (searchResults || []) : (debtors || []);
+    return baseList.filter((debtor) => {
+      const matchesStatus = statusFilter === "all" || debtor.status === statusFilter;
+      return matchesStatus;
+    });
+  }, [debtors, searchResults, debouncedSearchQuery, statusFilter]);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -154,15 +166,20 @@ export default function Debtors() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative flex-1 max-w-sm">
+            <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name or account..."
+                placeholder="Search name, phone, SSN, address, employer..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
                 data-testid="input-search-debtors"
               />
+              {isSearching && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </div>
+              )}
             </div>
             <div className="flex gap-2 flex-wrap">
               <Select value={statusFilter} onValueChange={setStatusFilter}>

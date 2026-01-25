@@ -55,6 +55,7 @@ Preferred communication style: Simple, everyday language.
 - **Inline Editing**: Edit icons for address, email, and contacts with dedicated edit dialogs
 - **Bulk Add Features**: Bulk add contacts (phone/email) and bulk add notes with multi-line text input
 - **Work Queue Logic**: Collectors only see their assigned accounts filtered by status
+- **Comprehensive Search**: Search across all debtor data (name, account, phone, email, SSN, address, employer, references)
 
 ### Collector Management
 - **Hourly Wage Tracking**: Required field for profitability analysis (replaces optional email)

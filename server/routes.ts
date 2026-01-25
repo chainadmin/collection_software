@@ -264,6 +264,19 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/debtors/search", async (req, res) => {
+    try {
+      const query = (req.query.q as string) || "";
+      if (!query.trim()) {
+        return res.json([]);
+      }
+      const debtors = await storage.searchDebtors(query);
+      res.json(debtors);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to search debtors" });
+    }
+  });
+
   app.get("/api/debtors/:id", async (req, res) => {
     try {
       const debtor = await storage.getDebtor(req.params.id);
@@ -360,6 +373,18 @@ export async function registerRoutes(
       res.status(201).json(record);
     } catch (error) {
       res.status(500).json({ error: "Failed to create employment record" });
+    }
+  });
+
+  app.patch("/api/employment/:id", async (req, res) => {
+    try {
+      const record = await storage.updateEmploymentRecord(req.params.id, req.body);
+      if (!record) {
+        return res.status(404).json({ error: "Employment record not found" });
+      }
+      res.json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update employment record" });
     }
   });
 
@@ -976,7 +1001,7 @@ export async function registerRoutes(
   // Import Data API - handles partial imports, upserts, and SSN-based linking
   app.post("/api/import/debtors", async (req, res) => {
     try {
-      const { portfolioId, clientId, records, mappings } = req.body;
+      const { portfolioId, clientId, records, mappings } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string> };
       
       if (!portfolioId || !clientId || !records || !mappings) {
         return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
@@ -1174,7 +1199,7 @@ export async function registerRoutes(
   // Import Contacts API - adds contacts to existing debtors
   app.post("/api/import/contacts", async (req, res) => {
     try {
-      const { portfolioId, records, mappings } = req.body;
+      const { portfolioId, records, mappings } = req.body as { portfolioId: string; records: any[]; mappings: Record<string, string> };
       
       if (!portfolioId || !records || !mappings) {
         return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });

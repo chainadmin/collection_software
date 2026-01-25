@@ -96,6 +96,8 @@ export default function Workstation() {
   const [showAdditionalInfoDialog, setShowAdditionalInfoDialog] = useState(false);
   const [showAddEmploymentDialog, setShowAddEmploymentDialog] = useState(false);
   const [showAddReferenceDialog, setShowAddReferenceDialog] = useState(false);
+  const [editingEmployment, setEditingEmployment] = useState<EmploymentRecord | null>(null);
+  const [editingReference, setEditingReference] = useState<DebtorReference | null>(null);
   
   // Employment form state
   const [empEmployerName, setEmpEmployerName] = useState("");
@@ -453,6 +455,116 @@ export default function Workstation() {
     },
   });
 
+  const updateEmploymentMutation = useMutation({
+    mutationFn: async (data: { id: string; employerName?: string; employerPhone?: string; employerAddress?: string; position?: string; salary?: number; isCurrent?: boolean }) => {
+      return apiRequest("PATCH", `/api/employment/${data.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "employment"] });
+      setEditingEmployment(null);
+      setShowAddEmploymentDialog(false);
+      resetEmploymentForm();
+      toast({ title: "Employment updated", description: "Employment record updated." });
+    },
+  });
+
+  const updateReferenceMutation = useMutation({
+    mutationFn: async (data: { id: string; name?: string; relationship?: string; phone?: string; address?: string; city?: string; state?: string; zipCode?: string; notes?: string }) => {
+      return apiRequest("PATCH", `/api/references/${data.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "references"] });
+      setEditingReference(null);
+      setShowAddReferenceDialog(false);
+      resetReferenceForm();
+      toast({ title: "Reference updated", description: "Reference record updated." });
+    },
+  });
+
+  const resetEmploymentForm = () => {
+    setEmpEmployerName("");
+    setEmpEmployerPhone("");
+    setEmpEmployerAddress("");
+    setEmpPosition("");
+    setEmpSalary("");
+    setEmpIsCurrent(true);
+  };
+
+  const resetReferenceForm = () => {
+    setRefName("");
+    setRefRelationship("");
+    setRefPhone("");
+    setRefAddress("");
+    setRefCity("");
+    setRefState("");
+    setRefZipCode("");
+    setRefNotes("");
+  };
+
+  const openEditEmploymentDialog = (record: EmploymentRecord) => {
+    setEditingEmployment(record);
+    setEmpEmployerName(record.employerName);
+    setEmpEmployerPhone(record.employerPhone || "");
+    setEmpEmployerAddress(record.employerAddress || "");
+    setEmpPosition(record.position || "");
+    setEmpSalary(record.salary ? String(record.salary) : "");
+    setEmpIsCurrent(record.isCurrent ?? true);
+    setShowAddEmploymentDialog(true);
+  };
+
+  const openEditReferenceDialog = (ref: DebtorReference) => {
+    setEditingReference(ref);
+    setRefName(ref.name);
+    setRefRelationship(ref.relationship || "");
+    setRefPhone(ref.phone || "");
+    setRefAddress(ref.address || "");
+    setRefCity(ref.city || "");
+    setRefState(ref.state || "");
+    setRefZipCode(ref.zipCode || "");
+    setRefNotes(ref.notes || "");
+    setShowAddReferenceDialog(true);
+  };
+
+  const handleSaveEmployment = () => {
+    if (!selectedDebtorId || !empEmployerName) return;
+    
+    const data = {
+      employerName: empEmployerName,
+      employerPhone: empEmployerPhone || undefined,
+      employerAddress: empEmployerAddress || undefined,
+      position: empPosition || undefined,
+      salary: empSalary ? parseFloat(empSalary) : undefined,
+      isCurrent: empIsCurrent,
+    };
+
+    if (editingEmployment) {
+      updateEmploymentMutation.mutate({ id: editingEmployment.id, ...data });
+    } else {
+      addEmploymentMutation.mutate({ debtorId: selectedDebtorId, ...data });
+    }
+  };
+
+  const handleSaveReference = () => {
+    if (!selectedDebtorId || !refName) return;
+    
+    const data = {
+      name: refName,
+      relationship: refRelationship || undefined,
+      phone: refPhone || undefined,
+      address: refAddress || undefined,
+      city: refCity || undefined,
+      state: refState || undefined,
+      zipCode: refZipCode || undefined,
+      notes: refNotes || undefined,
+    };
+
+    if (editingReference) {
+      updateReferenceMutation.mutate({ id: editingReference.id, ...data });
+    } else {
+      addReferenceMutation.mutate({ debtorId: selectedDebtorId, ...data });
+    }
+  };
+
   // Auto-save notes with debounce
   useEffect(() => {
     if (!quickNote.trim() || !selectedDebtorId || !currentCollector) {
@@ -712,20 +824,40 @@ export default function Workstation() {
     if (!selectedDebtorId || !bulkContactsText.trim()) return;
     const lines = bulkContactsText.split("\n").filter(line => line.trim());
     let addedCount = 0;
+    let currentLabel: string | null = null;
+    
+    // Helper to detect if a line is a phone number
+    const isPhoneNumber = (line: string) => {
+      const digits = line.replace(/\D/g, "");
+      return digits.length >= 7 && digits.length <= 15;
+    };
+    
+    // Helper to detect if a line is an email
+    const isEmail = (line: string) => line.includes("@") && line.includes(".");
+    
+    // Helper to detect if a line is just a name (not a phone or email)
+    const isNameLabel = (line: string) => {
+      return !isPhoneNumber(line) && !isEmail(line) && line.length > 0;
+    };
     
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) continue;
       
-      // Try to detect if it's a phone number or email
-      const isEmail = trimmedLine.includes("@");
-      const type = isEmail ? "email" : "phone";
+      // If it's not a phone or email, treat it as a name/label for following numbers
+      if (isNameLabel(trimmedLine)) {
+        currentLabel = trimmedLine;
+        continue;
+      }
+      
+      const type = isEmail(trimmedLine) ? "email" : "phone";
       
       try {
         await apiRequest("POST", `/api/debtors/${selectedDebtorId}/contacts`, {
           debtorId: selectedDebtorId,
           type,
           value: trimmedLine,
+          label: currentLabel,
         });
         addedCount++;
       } catch (error) {
@@ -989,10 +1121,11 @@ export default function Workstation() {
         </ScrollArea>
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex overflow-hidden">
         {selectedDebtor ? (
-          <>
-            <div className="p-4 border-b bg-card">
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-4 border-b bg-card">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
@@ -1287,12 +1420,23 @@ export default function Workstation() {
                         {employment && employment.length > 0 ? (
                           <div className="space-y-2">
                             {employment.map((record) => (
-                              <div key={record.id} className="p-3 rounded-md bg-muted/50">
+                              <div key={record.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-employment-${record.id}`}>
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium">{record.employerName}</p>
-                                  {record.isCurrent && (
-                                    <Badge variant="secondary" className="text-xs">Current</Badge>
-                                  )}
+                                  <div className="flex items-center gap-2">
+                                    {record.isCurrent && (
+                                      <Badge variant="secondary" className="text-xs">Current</Badge>
+                                    )}
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6"
+                                      onClick={() => openEditEmploymentDialog(record)}
+                                      data-testid={`button-edit-employment-${record.id}`}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </div>
                                 </div>
                                 {record.position && (
                                   <p className="text-sm text-muted-foreground">{record.position}</p>
@@ -1353,9 +1497,20 @@ export default function Workstation() {
                               <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
-                                  {ref.relationship && (
-                                    <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
-                                  )}
+                                  <div className="flex items-center gap-2">
+                                    {ref.relationship && (
+                                      <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
+                                    )}
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6"
+                                      onClick={() => openEditReferenceDialog(ref)}
+                                      data-testid={`button-edit-reference-${ref.id}`}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </div>
                                 </div>
                                 {ref.phone && (
                                   <p className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}`}>{ref.phone}</p>
@@ -1535,88 +1690,78 @@ export default function Workstation() {
                     </CollapsibleContent>
                   </Card>
                 </Collapsible>
-
-                <Collapsible open={notesOpen} onOpenChange={setNotesOpen}>
-                  <Card>
-                    <CollapsibleTrigger asChild>
-                      <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
-                        <CardTitle className="text-sm font-medium flex items-center justify-between">
-                          <span className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            Notes & Activity
-                          </span>
-                          <ChevronRight
-                            className={`h-4 w-4 transition-transform ${notesOpen ? "rotate-90" : ""}`}
-                          />
-                        </CardTitle>
-                      </CardHeader>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <CardContent className="space-y-4">
-                        <div className="flex justify-end mb-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setShowBulkAddNotesDialog(true)}
-                            data-testid="button-bulk-add-notes"
-                          >
-                            Bulk Add Notes
-                          </Button>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex gap-2">
-                            <Textarea
-                              placeholder="Add a quick note... (auto-saves after 3 seconds)"
-                              value={quickNote}
-                              onChange={(e) => setQuickNote(e.target.value)}
-                              className="min-h-[60px] resize-none"
-                              data-testid="input-quick-note"
-                            />
-                            <Button
-                              size="icon"
-                              onClick={handleAddQuickNote}
-                              disabled={!quickNote.trim() || addNoteMutation.isPending || !isReady}
-                              data-testid="button-add-note"
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {quickNote.trim() && quickNote !== lastSavedNoteRef.current && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                              Auto-saving...
-                            </p>
-                          )}
-                        </div>
-                        {notes && notes.length > 0 ? (
-                          <div className="space-y-2">
-                            {notes.map((note) => (
-                              <div key={note.id} className="p-3 rounded-md bg-muted/50">
-                                <div className="flex items-center justify-between mb-1">
-                                  <Badge variant="outline" className="text-xs capitalize">
-                                    {note.noteType}
-                                  </Badge>
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatDate(note.createdDate)}
-                                  </span>
-                                </div>
-                                <p className="text-sm">{note.content}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  By: {getCollectorName(note.collectorId)}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No notes yet</p>
-                        )}
-                      </CardContent>
-                    </CollapsibleContent>
-                  </Card>
-                </Collapsible>
               </div>
             </ScrollArea>
-          </>
+            </div>
+
+            <div className="w-80 border-l flex flex-col bg-muted/30">
+              <div className="p-4 border-b">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Notes & Activity
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowBulkAddNotesDialog(true)}
+                    data-testid="button-bulk-add-notes"
+                  >
+                    Bulk Add
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4 border-b">
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Add a quick note... (auto-saves after 3 seconds)"
+                    value={quickNote}
+                    onChange={(e) => setQuickNote(e.target.value)}
+                    className="min-h-[60px] resize-none"
+                    data-testid="input-quick-note"
+                  />
+                  <Button
+                    size="icon"
+                    onClick={handleAddQuickNote}
+                    disabled={!quickNote.trim() || addNoteMutation.isPending || !isReady}
+                    data-testid="button-add-note"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+                {quickNote.trim() && quickNote !== lastSavedNoteRef.current && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+                    <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                    Auto-saving...
+                  </p>
+                )}
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="p-4 space-y-2">
+                  {notes && notes.length > 0 ? (
+                    notes.map((note) => (
+                      <div key={note.id} className="p-3 rounded-md bg-background border">
+                        <div className="flex items-center justify-between mb-1">
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {note.noteType}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(note.createdDate)}
+                          </span>
+                        </div>
+                        <p className="text-sm">{note.content}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          By: {getCollectorName(note.collectorId)}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">No notes yet</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
@@ -2108,12 +2253,12 @@ export default function Workstation() {
           <DialogHeader>
             <DialogTitle>Bulk Add Contacts</DialogTitle>
             <DialogDescription>
-              Add multiple phone numbers or emails, one per line. The system will auto-detect if each entry is a phone number or email.
+              Add multiple phone numbers or emails, one per line. Enter a name first, then list phone numbers below it - they will be labeled with that name. The system auto-detects phone numbers vs emails.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Textarea
-              placeholder="(555) 123-4567&#10;(555) 987-6543&#10;email@example.com"
+              placeholder="Mom&#10;(555) 123-4567&#10;(555) 987-6543&#10;Work&#10;(555) 111-2222&#10;email@example.com"
               value={bulkContactsText}
               onChange={(e) => setBulkContactsText(e.target.value)}
               className="min-h-[150px]"
@@ -2159,12 +2304,18 @@ export default function Workstation() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAddEmploymentDialog} onOpenChange={setShowAddEmploymentDialog}>
+      <Dialog open={showAddEmploymentDialog} onOpenChange={(open) => {
+        setShowAddEmploymentDialog(open);
+        if (!open) {
+          setEditingEmployment(null);
+          resetEmploymentForm();
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Employment Record</DialogTitle>
+            <DialogTitle>{editingEmployment ? "Edit Employment Record" : "Add Employment Record"}</DialogTitle>
             <DialogDescription>
-              Add employer information for this account.
+              {editingEmployment ? "Update employer information." : "Add employer information for this account."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -2230,34 +2381,28 @@ export default function Workstation() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                if (selectedDebtorId && empEmployerName) {
-                  addEmploymentMutation.mutate({
-                    debtorId: selectedDebtorId,
-                    employerName: empEmployerName,
-                    employerPhone: empEmployerPhone || undefined,
-                    employerAddress: empEmployerAddress || undefined,
-                    position: empPosition || undefined,
-                    salary: empSalary ? parseFloat(empSalary) : undefined,
-                    isCurrent: empIsCurrent,
-                  });
-                }
-              }}
-              disabled={!empEmployerName || addEmploymentMutation.isPending}
+              onClick={handleSaveEmployment}
+              disabled={!empEmployerName || addEmploymentMutation.isPending || updateEmploymentMutation.isPending}
               data-testid="button-save-employment"
             >
-              Save
+              {editingEmployment ? "Update" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAddReferenceDialog} onOpenChange={setShowAddReferenceDialog}>
+      <Dialog open={showAddReferenceDialog} onOpenChange={(open) => {
+        setShowAddReferenceDialog(open);
+        if (!open) {
+          setEditingReference(null);
+          resetReferenceForm();
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Reference</DialogTitle>
+            <DialogTitle>{editingReference ? "Edit Reference" : "Add Reference"}</DialogTitle>
             <DialogDescription>
-              Add a personal or professional reference for this account.
+              {editingReference ? "Update reference information." : "Add a personal or professional reference for this account."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -2349,25 +2494,11 @@ export default function Workstation() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                if (selectedDebtorId && refName) {
-                  addReferenceMutation.mutate({
-                    debtorId: selectedDebtorId,
-                    name: refName,
-                    relationship: refRelationship || undefined,
-                    phone: refPhone || undefined,
-                    address: refAddress || undefined,
-                    city: refCity || undefined,
-                    state: refState || undefined,
-                    zipCode: refZipCode || undefined,
-                    notes: refNotes || undefined,
-                  });
-                }
-              }}
-              disabled={!refName || addReferenceMutation.isPending}
+              onClick={handleSaveReference}
+              disabled={!refName || addReferenceMutation.isPending || updateReferenceMutation.isPending}
               data-testid="button-save-reference"
             >
-              Save
+              {editingReference ? "Update" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
