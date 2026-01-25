@@ -3,9 +3,32 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp } from "dr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Organizations (multi-tenant support - each collection agency is an organization)
+export const organizations = pgTable("organizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(), // URL-friendly identifier
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  phone: text("phone"),
+  email: text("email"),
+  website: text("website"),
+  timezone: text("timezone").default("America/New_York"),
+  isActive: boolean("is_active").default(true),
+  createdDate: text("created_date").notNull(),
+  settings: text("settings"), // JSON for organization-specific settings
+});
+
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true });
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = typeof organizations.$inferSelect;
+
 // Clients (creditors/companies who provide debt to collect)
 export const clients = pgTable("clients", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   contactName: text("contact_name"),
   email: text("email"),
@@ -29,9 +52,10 @@ export type Client = typeof clients.$inferSelect;
 // Collectors (users who work accounts)
 export const collectors = pgTable("collectors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  username: text("username").notNull().unique(),
+  email: text("email").notNull(),
+  username: text("username").notNull(),
   password: text("password").notNull(),
   role: text("role").notNull().default("collector"), // admin, manager, collector
   status: text("status").notNull().default("active"), // active, inactive, suspended
@@ -51,6 +75,7 @@ export type Collector = typeof collectors.$inferSelect;
 // Portfolios (groups of accounts purchased)
 export const portfolios = pgTable("portfolios", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   clientId: varchar("client_id"), // link to client
   feeScheduleId: varchar("fee_schedule_id"), // link to fee schedule
@@ -70,6 +95,7 @@ export type Portfolio = typeof portfolios.$inferSelect;
 // Portfolio Assignments (collector to portfolio)
 export const portfolioAssignments = pgTable("portfolio_assignments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   portfolioId: varchar("portfolio_id").notNull(),
   collectorId: varchar("collector_id").notNull(),
   assignedDate: text("assigned_date").notNull(),
@@ -85,6 +111,7 @@ export type PortfolioAssignment = typeof portfolioAssignments.$inferSelect;
 // Debtors (accounts to collect)
 export const debtors = pgTable("debtors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   portfolioId: varchar("portfolio_id").notNull(),
   assignedCollectorId: varchar("assigned_collector_id"),
   linkedAccountId: varchar("linked_account_id"), // links accounts for same person across portfolios (by SSN)
@@ -117,6 +144,7 @@ export type Debtor = typeof debtors.$inferSelect;
 // Debtor Contacts (phones, emails)
 export const debtorContacts = pgTable("debtor_contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   type: text("type").notNull(), // phone, email
   value: text("value").notNull(),
@@ -133,6 +161,7 @@ export type DebtorContact = typeof debtorContacts.$inferSelect;
 // Employment Records (POE - Place of Employment)
 export const employmentRecords = pgTable("employment_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   employerName: text("employer_name").notNull(),
   employerPhone: text("employer_phone"),
@@ -151,6 +180,7 @@ export type EmploymentRecord = typeof employmentRecords.$inferSelect;
 // References (personal/professional contacts for debtor)
 export const debtorReferences = pgTable("debtor_references", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   name: text("name").notNull(),
   relationship: text("relationship"), // spouse, parent, sibling, friend, coworker, neighbor, etc.
@@ -170,6 +200,7 @@ export type DebtorReference = typeof debtorReferences.$inferSelect;
 // Bank Accounts
 export const bankAccounts = pgTable("bank_accounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   bankName: text("bank_name").notNull(),
   accountType: text("account_type").notNull(), // checking, savings
@@ -186,6 +217,7 @@ export type BankAccount = typeof bankAccounts.$inferSelect;
 // Payment Cards (credit/debit cards on file)
 export const paymentCards = pgTable("payment_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   cardType: text("card_type").notNull(), // visa, mastercard, amex, discover
   cardholderName: text("cardholder_name").notNull(),
@@ -207,6 +239,7 @@ export type PaymentCard = typeof paymentCards.$inferSelect;
 // Payments
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   batchId: varchar("batch_id"),
   cardId: varchar("card_id"), // reference to payment card used
@@ -231,6 +264,7 @@ export type Payment = typeof payments.$inferSelect;
 // Payment Batches (for payment runner)
 export const paymentBatches = pgTable("payment_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   createdBy: varchar("created_by").notNull(),
   createdDate: text("created_date").notNull(),
@@ -250,6 +284,7 @@ export type PaymentBatch = typeof paymentBatches.$inferSelect;
 // Notes (on debtor accounts)
 export const notes = pgTable("notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   collectorId: varchar("collector_id").notNull(),
   content: text("content").notNull(),
@@ -264,6 +299,7 @@ export type Note = typeof notes.$inferSelect;
 // Liquidation Snapshots (historical performance data)
 export const liquidationSnapshots = pgTable("liquidation_snapshots", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   portfolioId: varchar("portfolio_id").notNull(),
   snapshotDate: text("snapshot_date").notNull(),
   totalCollected: integer("total_collected").notNull(), // in cents
@@ -306,6 +342,7 @@ export type User = typeof users.$inferSelect;
 // IP Whitelist for collector login security
 export const ipWhitelist = pgTable("ip_whitelist", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   ipAddress: text("ip_address").notNull(),
   description: text("description"),
   isActive: boolean("is_active").default(true),
@@ -320,6 +357,7 @@ export type IpWhitelist = typeof ipWhitelist.$inferSelect;
 // Merchants for payment processing
 export const merchants = pgTable("merchants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   merchantId: text("merchant_id").notNull(),
   processorType: text("processor_type").notNull(), // nmi, usaepay, stripe, authorize_net
@@ -344,6 +382,7 @@ export type Merchant = typeof merchants.$inferSelect;
 // Fee Schedules (created first, portfolios link to them)
 export const feeSchedules = pgTable("fee_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
   feeType: text("fee_type").notNull(), // contingency, flat_fee, hybrid
@@ -362,6 +401,7 @@ export type FeeSchedule = typeof feeSchedules.$inferSelect;
 // Email Templates
 export const emailTemplates = pgTable("email_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   body: text("body").notNull(),
@@ -378,6 +418,7 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 // Email Settings
 export const emailSettings = pgTable("email_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   smtpHost: text("smtp_host"),
   smtpPort: integer("smtp_port"),
   smtpUser: text("smtp_user"),
@@ -394,6 +435,7 @@ export type EmailSettings = typeof emailSettings.$inferSelect;
 // Remittances (payments to clients/creditors)
 export const remittances = pgTable("remittances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   portfolioId: varchar("portfolio_id").notNull(),
   clientName: text("client_name").notNull(),
   amount: integer("amount").notNull(), // in cents
@@ -411,6 +453,7 @@ export type Remittance = typeof remittances.$inferSelect;
 // Time Clock for collectors
 export const timeClockEntries = pgTable("time_clock_entries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   collectorId: varchar("collector_id").notNull(),
   clockIn: text("clock_in").notNull(),
   clockOut: text("clock_out"),
@@ -425,6 +468,7 @@ export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
 // Import Batches (for importing payments from external systems)
 export const importBatches = pgTable("import_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   fileName: text("file_name").notNull(),
   importType: text("import_type").notNull(), // payments, accounts, recalls
@@ -446,6 +490,7 @@ export type ImportBatch = typeof importBatches.$inferSelect;
 // Import Mappings (field mapping templates)
 export const importMappings = pgTable("import_mappings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   importType: text("import_type").notNull(), // payments, accounts, recalls
   fieldMappings: text("field_mappings").notNull(), // JSON string of field mappings
@@ -461,6 +506,7 @@ export type ImportMapping = typeof importMappings.$inferSelect;
 // Drop Batches (for dropping accounts to collectors)
 export const dropBatches = pgTable("drop_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   portfolioId: varchar("portfolio_id"),
   totalAccounts: integer("total_accounts").default(0),
@@ -477,6 +523,7 @@ export type DropBatch = typeof dropBatches.$inferSelect;
 // Drop Items (individual account assignments)
 export const dropItems = pgTable("drop_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   dropBatchId: varchar("drop_batch_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   collectorId: varchar("collector_id").notNull(),
@@ -491,6 +538,7 @@ export type DropItem = typeof dropItems.$inferSelect;
 // Recall Batches (for recall accounts from clients)
 export const recallBatches = pgTable("recall_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   portfolioId: varchar("portfolio_id"),
   clientName: text("client_name"),
@@ -509,6 +557,7 @@ export type RecallBatch = typeof recallBatches.$inferSelect;
 // Recall Items (individual account recall status)
 export const recallItems = pgTable("recall_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   recallBatchId: varchar("recall_batch_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   isKeeper: boolean("is_keeper").default(false),
