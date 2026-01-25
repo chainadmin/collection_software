@@ -29,6 +29,7 @@ import {
   Filter,
   ShieldCheck,
   ShieldAlert,
+  LayoutDashboard,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { Link } from "wouter";
@@ -1000,11 +1001,14 @@ export default function Workstation() {
                   @{currentCollector.username}
                 </Badge>
               )}
-              <Link href="/admin/reporting/dashboard">
-                <Button size="icon" variant="ghost" className="h-7 w-7" data-testid="button-admin-settings">
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </Link>
+              {currentCollector && (currentCollector.role === "admin" || currentCollector.role === "manager") && (
+                <Link href="/">
+                  <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
+                    <LayoutDashboard className="h-4 w-4 mr-1" />
+                    Dashboard
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 mb-2">
