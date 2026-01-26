@@ -60,6 +60,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run database migrations at startup
+  try {
+    const { runMigrations } = await import("./migrate");
+    await runMigrations();
+  } catch (error) {
+    console.log("Migration skipped (database may not be available):", error instanceof Error ? error.message : error);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

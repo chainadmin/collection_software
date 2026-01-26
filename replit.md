@@ -28,9 +28,11 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Layer
 - **ORM**: Drizzle ORM with PostgreSQL dialect
+- **Database Connection**: `server/db.ts` uses @neondatabase/serverless for PostgreSQL connection
 - **Schema Location**: `shared/schema.ts` contains all table definitions
 - **Validation**: Drizzle-Zod for automatic schema-to-validation conversion
 - **Storage Abstraction**: `server/storage.ts` provides an interface layer over database operations
+- **Migrations**: `server/migrate.ts` runs at server startup to ensure tables exist (idempotent CREATE TABLE IF NOT EXISTS)
 
 ### Multi-Organization Architecture
 - **Organization Isolation**: Each collection agency operates as a separate organization with complete data isolation
