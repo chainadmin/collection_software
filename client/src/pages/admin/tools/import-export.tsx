@@ -503,25 +503,6 @@ export default function ImportExport() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Import Templates</CardTitle>
-                  <CardDescription>Download sample templates for importing</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {["Debtor Accounts", "Payment History", "Contact Info", "Employment"].map((template) => (
-                    <div key={template} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm">{template} Template</span>
-                      </div>
-                      <Button variant="ghost" size="sm" data-testid={`button-download-${template.toLowerCase().replace(/\s+/g, "-")}`}>
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
             </div>
           )}
 
