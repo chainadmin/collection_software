@@ -224,9 +224,9 @@ export default function Landing() {
       <section id="pricing" className="py-20">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple, Seat-Based Pricing</h2>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
             <p className="text-muted-foreground">
-              One price per seat. All features included. No hidden fees.
+              All features included. No hidden fees.
             </p>
           </div>
           <div className="max-w-2xl mx-auto">
@@ -235,11 +235,19 @@ export default function Landing() {
                 <div className="flex items-center justify-center gap-2 mb-4">
                   <Users className="h-8 w-8 text-primary" />
                 </div>
-                <CardTitle className="text-2xl">Per Seat Pricing</CardTitle>
-                <CardDescription>Full access for every team member</CardDescription>
-                <div className="mt-6">
-                  <span className="text-5xl font-bold">$49</span>
-                  <span className="text-muted-foreground text-lg">/seat/month</span>
+                <CardTitle className="text-2xl">Team Pricing</CardTitle>
+                <CardDescription>Everything you need to run your agency</CardDescription>
+                <div className="mt-6 space-y-2">
+                  <div>
+                    <span className="text-5xl font-bold">$150</span>
+                    <span className="text-muted-foreground text-lg">/month</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Includes 4 collector seats
+                  </div>
+                  <div className="text-sm font-medium text-primary">
+                    + $25/seat for additional users
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="pt-6">
@@ -261,9 +269,6 @@ export default function Landing() {
                   <Link href="/signup">
                     <Button size="lg" className="px-8" data-testid="button-pricing-signup">Get Started</Button>
                   </Link>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Contact us for volume discounts on 25+ seats
-                  </p>
                 </div>
               </CardContent>
             </Card>
