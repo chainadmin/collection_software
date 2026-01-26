@@ -29,6 +29,31 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+const STATUS_COLORS = [
+  { name: "blue", bg: "bg-blue-500", label: "Blue" },
+  { name: "green", bg: "bg-green-500", label: "Green" },
+  { name: "red", bg: "bg-red-500", label: "Red" },
+  { name: "yellow", bg: "bg-yellow-500", label: "Yellow" },
+  { name: "purple", bg: "bg-purple-500", label: "Purple" },
+  { name: "orange", bg: "bg-orange-500", label: "Orange" },
+  { name: "teal", bg: "bg-teal-500", label: "Teal" },
+  { name: "pink", bg: "bg-pink-500", label: "Pink" },
+  { name: "indigo", bg: "bg-indigo-500", label: "Indigo" },
+  { name: "gray", bg: "bg-gray-500", label: "Gray" },
+  { name: "emerald", bg: "bg-emerald-500", label: "Emerald" },
+  { name: "slate", bg: "bg-slate-500", label: "Slate" },
+];
+
+function getColorClass(colorName: string): string {
+  const color = STATUS_COLORS.find(c => c.name === colorName);
+  return color?.bg || "bg-gray-500";
+}
 
 export default function Settings() {
   const { theme, setTheme } = useTheme();
@@ -65,6 +90,12 @@ export default function Settings() {
     }
     setAccountStatuses(accountStatuses.filter(s => s.id !== id));
     toast({ title: "Status Removed", description: "The status has been removed." });
+  };
+
+  const handleColorChange = (id: string, newColor: string) => {
+    setAccountStatuses(accountStatuses.map(s => 
+      s.id === id ? { ...s, color: newColor } : s
+    ));
   };
 
   return (
@@ -272,6 +303,28 @@ export default function Settings() {
                   >
                     <div className="flex items-center gap-3">
                       <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className={`w-6 h-6 rounded-md ${getColorClass(status.color)} cursor-pointer border border-border hover:ring-2 hover:ring-ring hover:ring-offset-1`}
+                            data-testid={`button-color-${status.name}`}
+                            title="Click to change color"
+                          />
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-3" align="start">
+                          <div className="grid grid-cols-6 gap-2">
+                            {STATUS_COLORS.map((color) => (
+                              <button
+                                key={color.name}
+                                className={`w-6 h-6 rounded-md ${color.bg} cursor-pointer border-2 ${status.color === color.name ? 'border-foreground' : 'border-transparent'} hover:scale-110 transition-transform`}
+                                onClick={() => handleColorChange(status.id, color.name)}
+                                title={color.label}
+                                data-testid={`color-option-${color.name}`}
+                              />
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                       <Badge variant="outline">{status.label}</Badge>
                       {status.isSystem && (
                         <span className="text-xs text-muted-foreground">(System)</span>
