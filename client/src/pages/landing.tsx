@@ -224,52 +224,98 @@ export default function Landing() {
       <section id="pricing" className="py-20">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Pricing That Scales With You</h2>
             <p className="text-muted-foreground">
-              All features included. No hidden fees.
+              All features included at every tier. Choose the plan that fits your team.
             </p>
           </div>
-          <div className="max-w-2xl mx-auto">
-            <Card className="border-primary">
+          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            <Card data-testid="card-pricing-starter">
               <CardHeader className="text-center pb-2">
-                <div className="flex items-center justify-center gap-2 mb-4">
-                  <Users className="h-8 w-8 text-primary" />
-                </div>
-                <CardTitle className="text-2xl">Team Pricing</CardTitle>
-                <CardDescription>Everything you need to run your agency</CardDescription>
-                <div className="mt-6 space-y-2">
+                <CardTitle className="text-xl" data-testid="text-tier-starter">Starter</CardTitle>
+                <CardDescription>For small teams</CardDescription>
+                <div className="mt-4 space-y-1">
                   <div>
-                    <span className="text-5xl font-bold">$150</span>
-                    <span className="text-muted-foreground text-lg">/month</span>
+                    <span className="text-4xl font-bold" data-testid="text-price-starter">$200</span>
+                    <span className="text-muted-foreground">/month</span>
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    Includes 4 collector seats
+                  <div className="text-sm text-muted-foreground" data-testid="text-seats-starter">
+                    Includes 4 seats
                   </div>
                   <div className="text-sm font-medium text-primary">
-                    + $25/seat for additional users
+                    +$25/seat up to 10 seats
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-6">
-                <div className="grid md:grid-cols-2 gap-4 mb-8">
-                  <div className="space-y-3 text-sm">
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Unlimited accounts</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Payment processing (NMI/USAePay)</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Collector workstation</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Full reporting suite</div>
+              <CardContent className="pt-4">
+                <ul className="space-y-2 text-sm mb-6">
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Unlimited accounts</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Payment processing</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Collector workstation</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Full reporting</li>
+                </ul>
+                <Link href="/signup?plan=starter">
+                  <Button className="w-full" variant="outline" data-testid="button-signup-starter">Get Started</Button>
+                </Link>
+              </CardContent>
+            </Card>
+            <Card className="border-primary" data-testid="card-pricing-growth">
+              <CardHeader className="text-center pb-2">
+                <Badge className="w-fit mx-auto mb-2">Most Popular</Badge>
+                <CardTitle className="text-xl" data-testid="text-tier-growth">Growth</CardTitle>
+                <CardDescription>For growing agencies</CardDescription>
+                <div className="mt-4 space-y-1">
+                  <div>
+                    <span className="text-4xl font-bold" data-testid="text-price-growth">$400</span>
+                    <span className="text-muted-foreground">/month</span>
                   </div>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Portfolio management</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Import/Export tools</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> API access</div>
-                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Email support</div>
+                  <div className="text-sm text-muted-foreground" data-testid="text-seats-growth">
+                    Includes 15 seats
+                  </div>
+                  <div className="text-sm font-medium text-primary">
+                    +$20/seat up to 30 seats
                   </div>
                 </div>
-                <div className="text-center">
-                  <Link href="/signup">
-                    <Button size="lg" className="px-8" data-testid="button-pricing-signup">Get Started</Button>
-                  </Link>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <ul className="space-y-2 text-sm mb-6">
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Everything in Starter</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Priority support</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> API access</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Advanced analytics</li>
+                </ul>
+                <Link href="/signup?plan=growth">
+                  <Button className="w-full" data-testid="button-signup-growth">Get Started</Button>
+                </Link>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-pricing-agency">
+              <CardHeader className="text-center pb-2">
+                <CardTitle className="text-xl" data-testid="text-tier-agency">Agency</CardTitle>
+                <CardDescription>For large operations</CardDescription>
+                <div className="mt-4 space-y-1">
+                  <div>
+                    <span className="text-4xl font-bold" data-testid="text-price-agency">$750</span>
+                    <span className="text-muted-foreground">/month</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground" data-testid="text-seats-agency">
+                    Includes 40 seats
+                  </div>
+                  <div className="text-sm font-medium text-primary">
+                    +$15/seat after
+                  </div>
                 </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <ul className="space-y-2 text-sm mb-6">
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Everything in Growth</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Dedicated support</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Custom integrations</li>
+                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Multi-organization</li>
+                </ul>
+                <Link href="/signup?plan=agency">
+                  <Button className="w-full" variant="outline" data-testid="button-signup-agency">Get Started</Button>
+                </Link>
               </CardContent>
             </Card>
           </div>
