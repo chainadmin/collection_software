@@ -124,8 +124,10 @@ export async function registerRoutes(
 
   app.post("/api/clients", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const client = await storage.createClient({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(client);
