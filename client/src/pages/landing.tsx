@@ -224,78 +224,47 @@ export default function Landing() {
       <section id="pricing" className="py-20">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple, Seat-Based Pricing</h2>
             <p className="text-muted-foreground">
-              No hidden fees. No long-term contracts. Pay only for what you use.
+              One price per seat. All features included. No hidden fees.
             </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card>
-              <CardHeader>
-                <CardTitle>Starter</CardTitle>
-                <CardDescription>For small agencies getting started</CardDescription>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">$99</span>
-                  <span className="text-muted-foreground">/month</span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Up to 5 collector seats</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> 10,000 accounts</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Payment processing</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Basic reporting</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Email support</li>
-                </ul>
-                <Link href="/signup?plan=starter">
-                  <Button className="w-full mt-6" variant="outline">Start Free Trial</Button>
-                </Link>
-              </CardContent>
-            </Card>
+          <div className="max-w-2xl mx-auto">
             <Card className="border-primary">
-              <CardHeader>
-                <Badge className="w-fit mb-2">Most Popular</Badge>
-                <CardTitle>Professional</CardTitle>
-                <CardDescription>For growing collection operations</CardDescription>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">$299</span>
-                  <span className="text-muted-foreground">/month</span>
+              <CardHeader className="text-center pb-2">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <Users className="h-8 w-8 text-primary" />
+                </div>
+                <CardTitle className="text-2xl">Per Seat Pricing</CardTitle>
+                <CardDescription>Full access for every team member</CardDescription>
+                <div className="mt-6">
+                  <span className="text-5xl font-bold">$49</span>
+                  <span className="text-muted-foreground text-lg">/seat/month</span>
                 </div>
               </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Up to 25 collector seats</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Unlimited accounts</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Payment processing</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Advanced reporting</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> SMS/TXT integration</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Priority support</li>
-                </ul>
-                <Link href="/signup?plan=professional">
-                  <Button className="w-full mt-6">Start Free Trial</Button>
-                </Link>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Enterprise</CardTitle>
-                <CardDescription>For large-scale operations</CardDescription>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">Custom</span>
+              <CardContent className="pt-6">
+                <div className="grid md:grid-cols-2 gap-4 mb-8">
+                  <div className="space-y-3 text-sm">
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Unlimited accounts</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Payment processing (NMI/USAePay)</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Collector workstation</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Full reporting suite</div>
+                  </div>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Portfolio management</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Import/Export tools</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> API access</div>
+                    <div className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary shrink-0" /> Email support</div>
+                  </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Unlimited collector seats</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Unlimited accounts</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Multi-organization</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> API access</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Custom integrations</li>
-                  <li className="flex gap-2"><CheckCircle className="h-4 w-4 text-primary" /> Dedicated support</li>
-                </ul>
-                <Link href="/contact">
-                  <Button className="w-full mt-6" variant="outline">Contact Sales</Button>
-                </Link>
+                <div className="text-center">
+                  <Link href="/signup">
+                    <Button size="lg" className="px-8" data-testid="button-pricing-signup">Get Started</Button>
+                  </Link>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Contact us for volume discounts on 25+ seats
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>
