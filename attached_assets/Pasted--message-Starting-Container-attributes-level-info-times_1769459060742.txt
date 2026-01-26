@@ -1,0 +1,49 @@
+{"message":"Starting Container","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:49.000000000Z"}
+{"message":"npm warn config production Use `--omit=dev` instead.","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394580453Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:50.394586955Z"}
+{"message":"> rest-express@1.0.0 start","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:50.394649187Z"}
+{"message":"> NODE_ENV=production node dist/index.cjs","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:50.394659840Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:50.394666410Z"}
+{"message":"Running database migrations...","attributes":{"level":"info"},"timestamp":"2026-01-26T20:23:50.394673716Z"}
+{"message":"Migration error: sa {","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394679165Z"}
+{"message":"  [Symbol(kTarget)]: r {","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394684786Z"}
+{"message":"    _events: [Object: null prototype] {","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394689984Z"}
+{"message":"      error: [Function],","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394696033Z"}
+{"message":"      message: [Function],","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394701463Z"}
+{"message":"      close: [Function],","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394706772Z"}
+{"message":"      open: [Function]","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394714342Z"}
+{"message":"    },","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394719640Z"}
+{"message":"    _eventsCount: 4,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394724697Z"}
+{"message":"    _maxListeners: undefined,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394730304Z"}
+{"message":"    _binaryType: 'arraybuffer',","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394735385Z"}
+{"message":"    _closeCode: 1006,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394740737Z"}
+{"message":"    _closeFrameReceived: false,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394746478Z"}
+{"message":"    _closeFrameSent: false,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394752402Z"}
+{"message":"    _closeMessage: <Buffer >,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394758023Z"}
+{"message":"    _closeTimer: null,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394763420Z"}
+{"message":"    _errorEmitted: true,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394776277Z"}
+{"message":"    _extensions: {},","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394781828Z"}
+{"message":"    _paused: false,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394787285Z"}
+{"message":"    _protocol: '',","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394793729Z"}
+{"message":"    _readyState: 3,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394799422Z"}
+{"message":"    _receiver: null,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394805228Z"}
+{"message":"    _sender: null,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394810944Z"}
+{"message":"    _socket: null,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.394817773Z"}
+{"message":"    _bufferedAmount: 0,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396895498Z"}
+{"message":"    _isServer: false,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396901029Z"}
+{"message":"    _redirects: 0,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396905867Z"}
+{"message":"    _autoPong: true,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396911769Z"}
+{"message":"    _url: 'wss://postgres.railway.internal/v2',","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396918981Z"}
+{"message":"    _req: null,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396924437Z"}
+{"message":"    [Symbol(shapeMode)]: false,","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396930111Z"}
+{"message":"    [Symbol(kCapture)]: false","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396936183Z"}
+{"message":"  },","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396942024Z"}
+{"message":"  [Symbol(kType)]: 'error',","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396947586Z"}
+{"message":"  [Symbol(kError)]: AggregateError [ECONNREFUSED]: ","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396953959Z"}
+{"message":"      at internalConnectMultiple (node:net:1134:18)","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396959461Z"}
+{"message":"      at afterConnectMultiple (node:net:1715:7) {","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396965340Z"}
+{"message":"    code: 'ECONNREFUSED',","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396971383Z"}
+{"message":"    [errors]: [ [Error], [Error] ]","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396977201Z"}
+{"message":"  },","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396982849Z"}
+{"message":"  [Symbol(kMessage)]: ''","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396989406Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-01-26T20:23:50.396995645Z"}
