@@ -5,88 +5,102 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings, Mail, Shield, Clock, Send, CheckCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Settings, MessageSquare, Link2, Clock, Send, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function EmailSettings() {
   const { toast } = useToast();
-  const [smtpHost, setSmtpHost] = useState("smtp.example.com");
-  const [smtpPort, setSmtpPort] = useState("587");
-  const [smtpUser, setSmtpUser] = useState("noreply@debtflow.com");
-  const [senderName, setSenderName] = useState("DebtFlow Pro");
-  const [replyTo, setReplyTo] = useState("collections@debtflow.com");
-  const [enableTracking, setEnableTracking] = useState(true);
-  const [dailyLimit, setDailyLimit] = useState("500");
-  const [enableScheduling, setEnableScheduling] = useState(true);
+  const [apiKey, setApiKey] = useState("");
+  const [apiEndpoint, setApiEndpoint] = useState("https://api.sms-provider.com/v1");
+  const [senderId, setSenderId] = useState("DebtFlow");
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [isConnected, setIsConnected] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const [autoSyncTemplates, setAutoSyncTemplates] = useState(true);
 
   const handleSave = () => {
-    toast({ title: "Settings Saved", description: "Email settings have been updated successfully." });
+    toast({ title: "Settings Saved", description: "SMS/TXT integration settings have been updated." });
   };
 
-  const handleTestEmail = () => {
-    toast({ title: "Test Email Sent", description: "A test email has been sent to your address." });
+  const handleTestConnection = () => {
+    if (!apiKey) {
+      toast({ title: "Error", description: "Please enter an API key first.", variant: "destructive" });
+      return;
+    }
+    setIsConnected(true);
+    toast({ title: "Connection Successful", description: "Connected to SMS/TXT provider." });
+  };
+
+  const handleSyncNow = () => {
+    toast({ title: "Sync Started", description: "Syncing templates with external system..." });
+    setTimeout(() => {
+      toast({ title: "Sync Complete", description: "All templates synced successfully." });
+    }, 1500);
   };
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Email Settings</h1>
-        <p className="text-muted-foreground">Configure email delivery and tracking</p>
+        <h1 className="text-2xl font-semibold">SMS/TXT Settings</h1>
+        <p className="text-muted-foreground">Configure external SMS/TXT provider integration</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Mail className="h-5 w-5" />
-              SMTP Configuration
+              <Link2 className="h-5 w-5" />
+              API Connection
             </CardTitle>
-            <CardDescription>Configure your email server settings</CardDescription>
+            <CardDescription>Connect to your SMS/TXT provider</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>SMTP Host</Label>
-                <Input 
-                  value={smtpHost}
-                  onChange={(e) => setSmtpHost(e.target.value)}
-                  data-testid="input-smtp-host"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Port</Label>
-                <Input 
-                  value={smtpPort}
-                  onChange={(e) => setSmtpPort(e.target.value)}
-                  data-testid="input-smtp-port"
-                />
-              </div>
-            </div>
             <div className="space-y-2">
-              <Label>SMTP Username</Label>
+              <Label>API Endpoint</Label>
               <Input 
-                value={smtpUser}
-                onChange={(e) => setSmtpUser(e.target.value)}
-                data-testid="input-smtp-user"
+                value={apiEndpoint}
+                onChange={(e) => setApiEndpoint(e.target.value)}
+                placeholder="https://api.provider.com/v1"
+                data-testid="input-api-endpoint"
               />
             </div>
             <div className="space-y-2">
-              <Label>SMTP Password</Label>
+              <Label>API Key</Label>
               <Input 
                 type="password"
-                placeholder="Enter password"
-                data-testid="input-smtp-password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your API key"
+                data-testid="input-api-key"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Callback/Webhook URL</Label>
+              <Input 
+                value={callbackUrl}
+                onChange={(e) => setCallbackUrl(e.target.value)}
+                placeholder="https://yourapp.com/api/sms/webhook"
+                data-testid="input-callback-url"
+              />
+              <p className="text-xs text-muted-foreground">Receives delivery status, open rates, and analytics from provider</p>
+            </div>
             <div className="flex items-center justify-between pt-2">
-              <Button variant="outline" onClick={handleTestEmail} data-testid="button-test-email">
+              <Button variant="outline" onClick={handleTestConnection} data-testid="button-test-connection">
                 <Send className="h-4 w-4 mr-2" />
-                Send Test Email
+                Test Connection
               </Button>
-              <div className="flex items-center gap-2 text-sm text-green-600">
-                <CheckCircle className="h-4 w-4" />
-                Connected
-              </div>
+              {isConnected ? (
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  Connected
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <AlertCircle className="h-4 w-4" />
+                  Not Connected
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -94,39 +108,43 @@ export default function EmailSettings() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Settings className="h-5 w-5" />
+              <MessageSquare className="h-5 w-5" />
               Sender Settings
             </CardTitle>
-            <CardDescription>Configure how emails appear to recipients</CardDescription>
+            <CardDescription>Configure message sender identity</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Sender Name</Label>
+              <Label>Sender ID / From Name</Label>
               <Input 
-                value={senderName}
-                onChange={(e) => setSenderName(e.target.value)}
-                data-testid="input-sender-name"
+                value={senderId}
+                onChange={(e) => setSenderId(e.target.value)}
+                data-testid="input-sender-id"
               />
+              <p className="text-xs text-muted-foreground">Name shown to recipients (max 11 characters)</p>
             </div>
             <div className="space-y-2">
-              <Label>Reply-To Address</Label>
-              <Input 
-                type="email"
-                value={replyTo}
-                onChange={(e) => setReplyTo(e.target.value)}
-                data-testid="input-reply-to"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Email Signature</Label>
-              <Select defaultValue="standard">
-                <SelectTrigger data-testid="select-signature">
+              <Label>Message Type</Label>
+              <Select defaultValue="transactional">
+                <SelectTrigger data-testid="select-message-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="standard">Standard Company Signature</SelectItem>
-                  <SelectItem value="minimal">Minimal Signature</SelectItem>
-                  <SelectItem value="custom">Custom Signature</SelectItem>
+                  <SelectItem value="transactional">Transactional</SelectItem>
+                  <SelectItem value="promotional">Promotional</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Default Country Code</Label>
+              <Select defaultValue="+1">
+                <SelectTrigger data-testid="select-country-code">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="+1">+1 (US/Canada)</SelectItem>
+                  <SelectItem value="+44">+44 (UK)</SelectItem>
+                  <SelectItem value="+61">+61 (Australia)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -136,36 +154,56 @@ export default function EmailSettings() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Shield className="h-5 w-5" />
-              Security & Compliance
+              <RefreshCw className="h-5 w-5" />
+              Template Sync
             </CardTitle>
-            <CardDescription>Email tracking and security settings</CardDescription>
+            <CardDescription>Sync templates with external SMS/TXT system</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <Label>Enable Open Tracking</Label>
-                <p className="text-xs text-muted-foreground">Track when emails are opened</p>
+                <Label>Enable Template Sync</Label>
+                <p className="text-xs text-muted-foreground">Push templates to external system</p>
               </div>
               <Switch 
-                checked={enableTracking}
-                onCheckedChange={setEnableTracking}
-                data-testid="switch-tracking"
+                checked={syncEnabled}
+                onCheckedChange={setSyncEnabled}
+                data-testid="switch-sync-enabled"
               />
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <Label>Enable Click Tracking</Label>
-                <p className="text-xs text-muted-foreground">Track link clicks in emails</p>
+                <Label>Auto-Sync on Save</Label>
+                <p className="text-xs text-muted-foreground">Automatically sync when templates are created/updated</p>
               </div>
-              <Switch defaultChecked data-testid="switch-click-tracking" />
+              <Switch 
+                checked={autoSyncTemplates}
+                onCheckedChange={setAutoSyncTemplates}
+                disabled={!syncEnabled}
+                data-testid="switch-auto-sync"
+              />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Include Unsubscribe Link</Label>
-                <p className="text-xs text-muted-foreground">Required for compliance</p>
+            <div className="pt-2">
+              <Button 
+                variant="outline" 
+                onClick={handleSyncNow} 
+                disabled={!syncEnabled || !isConnected}
+                className="w-full"
+                data-testid="button-sync-now"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Sync All Templates Now
+              </Button>
+            </div>
+            <div className="p-3 bg-muted rounded-lg">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Last Sync:</span>
+                <span>Never</span>
               </div>
-              <Switch defaultChecked disabled data-testid="switch-unsubscribe" />
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span className="text-muted-foreground">Templates Synced:</span>
+                <Badge variant="secondary">0</Badge>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -174,32 +212,11 @@ export default function EmailSettings() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Clock className="h-5 w-5" />
-              Rate Limits & Scheduling
+              Sending Rules
             </CardTitle>
-            <CardDescription>Control email sending frequency</CardDescription>
+            <CardDescription>Configure message sending behavior</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Daily Send Limit</Label>
-              <Input 
-                type="number"
-                value={dailyLimit}
-                onChange={(e) => setDailyLimit(e.target.value)}
-                data-testid="input-daily-limit"
-              />
-              <p className="text-xs text-muted-foreground">Maximum emails per day (0 = unlimited)</p>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Enable Scheduled Sending</Label>
-                <p className="text-xs text-muted-foreground">Allow scheduling emails for later</p>
-              </div>
-              <Switch 
-                checked={enableScheduling}
-                onCheckedChange={setEnableScheduling}
-                data-testid="switch-scheduling"
-              />
-            </div>
             <div className="space-y-2">
               <Label>Quiet Hours</Label>
               <div className="grid grid-cols-2 gap-2">
@@ -224,7 +241,12 @@ export default function EmailSettings() {
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-muted-foreground">No emails sent during these hours</p>
+              <p className="text-xs text-muted-foreground">No messages sent during these hours</p>
+            </div>
+            <div className="p-3 bg-blue-500/10 rounded-lg">
+              <p className="text-xs text-blue-600 dark:text-blue-400">
+                Open rates, delivery status, and analytics are tracked by your external SMS/TXT provider and sent to your callback URL.
+              </p>
             </div>
           </CardContent>
         </Card>

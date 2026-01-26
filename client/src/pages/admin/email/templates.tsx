@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { FileText, Plus, Edit, Copy, Trash2, Eye, Search } from "lucide-react";
+import { FileText, Plus, Edit, Copy, Trash2, Eye, Search, RefreshCw, CheckCircle, Cloud } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { EmailTemplate } from "@shared/schema";
 
@@ -42,11 +42,18 @@ export default function EmailTemplates() {
       toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
       return;
     }
-    toast({ title: "Template Saved", description: `${templateName} has been saved successfully.` });
+    toast({ title: "Template Saved & Synced", description: `${templateName} has been saved and synced to external SMS/TXT system.` });
     setShowEditor(false);
     setTemplateName("");
     setTemplateSubject("");
     setTemplateBody("");
+  };
+
+  const handleSyncTemplate = (templateName: string) => {
+    toast({ title: "Syncing...", description: `Pushing ${templateName} to external system...` });
+    setTimeout(() => {
+      toast({ title: "Sync Complete", description: `${templateName} synced to external SMS/TXT system.` });
+    }, 1000);
   };
 
   const getCategoryColor = (category: string) => {
@@ -64,8 +71,8 @@ export default function EmailTemplates() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Email Templates</h1>
-          <p className="text-muted-foreground">Create and manage email templates</p>
+          <h1 className="text-2xl font-semibold">SMS/TXT Templates</h1>
+          <p className="text-muted-foreground">Create and manage message templates - synced to external SMS/TXT system</p>
         </div>
         <Dialog open={showEditor} onOpenChange={setShowEditor}>
           <DialogTrigger asChild>
@@ -149,11 +156,28 @@ export default function EmailTemplates() {
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <Badge variant={template.isActive ? "default" : "secondary"}>
-                  {template.isActive ? "Active" : "Inactive"}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={template.isActive ? "default" : "secondary"}>
+                    {template.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                  <div className="flex items-center gap-1 text-xs text-green-600">
+                    <CheckCircle className="h-3 w-3" />
+                    <span>Synced</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleSyncTemplate(template.name)}
+                  data-testid={`button-sync-${template.id}`}
+                >
+                  <Cloud className="h-3 w-3 mr-1" />
+                  Sync
+                </Button>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="icon" data-testid={`button-preview-${template.id}`}>
                     <Eye className="h-4 w-4" />
