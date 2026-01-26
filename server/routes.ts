@@ -184,8 +184,10 @@ export async function registerRoutes(
 
   app.post("/api/fee-schedules", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const feeSchedule = await storage.createFeeSchedule({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(feeSchedule);
@@ -241,7 +243,11 @@ export async function registerRoutes(
 
   app.post("/api/collectors", async (req, res) => {
     try {
-      const collector = await storage.createCollector(req.body);
+      const orgId = getOrgId(req);
+      const collector = await storage.createCollector({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(collector);
     } catch (error) {
       res.status(500).json({ error: "Failed to create collector" });
@@ -295,7 +301,11 @@ export async function registerRoutes(
 
   app.post("/api/portfolios", async (req, res) => {
     try {
-      const portfolio = await storage.createPortfolio(req.body);
+      const orgId = getOrgId(req);
+      const portfolio = await storage.createPortfolio({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(portfolio);
     } catch (error) {
       res.status(500).json({ error: "Failed to create portfolio" });
@@ -376,7 +386,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors", async (req, res) => {
     try {
-      const debtor = await storage.createDebtor(req.body);
+      const orgId = getOrgId(req);
+      const debtor = await storage.createDebtor({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(debtor);
     } catch (error) {
       res.status(500).json({ error: "Failed to create debtor" });
@@ -418,10 +432,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/contacts", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const contact = await storage.createDebtorContact({
         ...req.body,
         debtorId: req.params.id,
-        organizationId: DEFAULT_ORG_ID,
+        organizationId: orgId,
       });
       res.status(201).json(contact);
     } catch (error) {
@@ -452,10 +467,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/employment", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const record = await storage.createEmploymentRecord({
         ...req.body,
         debtorId: req.params.id,
-        organizationId: DEFAULT_ORG_ID,
+        organizationId: orgId,
       });
       res.status(201).json(record);
     } catch (error) {
@@ -486,11 +502,12 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/references", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const reference = await storage.createDebtorReference({
         ...req.body,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
-        organizationId: DEFAULT_ORG_ID,
+        organizationId: orgId,
       });
       res.status(201).json(reference);
     } catch (error) {
@@ -533,9 +550,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/bank-accounts", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const account = await storage.createBankAccount({
         ...req.body,
         debtorId: req.params.id,
+        organizationId: orgId,
       });
       res.status(201).json(account);
     } catch (error) {
@@ -554,10 +573,12 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/cards", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const card = await storage.createPaymentCard({
         ...req.body,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
+        organizationId: orgId,
       });
       res.status(201).json(card);
     } catch (error) {
@@ -589,9 +610,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/payments", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const payment = await storage.createPayment({
         ...req.body,
         debtorId: req.params.id,
+        organizationId: orgId,
       });
       
       if (req.body.amount) {
@@ -620,10 +643,11 @@ export async function registerRoutes(
 
   app.post("/api/debtors/:id/notes", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const note = await storage.createNote({
         ...req.body,
         debtorId: req.params.id,
-        organizationId: DEFAULT_ORG_ID,
+        organizationId: orgId,
       });
       res.status(201).json(note);
     } catch (error) {
@@ -673,7 +697,11 @@ export async function registerRoutes(
 
   app.post("/api/payment-batches", async (req, res) => {
     try {
-      const batch = await storage.createPaymentBatch(req.body);
+      const orgId = getOrgId(req);
+      const batch = await storage.createPaymentBatch({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(batch);
     } catch (error) {
       res.status(500).json({ error: "Failed to create payment batch" });
@@ -739,7 +767,11 @@ export async function registerRoutes(
 
   app.post("/api/liquidation/snapshots", async (req, res) => {
     try {
-      const snapshot = await storage.createLiquidationSnapshot(req.body);
+      const orgId = getOrgId(req);
+      const snapshot = await storage.createLiquidationSnapshot({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(snapshot);
     } catch (error) {
       res.status(500).json({ error: "Failed to create liquidation snapshot" });
@@ -770,8 +802,10 @@ export async function registerRoutes(
 
   app.post("/api/merchants", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const merchant = await storage.createMerchant({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(merchant);
@@ -829,6 +863,7 @@ export async function registerRoutes(
 
   app.post("/api/time-clock/clock-in", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const { collectorId } = req.body;
       const existing = await storage.getActiveTimeClockEntry(collectorId);
       if (existing) {
@@ -837,7 +872,7 @@ export async function registerRoutes(
       const entry = await storage.createTimeClockEntry({
         collectorId,
         clockIn: new Date().toISOString(),
-        organizationId: DEFAULT_ORG_ID,
+        organizationId: orgId,
       });
       res.status(201).json(entry);
     } catch (error) {
@@ -1124,8 +1159,10 @@ export async function registerRoutes(
 
   app.post("/api/import-batches", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batch = await storage.createImportBatch({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(batch);
@@ -1159,8 +1196,10 @@ export async function registerRoutes(
 
   app.post("/api/import-mappings", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const mapping = await storage.createImportMapping({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(mapping);
@@ -1477,8 +1516,10 @@ export async function registerRoutes(
 
   app.post("/api/drop-batches", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batch = await storage.createDropBatch({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(batch);
@@ -1515,8 +1556,10 @@ export async function registerRoutes(
 
   app.post("/api/drop-items", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const item = await storage.createDropItem({
         ...req.body,
+        organizationId: orgId,
         assignedDate: new Date().toISOString().split("T")[0],
       });
       
@@ -1546,8 +1589,10 @@ export async function registerRoutes(
 
   app.post("/api/recall-batches", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batch = await storage.createRecallBatch({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(batch);
@@ -1568,7 +1613,11 @@ export async function registerRoutes(
 
   app.post("/api/recall-items", async (req, res) => {
     try {
-      const item = await storage.createRecallItem(req.body);
+      const orgId = getOrgId(req);
+      const item = await storage.createRecallItem({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(item);
     } catch (error) {
       res.status(500).json({ error: "Failed to create recall item" });
@@ -1599,8 +1648,10 @@ export async function registerRoutes(
 
   app.post("/api/consolidation-companies", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const company = await storage.createConsolidationCompany({
         ...req.body,
+        organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
       res.status(201).json(company);
@@ -1649,8 +1700,10 @@ export async function registerRoutes(
 
   app.post("/api/consolidation-cases", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const caseData = await storage.createConsolidationCase({
         ...req.body,
+        organizationId: orgId,
         startDate: req.body.startDate || new Date().toISOString().split("T")[0],
       });
       res.status(201).json(caseData);
@@ -1737,8 +1790,10 @@ export async function registerRoutes(
 
   app.post("/api/remittances", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const remittance = await storage.createRemittance({
         ...req.body,
+        organizationId: orgId,
         remittanceDate: req.body.remittanceDate || new Date().toISOString().split("T")[0],
       });
       res.status(201).json(remittance);
@@ -1775,7 +1830,11 @@ export async function registerRoutes(
 
   app.post("/api/remittance-items", async (req, res) => {
     try {
-      const item = await storage.createRemittanceItem(req.body);
+      const orgId = getOrgId(req);
+      const item = await storage.createRemittanceItem({
+        ...req.body,
+        organizationId: orgId,
+      });
       res.status(201).json(item);
     } catch (error) {
       res.status(500).json({ error: "Failed to create remittance item" });
