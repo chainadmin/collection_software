@@ -1,6 +1,6 @@
 {
-  "name": "DebtFlow Pro",
-  "short_name": "DebtFlow",
+  "name": "Debt Manager Pro",
+  "short_name": "DebtManager",
   "description": "Professional debt collection management software",
   "start_url": "/",
   "display": "standalone",

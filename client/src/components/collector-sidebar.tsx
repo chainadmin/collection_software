@@ -36,14 +36,12 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link href="/workstation" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-sidebar-foreground">DebtFlow Pro</span>
-            <span className="text-xs text-muted-foreground">Collector Workstation</span>
-          </div>
+        <Link href="/workstation" className="flex items-center gap-2">
+          <img 
+            src="/logo.png" 
+            alt="Debt Manager Pro" 
+            className="h-9 w-auto"
+          />
         </Link>
       </SidebarHeader>
       <SidebarContent>

@@ -1,4 +1,4 @@
-# DebtFlow Pro - Debt Collection Management Software
+# Debt Manager Pro - Debt Collection Management Software
 
 ## Overview
 
