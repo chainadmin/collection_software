@@ -10,6 +10,9 @@ import { CollectorSidebar } from "@/components/collector-sidebar";
 import { AccountSearch } from "@/components/account-search";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import Landing from "@/pages/landing";
+import Login from "@/pages/login";
+import Signup from "@/pages/signup";
 import Dashboard from "@/pages/dashboard";
 import Workstation from "@/pages/workstation";
 import Debtors from "@/pages/debtors";
@@ -43,50 +46,44 @@ import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 import { OrganizationProvider } from "@/lib/organization-context";
 
-function Router() {
-  const [, setLocation] = useLocation();
-  
-  const handleAccountSelect = (debtor: Debtor) => {
-    setLocation(`/debtors/${debtor.id}`);
-  };
-  
+function AppRouter() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/workstation" component={Workstation} />
-      <Route path="/debtors" component={Debtors} />
-      <Route path="/debtors/:id" component={DebtorDetail} />
-      <Route path="/payment-runner" component={PaymentRunner} />
-      <Route path="/portfolios" component={Portfolios} />
-      <Route path="/collectors" component={Collectors} />
-      <Route path="/liquidation" component={Liquidation} />
-      <Route path="/settings" component={Settings} />
-      <Route path="/collector/whiteboard" component={Whiteboard} />
-      <Route path="/collector/declines" component={Declines} />
-      <Route path="/collector/liq-rates" component={LiqRates} />
-      <Route path="/admin/tools/drop" component={DropAccounts} />
-      <Route path="/admin/tools/import-export" component={ImportExport} />
-      <Route path="/admin/tools/recall" component={Recall} />
-      <Route path="/admin/tools/banko" component={Banko} />
-      <Route path="/admin/tools/consolidation" component={Consolidation} />
-      <Route path="/admin/payments/merchants" component={Merchants} />
-      <Route path="/admin/payments/remittance" component={Remittance} />
-      <Route path="/admin/payments/import-batch" component={ImportBatch} />
-      <Route path="/admin/email/manage" component={EmailManage} />
-      <Route path="/admin/email/settings" component={EmailSettings} />
-      <Route path="/admin/email/templates" component={EmailTemplates} />
-      <Route path="/admin/reporting/dashboard" component={CompanyDashboard} />
-      <Route path="/admin/reporting/collectors" component={CollectorReporting} />
-      <Route path="/admin/reporting/time-clock" component={TimeClock} />
-      <Route path="/admin/settings/fees" component={FeeSchedules} />
-      <Route path="/admin/settings/server-access" component={ServerAccess} />
-      <Route path="/admin/clients" component={Clients} />
+      <Route path="/app" component={Dashboard} />
+      <Route path="/app/workstation" component={Workstation} />
+      <Route path="/app/debtors" component={Debtors} />
+      <Route path="/app/debtors/:id" component={DebtorDetail} />
+      <Route path="/app/payment-runner" component={PaymentRunner} />
+      <Route path="/app/portfolios" component={Portfolios} />
+      <Route path="/app/collectors" component={Collectors} />
+      <Route path="/app/liquidation" component={Liquidation} />
+      <Route path="/app/settings" component={Settings} />
+      <Route path="/app/collector/whiteboard" component={Whiteboard} />
+      <Route path="/app/collector/declines" component={Declines} />
+      <Route path="/app/collector/liq-rates" component={LiqRates} />
+      <Route path="/app/admin/tools/drop" component={DropAccounts} />
+      <Route path="/app/admin/tools/import-export" component={ImportExport} />
+      <Route path="/app/admin/tools/recall" component={Recall} />
+      <Route path="/app/admin/tools/banko" component={Banko} />
+      <Route path="/app/admin/tools/consolidation" component={Consolidation} />
+      <Route path="/app/admin/payments/merchants" component={Merchants} />
+      <Route path="/app/admin/payments/remittance" component={Remittance} />
+      <Route path="/app/admin/payments/import-batch" component={ImportBatch} />
+      <Route path="/app/admin/email/manage" component={EmailManage} />
+      <Route path="/app/admin/email/settings" component={EmailSettings} />
+      <Route path="/app/admin/email/templates" component={EmailTemplates} />
+      <Route path="/app/admin/reporting/dashboard" component={CompanyDashboard} />
+      <Route path="/app/admin/reporting/collectors" component={CollectorReporting} />
+      <Route path="/app/admin/reporting/time-clock" component={TimeClock} />
+      <Route path="/app/admin/settings/fees" component={FeeSchedules} />
+      <Route path="/app/admin/settings/server-access" component={ServerAccess} />
+      <Route path="/app/admin/clients" component={Clients} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-function AppContent() {
+function AppLayout() {
   const [location, setLocation] = useLocation();
   
   const { data: collectors = [] } = useQuery<Collector[]>({
@@ -97,30 +94,30 @@ function AppContent() {
   const isCollectorRole = currentCollector?.role === "collector";
   
   const isCollectorRoute =
-    location.startsWith("/workstation") ||
-    location.startsWith("/collector/");
+    location.startsWith("/app/workstation") ||
+    location.startsWith("/app/collector/");
 
   const isAdminRoute =
-    location === "/" ||
-    location.startsWith("/debtors") ||
-    location.startsWith("/payment-runner") ||
-    location.startsWith("/portfolios") ||
-    location.startsWith("/collectors") ||
-    location.startsWith("/liquidation") ||
-    location.startsWith("/settings") ||
-    location.startsWith("/admin/");
+    location === "/app" ||
+    location.startsWith("/app/debtors") ||
+    location.startsWith("/app/payment-runner") ||
+    location.startsWith("/app/portfolios") ||
+    location.startsWith("/app/collectors") ||
+    location.startsWith("/app/liquidation") ||
+    location.startsWith("/app/settings") ||
+    location.startsWith("/app/admin/");
 
   useEffect(() => {
     if (isCollectorRole && isAdminRoute && !isCollectorRoute) {
-      setLocation("/workstation");
+      setLocation("/app/workstation");
     }
   }, [isCollectorRole, isAdminRoute, isCollectorRoute, setLocation]);
 
   const handleAccountSelect = (debtor: Debtor) => {
     if (isCollectorRoute || isCollectorRole) {
-      setLocation(`/workstation?account=${debtor.id}`);
+      setLocation(`/app/workstation?account=${debtor.id}`);
     } else {
-      setLocation(`/debtors/${debtor.id}`);
+      setLocation(`/app/debtors/${debtor.id}`);
     }
   };
 
@@ -160,12 +157,37 @@ function AppContent() {
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto bg-background">
-            <Router />
+            <AppRouter />
           </main>
         </SidebarInset>
       </div>
     </SidebarProvider>
   );
+}
+
+function AppContent() {
+  const [location] = useLocation();
+  
+  const isPublicRoute = 
+    location === "/" || 
+    location === "/login" || 
+    location === "/signup" ||
+    location === "/demo" ||
+    location === "/contact";
+
+  if (isPublicRoute) {
+    return (
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route path="/login" component={Login} />
+        <Route path="/signup" component={Signup} />
+        <Route path="/demo" component={Landing} />
+        <Route path="/contact" component={Landing} />
+      </Switch>
+    );
+  }
+
+  return <AppLayout />;
 }
 
 function App() {

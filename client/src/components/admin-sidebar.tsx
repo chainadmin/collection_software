@@ -60,59 +60,59 @@ const adminSections: NavSection[] = [
     title: "Tools",
     icon: Wrench,
     items: [
-      { title: "Drop Accounts", url: "/admin/tools/drop", icon: FileDown },
-      { title: "Import/Export", url: "/admin/tools/import-export", icon: FileUp },
-      { title: "Recall", url: "/admin/tools/recall", icon: AlertTriangle },
-      { title: "Banko", url: "/admin/tools/banko", icon: Scale },
-      { title: "Consolidation", url: "/admin/tools/consolidation", icon: Layers },
+      { title: "Drop Accounts", url: "/app/admin/tools/drop", icon: FileDown },
+      { title: "Import/Export", url: "/app/admin/tools/import-export", icon: FileUp },
+      { title: "Recall", url: "/app/admin/tools/recall", icon: AlertTriangle },
+      { title: "Banko", url: "/app/admin/tools/banko", icon: Scale },
+      { title: "Consolidation", url: "/app/admin/tools/consolidation", icon: Layers },
     ],
   },
   {
     title: "Payments",
     icon: CreditCard,
     items: [
-      { title: "Payment Runner", url: "/payment-runner", icon: CreditCard },
-      { title: "Merchants", url: "/admin/payments/merchants", icon: Banknote },
-      { title: "Remittance", url: "/admin/payments/remittance", icon: Receipt },
-      { title: "Import Batch", url: "/admin/payments/import-batch", icon: Upload },
+      { title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard },
+      { title: "Merchants", url: "/app/admin/payments/merchants", icon: Banknote },
+      { title: "Remittance", url: "/app/admin/payments/remittance", icon: Receipt },
+      { title: "Import Batch", url: "/app/admin/payments/import-batch", icon: Upload },
     ],
   },
   {
-    title: "Email",
+    title: "SMS/TXT",
     icon: Mail,
     items: [
-      { title: "Manage", url: "/admin/email/manage", icon: Inbox },
-      { title: "Settings", url: "/admin/email/settings", icon: Settings },
-      { title: "Templates", url: "/admin/email/templates", icon: FileText },
+      { title: "Manage", url: "/app/admin/email/manage", icon: Inbox },
+      { title: "Settings", url: "/app/admin/email/settings", icon: Settings },
+      { title: "Templates", url: "/app/admin/email/templates", icon: FileText },
     ],
   },
   {
     title: "Reporting",
     icon: BarChart3,
     items: [
-      { title: "Company Dashboard", url: "/admin/reporting/dashboard", icon: LayoutDashboard },
-      { title: "Collector Reporting", url: "/admin/reporting/collectors", icon: Users },
-      { title: "Time Clock", url: "/admin/reporting/time-clock", icon: Clock },
-      { title: "Liquidation Rates", url: "/liquidation", icon: TrendingUp },
+      { title: "Company Dashboard", url: "/app/admin/reporting/dashboard", icon: LayoutDashboard },
+      { title: "Collector Reporting", url: "/app/admin/reporting/collectors", icon: Users },
+      { title: "Time Clock", url: "/app/admin/reporting/time-clock", icon: Clock },
+      { title: "Liquidation Rates", url: "/app/liquidation", icon: TrendingUp },
     ],
   },
   {
     title: "Global Settings",
     icon: Settings,
     items: [
-      { title: "Collector Options", url: "/collectors", icon: UserCog },
-      { title: "Fee Schedule", url: "/admin/settings/fees", icon: DollarSign },
-      { title: "Server Access", url: "/admin/settings/server-access", icon: Server },
+      { title: "Collector Options", url: "/app/collectors", icon: UserCog },
+      { title: "Fee Schedule", url: "/app/admin/settings/fees", icon: DollarSign },
+      { title: "Server Access", url: "/app/admin/settings/server-access", icon: Server },
     ],
   },
 ];
 
 const mainNavItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Workstation", url: "/workstation", icon: Headphones },
-  { title: "Clients", url: "/admin/clients", icon: Building2 },
-  { title: "Debtors", url: "/debtors", icon: Users },
-  { title: "Portfolios", url: "/portfolios", icon: FolderKanban },
+  { title: "Dashboard", url: "/app", icon: LayoutDashboard },
+  { title: "Workstation", url: "/app/workstation", icon: Headphones },
+  { title: "Clients", url: "/app/admin/clients", icon: Building2 },
+  { title: "Debtors", url: "/app/debtors", icon: Users },
+  { title: "Portfolios", url: "/app/portfolios", icon: FolderKanban },
 ];
 
 interface AdminSidebarProps {
@@ -134,7 +134,7 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/app" className="flex items-center gap-2">
           <img 
             src="/logo.png" 
             alt="Debt Manager Pro" 

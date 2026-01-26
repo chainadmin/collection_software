@@ -26,27 +26,27 @@ import {
 const mainNavItems = [
   {
     title: "Dashboard",
-    url: "/",
+    url: "/app",
     icon: LayoutDashboard,
   },
   {
     title: "Workstation",
-    url: "/workstation",
+    url: "/app/workstation",
     icon: Headphones,
   },
   {
     title: "Debtors",
-    url: "/debtors",
+    url: "/app/debtors",
     icon: Users,
   },
   {
     title: "Payment Runner",
-    url: "/payment-runner",
+    url: "/app/payment-runner",
     icon: CreditCard,
   },
   {
     title: "Portfolios",
-    url: "/portfolios",
+    url: "/app/portfolios",
     icon: FolderKanban,
   },
 ];
@@ -54,17 +54,17 @@ const mainNavItems = [
 const adminNavItems = [
   {
     title: "Collectors",
-    url: "/collectors",
+    url: "/app/collectors",
     icon: Wallet,
   },
   {
     title: "Liquidation",
-    url: "/liquidation",
+    url: "/app/liquidation",
     icon: TrendingUp,
   },
   {
     title: "Settings",
-    url: "/settings",
+    url: "/app/settings",
     icon: Settings,
   },
 ];
@@ -75,7 +75,7 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/app" className="flex items-center gap-2">
           <img 
             src="/logo.png" 
             alt="Debt Manager Pro" 

@@ -20,10 +20,10 @@ import {
 } from "@/components/ui/sidebar";
 
 const collectorNavItems = [
-  { title: "Work Queue", url: "/workstation", icon: Headphones },
-  { title: "Today's Whiteboard", url: "/collector/whiteboard", icon: ClipboardList },
-  { title: "My Declines", url: "/collector/declines", icon: XCircle },
-  { title: "My Liq Rates", url: "/collector/liq-rates", icon: TrendingUp },
+  { title: "Work Queue", url: "/app/workstation", icon: Headphones },
+  { title: "Today's Whiteboard", url: "/app/collector/whiteboard", icon: ClipboardList },
+  { title: "My Declines", url: "/app/collector/declines", icon: XCircle },
+  { title: "My Liq Rates", url: "/app/collector/liq-rates", icon: TrendingUp },
 ];
 
 interface CollectorSidebarProps {
@@ -36,7 +36,7 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link href="/workstation" className="flex items-center gap-2">
+        <Link href="/app/workstation" className="flex items-center gap-2">
           <img 
             src="/logo.png" 
             alt="Debt Manager Pro" 
