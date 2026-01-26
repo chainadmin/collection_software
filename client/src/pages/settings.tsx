@@ -20,11 +20,52 @@ import {
   FileText,
   Mail,
   Phone,
+  Tag,
+  Plus,
+  Trash2,
+  GripVertical,
 } from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
 
 export default function Settings() {
   const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
+  const [newStatus, setNewStatus] = useState("");
+  const [accountStatuses, setAccountStatuses] = useState([
+    { id: "1", name: "newbiz", label: "New Business", color: "blue", isSystem: true },
+    { id: "2", name: "1st_message", label: "1st Message", color: "yellow", isSystem: true },
+    { id: "3", name: "final", label: "Final", color: "red", isSystem: true },
+    { id: "4", name: "promise", label: "Promise", color: "green", isSystem: true },
+    { id: "5", name: "payments_pending", label: "Payments Pending", color: "purple", isSystem: true },
+    { id: "6", name: "in_payment", label: "In Payment", color: "teal", isSystem: true },
+    { id: "7", name: "paid", label: "Paid in Full", color: "emerald", isSystem: true },
+    { id: "8", name: "closed", label: "Closed", color: "gray", isSystem: true },
+  ]);
+
+  const handleAddStatus = () => {
+    if (!newStatus.trim()) {
+      toast({ title: "Error", description: "Please enter a status name.", variant: "destructive" });
+      return;
+    }
+    const id = String(Date.now());
+    const name = newStatus.toLowerCase().replace(/\s+/g, "_");
+    setAccountStatuses([...accountStatuses, { id, name, label: newStatus, color: "slate", isSystem: false }]);
+    setNewStatus("");
+    toast({ title: "Status Added", description: `"${newStatus}" has been added to account statuses.` });
+  };
+
+  const handleRemoveStatus = (id: string) => {
+    const status = accountStatuses.find(s => s.id === id);
+    if (status?.isSystem) {
+      toast({ title: "Cannot Remove", description: "System statuses cannot be removed.", variant: "destructive" });
+      return;
+    }
+    setAccountStatuses(accountStatuses.filter(s => s.id !== id));
+    toast({ title: "Status Removed", description: "The status has been removed." });
+  };
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -196,6 +237,63 @@ export default function Settings() {
               </div>
               <div className="pt-2">
                 <Button data-testid="button-save-payment">Save Payment Settings</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                Account Statuses
+              </CardTitle>
+              <CardDescription>Manage collection account workflow statuses</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Enter new status name..."
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddStatus()}
+                  data-testid="input-new-status"
+                />
+                <Button onClick={handleAddStatus} data-testid="button-add-status">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {accountStatuses.map((status) => (
+                  <div
+                    key={status.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                    data-testid={`status-item-${status.name}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                      <Badge variant="outline">{status.label}</Badge>
+                      {status.isSystem && (
+                        <span className="text-xs text-muted-foreground">(System)</span>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveStatus(status.id)}
+                      disabled={status.isSystem}
+                      data-testid={`button-remove-status-${status.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                System statuses are required for core workflow and cannot be removed. Custom statuses can be added for your specific collection process.
+              </p>
+              <div className="pt-2">
+                <Button data-testid="button-save-statuses">Save Status Configuration</Button>
               </div>
             </CardContent>
           </Card>
