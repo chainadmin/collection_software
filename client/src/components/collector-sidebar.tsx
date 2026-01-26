@@ -5,6 +5,7 @@ import {
   ClipboardList,
   XCircle,
   TrendingUp,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -18,6 +19,30 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
+
+function LogoutButton() {
+  const { logout } = useAuth();
+  const [, setLocation] = useLocation();
+
+  const handleLogout = () => {
+    logout();
+    setLocation("/");
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleLogout}
+      title="Sign out"
+      data-testid="button-logout"
+    >
+      <LogOut className="h-4 w-4" />
+    </Button>
+  );
+}
 
 const collectorNavItems = [
   { title: "Work Queue", url: "/app/workstation", icon: Headphones },
@@ -70,18 +95,21 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium">
-            {currentCollector?.avatarInitials || "CO"}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium">
+              {currentCollector?.avatarInitials || "CO"}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-sidebar-foreground">
+                {currentCollector?.name || "Collector"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {currentCollector?.role || "Collector"}
+              </span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-sidebar-foreground">
-              {currentCollector?.name || "Collector"}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {currentCollector?.role || "Collector"}
-            </span>
-          </div>
+          <LogoutButton />
         </div>
       </SidebarFooter>
     </Sidebar>

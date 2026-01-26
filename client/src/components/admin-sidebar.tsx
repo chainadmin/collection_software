@@ -26,7 +26,10 @@ import {
   DollarSign,
   Server,
   Headphones,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -48,6 +51,28 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useState } from "react";
+
+function LogoutButton() {
+  const { logout } = useAuth();
+  const [, setLocation] = useLocation();
+
+  const handleLogout = () => {
+    logout();
+    setLocation("/");
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleLogout}
+      title="Sign out"
+      data-testid="button-logout"
+    >
+      <LogOut className="h-4 w-4" />
+    </Button>
+  );
+}
 
 interface NavSection {
   title: string;
@@ -215,18 +240,21 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium">
-            {currentUser?.initials || "AD"}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium">
+              {currentUser?.initials || "AD"}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-sidebar-foreground">
+                {currentUser?.name || "Administrator"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {currentUser?.role || "Admin"}
+              </span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-sidebar-foreground">
-              {currentUser?.name || "Administrator"}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {currentUser?.role || "Admin"}
-            </span>
-          </div>
+          <LogoutButton />
         </div>
       </SidebarFooter>
     </Sidebar>

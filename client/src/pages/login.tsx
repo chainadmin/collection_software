@@ -5,10 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,14 +19,30 @@ export default function Login() {
     e.preventDefault();
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const success = await login(email, password);
+      if (success) {
+        toast({
+          title: "Welcome back!",
+          description: "You have been logged in successfully.",
+        });
+        setLocation("/app");
+      } else {
+        toast({
+          title: "Login failed",
+          description: "Invalid email or password.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
       toast({
-        title: "Welcome back!",
-        description: "You have been logged in successfully.",
+        title: "Error",
+        description: "An error occurred during login.",
+        variant: "destructive",
       });
-      setLocation("/app");
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

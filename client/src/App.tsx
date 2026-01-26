@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,6 +10,7 @@ import { CollectorSidebar } from "@/components/collector-sidebar";
 import { AccountSearch } from "@/components/account-search";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
 import Signup from "@/pages/signup";
@@ -167,6 +168,7 @@ function AppLayout() {
 
 function AppContent() {
   const [location] = useLocation();
+  const { isAuthenticated, isLoading } = useAuth();
   
   const isPublicRoute = 
     location === "/" || 
@@ -174,6 +176,17 @@ function AppContent() {
     location === "/signup" ||
     location === "/demo" ||
     location === "/contact";
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (isPublicRoute) {
     return (
@@ -187,6 +200,11 @@ function AppContent() {
     );
   }
 
+  // Require authentication for /app routes
+  if (!isAuthenticated) {
+    return <Redirect to="/login" />;
+  }
+
   return <AppLayout />;
 }
 
@@ -194,12 +212,14 @@ function App() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="debtflow-theme">
       <QueryClientProvider client={queryClient}>
-        <OrganizationProvider>
-          <TooltipProvider>
-            <AppContent />
-            <Toaster />
-          </TooltipProvider>
-        </OrganizationProvider>
+        <AuthProvider>
+          <OrganizationProvider>
+            <TooltipProvider>
+              <AppContent />
+              <Toaster />
+            </TooltipProvider>
+          </OrganizationProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );
