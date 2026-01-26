@@ -334,7 +334,11 @@ export class MemStorage implements IStorage {
     this.remittanceItems = new Map();
     this.apiTokens = new Map();
     this.communicationAttempts = new Map();
-    this.seedData();
+    
+    // Only seed demo data in development mode - production starts with empty database
+    if (process.env.NODE_ENV !== 'production') {
+      this.seedData();
+    }
   }
 
   private seedData() {
