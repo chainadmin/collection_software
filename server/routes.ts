@@ -596,6 +596,79 @@ export async function registerRoutes(
     }
   });
 
+  // Collector performance stats for dashboard - must be before :id route
+  app.get("/api/collectors/performance", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const allCollectors = await storage.getCollectors();
+      const allPayments = await storage.getPayments();
+      
+      // Filter by organization
+      const collectors = allCollectors.filter(c => c.organizationId === orgId);
+      const orgPayments = allPayments.filter(p => p.organizationId === orgId);
+      
+      // Get current month and next month date ranges
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split('T')[0];
+      const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().split('T')[0];
+      
+      const performanceData = collectors.map((collector) => {
+        // Get payments processed by this collector
+        const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
+        
+        // Current month payments
+        const currentMonthPayments = collectorPayments.filter(p => {
+          if (!p.paymentDate) return false;
+          const paymentDate = p.paymentDate.split('T')[0];
+          return paymentDate >= currentMonthStart && paymentDate <= currentMonthEnd;
+        });
+        
+        // Next month scheduled payments (pending)
+        const nextMonthPayments = orgPayments.filter(p => {
+          if (p.nextPaymentDate && p.processedBy === collector.id) {
+            const nextDate = p.nextPaymentDate.split('T')[0];
+            return nextDate >= nextMonthStart && nextDate <= nextMonthEnd;
+          }
+          return false;
+        });
+        
+        // Calculate totals by status for current month
+        const pending = currentMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+        const posted = currentMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const declined = currentMonthPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const reversed = currentMonthPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        
+        // Next month goal (same as current goal)
+        const nextMonthGoal = collector.goal || 0;
+        
+        // Next month projected from scheduled payments
+        const nextMonthProjected = nextMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+        
+        return {
+          id: collector.id,
+          name: collector.name,
+          role: collector.role,
+          pending,
+          posted,
+          declined,
+          reversed,
+          currentMonthTotal: posted,
+          currentMonthGoal: collector.goal || 0,
+          nextMonthGoal,
+          nextMonthProjected,
+          goalProgress: collector.goal ? Math.round((posted / collector.goal) * 100) : 0,
+        };
+      });
+      
+      res.json(performanceData);
+    } catch (error) {
+      console.error("Failed to fetch collector performance:", error);
+      res.status(500).json({ error: "Failed to fetch collector performance" });
+    }
+  });
+
   app.get("/api/collectors/:id", async (req, res) => {
     try {
       const collector = await storage.getCollector(req.params.id);

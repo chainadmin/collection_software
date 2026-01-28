@@ -8,15 +8,33 @@ import {
   Calendar,
   ArrowRight,
   FolderKanban,
+  Target,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { Link } from "wouter";
 import type { DashboardStats, Debtor, Payment, Portfolio } from "@shared/schema";
+
+interface CollectorPerformance {
+  id: string;
+  name: string;
+  role: string;
+  pending: number;
+  posted: number;
+  declined: number;
+  reversed: number;
+  currentMonthTotal: number;
+  currentMonthGoal: number;
+  nextMonthGoal: number;
+  nextMonthProjected: number;
+  goalProgress: number;
+}
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
@@ -34,6 +52,13 @@ export default function Dashboard() {
   const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors/recent"],
   });
+
+  const { data: collectorPerformance, isLoading: performanceLoading } = useQuery<CollectorPerformance[]>({
+    queryKey: ["/api/collectors/performance"],
+  });
+
+  const currentMonth = new Date().toLocaleString('default', { month: 'long' });
+  const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleString('default', { month: 'long' });
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -99,6 +124,125 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+          <div>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Team Performance
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {currentMonth} collections progress and {nextMonth} goals
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" asChild data-testid="link-view-collectors">
+            <Link href="/collectors">
+              Manage Team
+              <ArrowRight className="h-4 w-4 ml-1" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {performanceLoading ? (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : collectorPerformance && collectorPerformance.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-xs font-medium uppercase tracking-wide text-muted-foreground border-b">
+                    <th className="pb-2 pr-4">Collector</th>
+                    <th className="pb-2 pr-4 text-right">Pending</th>
+                    <th className="pb-2 pr-4 text-right">Posted</th>
+                    <th className="pb-2 pr-4 text-right">Declined</th>
+                    <th className="pb-2 pr-4 text-right">Reversed</th>
+                    <th className="pb-2 pr-4 text-right">{currentMonth} Goal</th>
+                    <th className="pb-2 pr-4" style={{ minWidth: "150px" }}>Progress</th>
+                    <th className="pb-2 text-right">{nextMonth} Goal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {collectorPerformance.map((collector) => (
+                    <tr
+                      key={collector.id}
+                      className="border-b last:border-0 hover-elevate"
+                      data-testid={`performance-row-${collector.id}`}
+                    >
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{collector.name}</span>
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {collector.role}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono text-yellow-600 dark:text-yellow-400">
+                          {formatCurrencyCompact(collector.pending)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono text-green-600 dark:text-green-400 font-medium">
+                          {formatCurrencyCompact(collector.posted)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono text-red-600 dark:text-red-400">
+                          {formatCurrencyCompact(collector.declined)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono text-orange-600 dark:text-orange-400">
+                          {formatCurrencyCompact(collector.reversed)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono">
+                          {formatCurrencyCompact(collector.currentMonthGoal)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-2">
+                          <Progress 
+                            value={Math.min(collector.goalProgress, 100)} 
+                            className="h-2 flex-1"
+                          />
+                          <span className={`text-xs font-medium min-w-[40px] text-right ${
+                            collector.goalProgress >= 100 
+                              ? 'text-green-600 dark:text-green-400' 
+                              : collector.goalProgress >= 75 
+                                ? 'text-yellow-600 dark:text-yellow-400'
+                                : 'text-muted-foreground'
+                          }`}>
+                            {collector.goalProgress}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-right">
+                        <span className="text-sm font-mono">
+                          {formatCurrencyCompact(collector.nextMonthGoal)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Users className="h-10 w-10 text-muted-foreground/50 mb-2" />
+              <p className="text-sm text-muted-foreground">No collectors found</p>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/collectors?action=add">Add your first collector</Link>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
