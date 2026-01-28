@@ -101,24 +101,23 @@ Preferred communication style: Simple, everyday language.
 - **esbuild**: Fast server-side TypeScript bundling
 - **Replit plugins**: Development banner and cartographer for Replit environment
 
-### Payment Processing (Authorize.net)
-- **Merchant Gateway**: Authorize.net integration for credit card and ACH processing
+### Organization Subscription Billing (Authorize.net)
+- **Purpose**: Authorize.net is used ONLY for billing organizations for their Debt Manager Pro subscription
+- **NOT for Debt Collection**: Authorize.net is NOT used for processing debtor payments - that would be handled by each organization's own merchant account
+- **Subscription Plans**: Starter ($200/mo, 4 seats), Growth ($400/mo, 15 seats), Agency ($750/mo, 40 seats)
 - **Environment Support**: Uses sandbox endpoint in development, production endpoint in production
 - **Credentials**: AUTHORIZENET_API_LOGIN_ID and AUTHORIZENET_TRANSACTION_KEY stored in secrets
 - **Fallback Mode**: Demo simulation when Authorize.net credentials not configured
-- **Card Payments**: Full card number, expiration date, and CVV processing
-- **ACH Payments**: Bank account processing with routing/account numbers
-- **Check Payments**: Manual verification workflow (no gateway processing)
-- **Void/Refund**: Automatic gateway void on payment reversals when transaction ID available
-- **Server Module**: `server/authorizenet.ts` contains chargeCard, chargeAch, voidTransaction, refundTransaction
+- **Server Module**: `server/authorizenet.ts` contains chargeSubscription for organization billing
+- **Billing Endpoints**: `/api/billing/plans`, `/api/billing/subscribe`, `/api/billing/status`
 
-### Payment Runner Features
-- **Batch Processing**: Process pending payments in batches through Authorize.net gateway
+### Payment Runner Features (Debt Collection)
+- **Batch Processing**: Process pending debtor payments in batches (organization's own gateway)
 - **Re-run Failed**: Re-run individual failed/declined payments with updated info
 - **Run Single Payment**: Process individual payments outside of batch runs
-- **Reverse Payments**: Reverse completed payments with automatic gateway void and auto-cancel future scheduled payments
+- **Reverse Payments**: Reverse completed payments and auto-cancel future scheduled payments
 - **Decline Notes**: Auto-add decline reasons to account notes when payments fail
-- **Transaction Tracking**: Transaction IDs stored in payment notes for audit trail
+- **Simulated Processing**: Currently simulated - organizations would integrate their own payment gateway
 
 ### Import/Export Features
 - **Flexible Partial Imports**: Import accounts, contacts, payments, notes independently
