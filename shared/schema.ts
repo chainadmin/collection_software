@@ -72,6 +72,20 @@ export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: t
 export type InsertCollector = z.infer<typeof insertCollectorSchema>;
 export type Collector = typeof collectors.$inferSelect;
 
+// Global Super Admins (can manage all organizations)
+export const globalAdmins = pgTable("global_admins", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  name: text("name").notNull(),
+  createdDate: text("created_date").notNull(),
+  isActive: boolean("is_active").default(true),
+});
+
+export const insertGlobalAdminSchema = createInsertSchema(globalAdmins).omit({ id: true });
+export type InsertGlobalAdmin = z.infer<typeof insertGlobalAdminSchema>;
+export type GlobalAdmin = typeof globalAdmins.$inferSelect;
+
 // Portfolios (groups of accounts purchased)
 export const portfolios = pgTable("portfolios", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -135,6 +149,7 @@ export const debtors = pgTable("debtors", {
   status: text("status").notNull().default("newbiz"), // newbiz, 1st_message, final, promise, payments_pending, decline, open, in_payment, settled, closed, disputed
   lastContactDate: text("last_contact_date"),
   nextFollowUpDate: text("next_follow_up_date"),
+  customFields: text("custom_fields"), // JSON bucket for additional imported data
 });
 
 export const insertDebtorSchema = createInsertSchema(debtors).omit({ id: true });

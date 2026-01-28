@@ -43,6 +43,8 @@ import TimeClock from "@/pages/admin/reporting/time-clock";
 import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import Clients from "@/pages/admin/clients";
+import SuperAdmin from "@/pages/super-admin";
+import SuperAdminLogin from "@/pages/super-admin-login";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 import { OrganizationProvider } from "@/lib/organization-context";
@@ -175,7 +177,9 @@ function AppContent() {
     location === "/login" || 
     location === "/signup" ||
     location === "/demo" ||
-    location === "/contact";
+    location === "/contact" ||
+    location === "/super-admin-login" ||
+    location === "/super-admin";
 
   if (isLoading) {
     return (
@@ -196,6 +200,8 @@ function AppContent() {
         <Route path="/signup" component={Signup} />
         <Route path="/demo" component={Landing} />
         <Route path="/contact" component={Landing} />
+        <Route path="/super-admin-login" component={SuperAdminLogin} />
+        <Route path="/super-admin" component={SuperAdmin} />
       </Switch>
     );
   }

@@ -92,6 +92,7 @@ export default function Workstation() {
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
+  const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   
   // Additional info dialogs
   const [showAdditionalInfoDialog, setShowAdditionalInfoDialog] = useState(false);
@@ -1694,6 +1695,52 @@ export default function Workstation() {
                     </CollapsibleContent>
                   </Card>
                 </Collapsible>
+
+                {/* Custom Fields Section - displays imported custom/extra data */}
+                {selectedDebtor?.customFields && (() => {
+                  try {
+                    const customData = JSON.parse(selectedDebtor.customFields);
+                    if (Object.keys(customData).length > 0) {
+                      return (
+                        <Collapsible open={customFieldsOpen} onOpenChange={setCustomFieldsOpen}>
+                          <Card>
+                            <CollapsibleTrigger asChild>
+                              <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
+                                <CardTitle className="text-sm font-medium flex items-center justify-between">
+                                  <span className="flex items-center gap-2">
+                                    <LayoutDashboard className="h-4 w-4" />
+                                    Custom Fields
+                                    <Badge variant="secondary" className="text-xs">{Object.keys(customData).length}</Badge>
+                                  </span>
+                                  <ChevronRight
+                                    className={`h-4 w-4 transition-transform ${customFieldsOpen ? "rotate-90" : ""}`}
+                                  />
+                                </CardTitle>
+                              </CardHeader>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <CardContent>
+                                <div className="space-y-2">
+                                  {Object.entries(customData).map(([key, value]) => (
+                                    <div key={key} className="flex justify-between items-start p-2 rounded-md bg-muted/50">
+                                      <span className="text-sm font-medium text-muted-foreground capitalize">
+                                        {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
+                                      </span>
+                                      <span className="text-sm text-right max-w-[60%] break-words">{String(value)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </CardContent>
+                            </CollapsibleContent>
+                          </Card>
+                        </Collapsible>
+                      );
+                    }
+                    return null;
+                  } catch {
+                    return null;
+                  }
+                })()}
               </div>
             </ScrollArea>
             </div>

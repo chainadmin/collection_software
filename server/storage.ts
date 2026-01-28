@@ -7,6 +7,8 @@ import {
   type InsertClient,
   type Collector,
   type InsertCollector,
+  type GlobalAdmin,
+  type InsertGlobalAdmin,
   type Portfolio,
   type InsertPortfolio,
   type PortfolioAssignment,
@@ -266,6 +268,14 @@ export interface IStorage {
   // Helper methods for external API
   getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined>;
   getCollectorByUsername(username: string): Promise<Collector | undefined>;
+
+  // Global Admins
+  getGlobalAdmins(): Promise<GlobalAdmin[]>;
+  getGlobalAdmin(id: string): Promise<GlobalAdmin | undefined>;
+  getGlobalAdminByEmail(email: string): Promise<GlobalAdmin | undefined>;
+  createGlobalAdmin(admin: InsertGlobalAdmin): Promise<GlobalAdmin>;
+  updateGlobalAdmin(id: string, admin: Partial<InsertGlobalAdmin>): Promise<GlobalAdmin | undefined>;
+  deleteGlobalAdmin(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -301,6 +311,7 @@ export class MemStorage implements IStorage {
   private remittanceItems: Map<string, RemittanceItem>;
   private apiTokens: Map<string, ApiToken>;
   private communicationAttempts: Map<string, CommunicationAttempt>;
+  private globalAdmins: Map<string, GlobalAdmin>;
 
   constructor() {
     this.organizations = new Map();
@@ -335,6 +346,7 @@ export class MemStorage implements IStorage {
     this.remittanceItems = new Map();
     this.apiTokens = new Map();
     this.communicationAttempts = new Map();
+    this.globalAdmins = new Map();
     
     // Only seed demo data in development mode - production starts with empty database
     if (process.env.NODE_ENV !== 'production') {
@@ -493,6 +505,7 @@ export class MemStorage implements IStorage {
       status: "open",
       lastContactDate: "2024-12-10",
       nextFollowUpDate: "2024-12-20",
+      customFields: null,
     });
     this.debtors.set(debtor2Id, {
       id: debtor2Id,
@@ -520,6 +533,7 @@ export class MemStorage implements IStorage {
       status: "in_payment",
       lastContactDate: "2024-12-15",
       nextFollowUpDate: "2025-01-15",
+      customFields: null,
     });
     this.debtors.set(debtor3Id, {
       id: debtor3Id,
@@ -547,6 +561,7 @@ export class MemStorage implements IStorage {
       status: "disputed",
       lastContactDate: "2024-11-28",
       nextFollowUpDate: null,
+      customFields: null,
     });
     this.debtors.set(debtor4Id, {
       id: debtor4Id,
@@ -574,6 +589,7 @@ export class MemStorage implements IStorage {
       status: "open",
       lastContactDate: "2024-12-12",
       nextFollowUpDate: "2024-12-18",
+      customFields: null,
     });
     this.debtors.set(debtor5Id, {
       id: debtor5Id,
@@ -601,6 +617,7 @@ export class MemStorage implements IStorage {
       status: "settled",
       lastContactDate: "2024-12-01",
       nextFollowUpDate: null,
+      customFields: null,
     });
 
     this.debtorContacts.set(randomUUID(), {
@@ -1231,6 +1248,7 @@ export class MemStorage implements IStorage {
       status: debtor.status ?? "open",
       lastContactDate: debtor.lastContactDate ?? null,
       nextFollowUpDate: debtor.nextFollowUpDate ?? null,
+      customFields: debtor.customFields ?? null,
     };
     this.debtors.set(id, newDebtor);
     return newDebtor;
@@ -2209,6 +2227,45 @@ export class MemStorage implements IStorage {
 
   async getCollectorByUsername(username: string): Promise<Collector | undefined> {
     return Array.from(this.collectors.values()).find((c) => c.username === username);
+  }
+
+  // Global Admin methods
+  async getGlobalAdmins(): Promise<GlobalAdmin[]> {
+    return Array.from(this.globalAdmins.values());
+  }
+
+  async getGlobalAdmin(id: string): Promise<GlobalAdmin | undefined> {
+    return this.globalAdmins.get(id);
+  }
+
+  async getGlobalAdminByEmail(email: string): Promise<GlobalAdmin | undefined> {
+    return Array.from(this.globalAdmins.values()).find((a) => a.email === email);
+  }
+
+  async createGlobalAdmin(admin: InsertGlobalAdmin): Promise<GlobalAdmin> {
+    const id = randomUUID();
+    const newAdmin: GlobalAdmin = {
+      id,
+      email: admin.email,
+      password: admin.password,
+      name: admin.name,
+      createdDate: admin.createdDate,
+      isActive: admin.isActive ?? true,
+    };
+    this.globalAdmins.set(id, newAdmin);
+    return newAdmin;
+  }
+
+  async updateGlobalAdmin(id: string, admin: Partial<InsertGlobalAdmin>): Promise<GlobalAdmin | undefined> {
+    const existing = this.globalAdmins.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...admin };
+    this.globalAdmins.set(id, updated);
+    return updated;
+  }
+
+  async deleteGlobalAdmin(id: string): Promise<boolean> {
+    return this.globalAdmins.delete(id);
   }
 }
 

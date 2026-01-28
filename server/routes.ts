@@ -224,6 +224,98 @@ export async function registerRoutes(
     }
   });
 
+  // Super Admin Login
+  app.post("/api/super-admin/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+
+      const admin = await storage.getGlobalAdminByEmail(email);
+      if (!admin) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (!verifyPassword(password, admin.password)) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (!admin.isActive) {
+        return res.status(403).json({ error: "Your admin account is not active" });
+      }
+
+      res.json({
+        message: "Super admin login successful",
+        admin: {
+          id: admin.id,
+          email: admin.email,
+          name: admin.name,
+        },
+      });
+    } catch (error) {
+      console.error("Super admin login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // Super Admin - Get all organizations
+  app.get("/api/super-admin/organizations", async (req, res) => {
+    try {
+      const organizations = await storage.getOrganizations();
+      res.json(organizations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch organizations" });
+    }
+  });
+
+  // Super Admin - Toggle organization active status
+  app.patch("/api/super-admin/organizations/:id/toggle", async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      const updated = await storage.updateOrganization(req.params.id, { isActive: !org.isActive });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle organization status" });
+    }
+  });
+
+  // Super Admin - Create new super admin
+  app.post("/api/super-admin/admins", async (req, res) => {
+    try {
+      const { email, password, name } = req.body;
+      
+      if (!email || !password || !name) {
+        return res.status(400).json({ error: "Email, password, and name are required" });
+      }
+
+      const existingAdmin = await storage.getGlobalAdminByEmail(email);
+      if (existingAdmin) {
+        return res.status(400).json({ error: "Admin with this email already exists" });
+      }
+
+      const admin = await storage.createGlobalAdmin({
+        email,
+        password: hashPassword(password),
+        name,
+        createdDate: new Date().toISOString().split("T")[0],
+        isActive: true,
+      });
+
+      res.status(201).json({
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create super admin" });
+    }
+  });
+
   // Client routes
   app.get("/api/clients", async (req, res) => {
     try {
@@ -1407,6 +1499,34 @@ export async function registerRoutes(
             }
           }
 
+          // Auto-generate file number if not provided: FN-{YYYY}-{sequential}
+          let autoFileNumber = mappedData.fileNumber;
+          if (!autoFileNumber) {
+            const year = new Date().getFullYear();
+            const seq = (results.created + existingDebtors.length + 1).toString().padStart(6, '0');
+            autoFileNumber = `FN-${year}-${seq}`;
+          }
+
+          // Collect unmapped columns as custom fields
+          const knownFields = new Set([
+            'accountNumber', 'firstName', 'lastName', 'email', 'address', 'city', 'state', 'zipCode',
+            'dateOfBirth', 'ssn', 'ssnLast4', 'originalBalance', 'currentBalance', 'originalCreditor',
+            'clientName', 'fileNumber', 'status', 'lastContactDate', 'nextFollowUpDate',
+            'phone', 'phone1', 'phone2', 'phone3', 'phone4', 'phone5', 
+            'phone1Label', 'phone2Label', 'phone3Label', 'phone4Label', 'phone5Label',
+            'email1', 'email2', 'email3', 'email1Label', 'email2Label', 'email3Label',
+            'employerName', 'employerPhone', 'employerAddress', 'position', 'salary',
+            'ref1Name', 'ref1Relationship', 'ref1Phone', 'ref1Address', 'ref1Notes',
+            'ref2Name', 'ref2Relationship', 'ref2Phone', 'ref2Address', 'ref2Notes',
+            'ref3Name', 'ref3Relationship', 'ref3Phone', 'ref3Address', 'ref3Notes',
+          ]);
+          const customFields: Record<string, any> = {};
+          for (const [key, value] of Object.entries(mappedData)) {
+            if (!knownFields.has(key) && value !== undefined && value !== null && value !== '') {
+              customFields[key] = value;
+            }
+          }
+
           const newDebtor = await storage.createDebtor({
             portfolioId,
             clientId,
@@ -1426,10 +1546,11 @@ export async function registerRoutes(
             currentBalance: mappedData.currentBalance || mappedData.originalBalance || 0,
             originalCreditor: mappedData.originalCreditor || null,
             clientName: mappedData.clientName || null,
-            fileNumber: mappedData.fileNumber || null,
+            fileNumber: autoFileNumber,
             status: mappedData.status || "open",
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
+            customFields: Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null,
             organizationId: DEFAULT_ORG_ID,
           });
 
