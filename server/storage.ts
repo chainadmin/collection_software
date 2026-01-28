@@ -99,6 +99,7 @@ export interface IStorage {
 
   getCollectors(): Promise<Collector[]>;
   getCollector(id: string): Promise<Collector | undefined>;
+  getCollectorByEmail(email: string): Promise<Collector | undefined>;
   createCollector(collector: InsertCollector): Promise<Collector>;
   updateCollector(id: string, collector: Partial<InsertCollector>): Promise<Collector | undefined>;
   deleteCollector(id: string): Promise<boolean>;
@@ -1022,6 +1023,10 @@ export class MemStorage implements IStorage {
 
   async getCollector(id: string): Promise<Collector | undefined> {
     return this.collectors.get(id);
+  }
+
+  async getCollectorByEmail(email: string): Promise<Collector | undefined> {
+    return Array.from(this.collectors.values()).find(c => c.email.toLowerCase() === email.toLowerCase());
   }
 
   async createCollector(collector: InsertCollector): Promise<Collector> {

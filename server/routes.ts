@@ -2,6 +2,25 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
+import crypto from "crypto";
+
+// Simple password hashing (for production, use bcrypt)
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function verifyPassword(password: string, hash: string): boolean {
+  return hashPassword(password) === hash;
+}
+
+// Generate URL-friendly slug from company name
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .substring(0, 50);
+}
 
 // Organization ID is extracted from X-Organization-Id header or defaults to default-org
 const DEFAULT_ORG_ID = "default-org";
@@ -96,6 +115,112 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete organization" });
+    }
+  });
+
+  // Authentication routes
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const { companyName, name, email, password, phone } = req.body;
+      
+      if (!companyName || !name || !email || !password) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+
+      // Check if email already exists
+      const existingCollector = await storage.getCollectorByEmail(email);
+      if (existingCollector) {
+        return res.status(400).json({ error: "An account with this email already exists" });
+      }
+
+      // Create organization
+      const slug = generateSlug(companyName) + "-" + Date.now().toString(36);
+      const organization = await storage.createOrganization({
+        name: companyName,
+        slug,
+        phone: phone || null,
+        email: email,
+        isActive: true,
+        createdDate: new Date().toISOString().split("T")[0],
+      });
+
+      // Create admin collector for this organization
+      const collector = await storage.createCollector({
+        organizationId: organization.id,
+        name,
+        email,
+        username: email.split("@")[0],
+        password: hashPassword(password),
+        role: "admin",
+        status: "active",
+        avatarInitials: name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2),
+        canViewDashboard: true,
+        canViewEmail: true,
+        canViewPaymentRunner: true,
+      });
+
+      // Return success with user info for auto-login
+      res.status(201).json({
+        message: "Account created successfully",
+        collector: {
+          id: collector.id,
+          name: collector.name,
+          email: collector.email,
+          role: collector.role,
+        },
+        organizationId: organization.id,
+        organizationName: organization.name,
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      res.status(500).json({ error: "Failed to create account" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+
+      // Find collector by email
+      const collector = await storage.getCollectorByEmail(email);
+      if (!collector) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Verify password
+      if (!verifyPassword(password, collector.password)) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Check if collector is active
+      if (collector.status !== "active") {
+        return res.status(403).json({ error: "Your account is not active" });
+      }
+
+      // Get organization
+      const organization = await storage.getOrganization(collector.organizationId);
+      if (!organization || !organization.isActive) {
+        return res.status(403).json({ error: "Your organization is not active" });
+      }
+
+      res.json({
+        message: "Login successful",
+        collector: {
+          id: collector.id,
+          name: collector.name,
+          email: collector.email,
+          role: collector.role,
+        },
+        organizationId: organization.id,
+        organizationName: organization.name,
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
     }
   });
 

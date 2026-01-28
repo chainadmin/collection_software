@@ -1,39 +1,113 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, Download } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+
+const AUTH_STORAGE_KEY = "debtmanager_auth";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPwaPrompt, setShowPwaPrompt] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [formData, setFormData] = useState({
     companyName: "",
     name: "",
     email: "",
+    phone: "",
     password: "",
   });
 
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleInstallPwa = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        toast({ title: "App installed!", description: "You can now use Debt Manager Pro from your desktop." });
+      }
+      setDeferredPrompt(null);
+    }
+    setShowPwaPrompt(false);
+    setLocation("/app");
+  };
+
+  const handleSkipInstall = () => {
+    setShowPwaPrompt(false);
+    setLocation("/app");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: "Signup failed",
+          description: data.error || "Failed to create account",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Auto-login: save auth data to localStorage
+      const authUser = {
+        id: data.collector.id,
+        email: data.collector.email,
+        name: data.collector.name,
+        role: data.collector.role,
+        organizationId: data.organizationId,
+      };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+
       toast({
         title: "Account created!",
         description: "Welcome to Debt Manager Pro. Let's get started.",
       });
-      setLocation("/app");
-    }, 1000);
+
+      // Show PWA install prompt if available
+      if (deferredPrompt) {
+        setShowPwaPrompt(true);
+      } else {
+        setLocation("/app");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An error occurred during signup. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -125,6 +199,19 @@ export default function Signup() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    placeholder="(555) 123-4567"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    required
+                    data-testid="input-phone"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
@@ -165,6 +252,45 @@ export default function Signup() {
           </p>
         </div>
       </div>
+
+      <Dialog open={showPwaPrompt} onOpenChange={setShowPwaPrompt}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Install Desktop App
+            </DialogTitle>
+            <DialogDescription>
+              Install Debt Manager Pro on your computer for faster access and offline capabilities.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li className="flex gap-2">
+                <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                Quick access from your desktop
+              </li>
+              <li className="flex gap-2">
+                <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                Works offline for viewing data
+              </li>
+              <li className="flex gap-2">
+                <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                Native app experience
+              </li>
+            </ul>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={handleSkipInstall} data-testid="button-skip-install">
+              Maybe Later
+            </Button>
+            <Button onClick={handleInstallPwa} data-testid="button-install-pwa">
+              <Download className="h-4 w-4 mr-2" />
+              Install App
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

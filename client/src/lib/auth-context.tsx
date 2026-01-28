@@ -48,40 +48,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         const authUser: AuthUser = {
-          id: data.collector?.id || data.id || "user-1",
-          email: email,
-          name: data.collector?.name || data.name || email.split("@")[0],
-          role: data.collector?.role || data.role || "collector",
-          organizationId: data.organizationId || "default-org",
+          id: data.collector?.id || data.id,
+          email: data.collector?.email || email,
+          name: data.collector?.name || data.name,
+          role: data.collector?.role || data.role,
+          organizationId: data.organizationId,
         };
         setUser(authUser);
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
         return true;
       }
 
-      // For demo purposes, allow any login
-      const demoUser: AuthUser = {
-        id: "demo-user",
-        email: email,
-        name: email.split("@")[0],
-        role: "admin",
-        organizationId: "default-org",
-      };
-      setUser(demoUser);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
-      return true;
+      return false;
     } catch (error) {
-      // For demo purposes, allow any login
-      const demoUser: AuthUser = {
-        id: "demo-user",
-        email: email,
-        name: email.split("@")[0],
-        role: "admin",
-        organizationId: "default-org",
-      };
-      setUser(demoUser);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(demoUser));
-      return true;
+      console.error("Login error:", error);
+      return false;
     }
   };
 
