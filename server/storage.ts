@@ -397,7 +397,8 @@ export class MemStorage implements IStorage {
     const superAdminId = randomUUID();
     this.globalAdmins.set(superAdminId, {
       id: superAdminId,
-      email: "chainadmin",
+      username: "chainadmin",
+      email: null,
       password: hashPassword("VV3$0vvlif3"),
       name: "Chain Admin",
       createdDate: new Date().toISOString(),
@@ -2356,9 +2357,9 @@ export class MemStorage implements IStorage {
   }
 
   async markAllAdminNotificationsRead(): Promise<void> {
-    for (const [id, notification] of this.adminNotifications) {
+    Array.from(this.adminNotifications.entries()).forEach(([id, notification]) => {
       this.adminNotifications.set(id, { ...notification, isRead: true });
-    }
+    });
   }
 }
 

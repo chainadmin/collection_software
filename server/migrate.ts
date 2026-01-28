@@ -560,7 +560,8 @@ export async function runMigrations() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "global_admins" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
-        "email" text NOT NULL UNIQUE,
+        "username" text NOT NULL UNIQUE,
+        "email" text,
         "password" text NOT NULL,
         "name" text NOT NULL,
         "created_date" text NOT NULL,
@@ -583,6 +584,110 @@ export async function runMigrations() {
     `);
 
     console.log("All tables created successfully!");
+
+    // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
+    console.log("Running safe schema updates...");
+    
+    // Add username column to global_admins if it doesn't exist
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'global_admins' AND column_name = 'username') THEN
+          ALTER TABLE global_admins ADD COLUMN username text;
+        END IF;
+      END $$;
+    `);
+
+    // Backfill null usernames with email or generated value before setting NOT NULL
+    await db.execute(sql`
+      UPDATE global_admins SET username = COALESCE(email, 'admin_' || id) WHERE username IS NULL;
+    `);
+
+    // Set username to NOT NULL if not already
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        ALTER TABLE global_admins ALTER COLUMN username SET NOT NULL;
+      EXCEPTION WHEN OTHERS THEN
+        -- Column might already be NOT NULL, ignore error
+      END $$;
+    `);
+
+    // Make email nullable if it's currently NOT NULL
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        ALTER TABLE global_admins ALTER COLUMN email DROP NOT NULL;
+      EXCEPTION WHEN OTHERS THEN
+        -- Column might already be nullable, ignore error
+      END $$;
+    `);
+
+    // Add unique constraint to username if not exists
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'global_admins_username_unique') THEN
+          ALTER TABLE global_admins ADD CONSTRAINT global_admins_username_unique UNIQUE (username);
+        END IF;
+      EXCEPTION WHEN OTHERS THEN
+        -- Constraint might already exist, ignore error
+      END $$;
+    `);
+
+    // Add customFields column to debtors if it doesn't exist
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'debtors' AND column_name = 'custom_fields') THEN
+          ALTER TABLE debtors ADD COLUMN custom_fields text;
+        END IF;
+      END $$;
+    `);
+
+    // Add account_number to bank_accounts if it doesn't exist
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_accounts' AND column_name = 'account_number') THEN
+          ALTER TABLE bank_accounts ADD COLUMN account_number text;
+        END IF;
+      END $$;
+    `);
+
+    // Add Authorize.net fields to merchants if they don't exist
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'merchants' AND column_name = 'authorize_net_api_login_id') THEN
+          ALTER TABLE merchants ADD COLUMN authorize_net_api_login_id text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'merchants' AND column_name = 'authorize_net_transaction_key') THEN
+          ALTER TABLE merchants ADD COLUMN authorize_net_transaction_key text;
+        END IF;
+      END $$;
+    `);
+
+    console.log("Schema updates complete!");
+
+    // Seed chainadmin super admin if not exists
+    console.log("Checking for chainadmin super admin...");
+    const existingAdmin = await db.execute(sql`
+      SELECT id FROM global_admins WHERE username = 'chainadmin'
+    `);
+    
+    if (existingAdmin.rows.length === 0) {
+      // Password hash for VV3$0vvlif3
+      const passwordHash = '67ba92b9952c2ba4d266a0c79a80f09b3a1930f6b9a95e66f37eec6df9f7bb43';
+      await db.execute(sql`
+        INSERT INTO global_admins (id, username, password, name, created_date, is_active)
+        VALUES (gen_random_uuid(), 'chainadmin', ${passwordHash}, 'Chain Admin', ${new Date().toISOString().split('T')[0]}, true)
+      `);
+      console.log("Created chainadmin super admin account");
+    } else {
+      console.log("chainadmin super admin already exists");
+    }
+
     console.log("Database migrations complete!");
   } catch (error: any) {
     console.error("Migration error:", error.message || error);

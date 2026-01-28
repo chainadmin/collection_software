@@ -307,19 +307,20 @@ export async function registerRoutes(
   // Super Admin - Create new super admin
   app.post("/api/super-admin/admins", async (req, res) => {
     try {
-      const { email, password, name } = req.body;
+      const { username, email, password, name } = req.body;
       
-      if (!email || !password || !name) {
-        return res.status(400).json({ error: "Email, password, and name are required" });
+      if (!username || !password || !name) {
+        return res.status(400).json({ error: "Username, password, and name are required" });
       }
 
-      const existingAdmin = await storage.getGlobalAdminByEmail(email);
+      const existingAdmin = await storage.getGlobalAdminByUsername(username);
       if (existingAdmin) {
-        return res.status(400).json({ error: "Admin with this email already exists" });
+        return res.status(400).json({ error: "Admin with this username already exists" });
       }
 
       const admin = await storage.createGlobalAdmin({
-        email,
+        username,
+        email: email || null,
         password: hashPassword(password),
         name,
         createdDate: new Date().toISOString().split("T")[0],
@@ -328,7 +329,7 @@ export async function registerRoutes(
 
       res.status(201).json({
         id: admin.id,
-        email: admin.email,
+        username: admin.username,
         name: admin.name,
       });
     } catch (error) {
