@@ -670,22 +670,32 @@ export async function runMigrations() {
 
     console.log("Schema updates complete!");
 
-    // Seed chainadmin super admin if not exists
+    // Seed chainadmin super admin - create or update password
     console.log("Checking for chainadmin super admin...");
+    // Password hash for VV3$0vvlif3 (SHA-256)
+    const passwordHash = '67ba92b9952c2ba4d266a0c79a80f09b3a1930f6b9a95e66f37eec6df9f7bb43';
+    
     const existingAdmin = await db.execute(sql`
-      SELECT id FROM global_admins WHERE username = 'chainadmin'
+      SELECT id, password FROM global_admins WHERE username = 'chainadmin'
     `);
     
     if (existingAdmin.rows.length === 0) {
-      // Password hash for VV3$0vvlif3
-      const passwordHash = '67ba92b9952c2ba4d266a0c79a80f09b3a1930f6b9a95e66f37eec6df9f7bb43';
       await db.execute(sql`
         INSERT INTO global_admins (id, username, password, name, created_date, is_active)
         VALUES (gen_random_uuid(), 'chainadmin', ${passwordHash}, 'Chain Admin', ${new Date().toISOString().split('T')[0]}, true)
       `);
       console.log("Created chainadmin super admin account");
     } else {
-      console.log("chainadmin super admin already exists");
+      // Update password if it doesn't match expected hash
+      const currentPassword = (existingAdmin.rows[0] as any).password;
+      if (currentPassword !== passwordHash) {
+        await db.execute(sql`
+          UPDATE global_admins SET password = ${passwordHash} WHERE username = 'chainadmin'
+        `);
+        console.log("Updated chainadmin password to correct hash");
+      } else {
+        console.log("chainadmin super admin already exists with correct password");
+      }
     }
 
     console.log("Database migrations complete!");
