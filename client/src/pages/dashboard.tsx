@@ -25,17 +25,13 @@ interface CollectorPerformance {
   id: string;
   name: string;
   role: string;
-  somPending: number;
-  somPosted: number;
-  somDeclined: number;
-  somReversed: number;
+  somTotal: number;
+  currentTotal: number;
   currentPending: number;
   currentPosted: number;
-  currentDeclined: number;
-  currentReversed: number;
-  newPosted: number;
-  newDeclined: number;
-  newReversed: number;
+  newMoney: number;
+  totalDeclined: number;
+  totalReversed: number;
   nextMonthPending: number;
   currentMonthGoal: number;
   goalProgress: number;
@@ -188,27 +184,27 @@ export default function Dashboard() {
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-muted-foreground">
-                          {formatCurrencyCompact(collector.somPosted)}
+                          {formatCurrencyCompact(collector.somTotal)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono">
-                          {formatCurrencyCompact(collector.currentPosted)}
+                          {formatCurrencyCompact(collector.currentTotal)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-green-600 dark:text-green-400 font-medium">
-                          {formatCurrencyCompact(collector.newPosted)}
+                          {formatCurrencyCompact(collector.newMoney)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-red-600 dark:text-red-400">
-                          {formatCurrencyCompact(collector.currentDeclined)}
+                          {formatCurrencyCompact(collector.totalDeclined)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-orange-600 dark:text-orange-400">
-                          {formatCurrencyCompact(collector.currentReversed)}
+                          {formatCurrencyCompact(collector.totalReversed)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">

@@ -641,22 +641,22 @@ export async function registerRoutes(
           return false;
         });
         
-        // Start of month baseline totals (before month started)
+        // Start of month baseline (posted + pending combined)
         const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
         const somPosted = beforeMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
-        const somDeclined = beforeMonthPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const somReversed = beforeMonthPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        const somTotal = somPosted + somPending;
         
-        // Current totals (all time including this month)
+        // Current totals (posted + pending combined)
         const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
         const currentPosted = allTimePayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
-        const currentDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const currentReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        const currentTotal = currentPosted + currentPending;
         
-        // New money = difference between current and start of month
-        const newPosted = currentPosted - somPosted;
-        const newDeclined = currentDeclined - somDeclined;
-        const newReversed = currentReversed - somReversed;
+        // Declined and reversed (payments removed from pending/posted)
+        const totalDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const totalReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        
+        // New money = difference between current total and start of month total
+        const newMoney = currentTotal - somTotal;
         
         // Next month pending total
         const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + p.amount, 0);
@@ -665,25 +665,22 @@ export async function registerRoutes(
           id: collector.id,
           name: collector.name,
           role: collector.role,
-          // Start of month baseline
-          somPending,
-          somPosted,
-          somDeclined,
-          somReversed,
-          // Current totals
+          // Start of month (posted + pending)
+          somTotal,
+          // Current (posted + pending)
+          currentTotal,
           currentPending,
           currentPosted,
-          currentDeclined,
-          currentReversed,
           // New money this month
-          newPosted,
-          newDeclined,
-          newReversed,
+          newMoney,
+          // Declined and reversed
+          totalDeclined,
+          totalReversed,
           // Next month
           nextMonthPending: nextMonthPendingTotal,
           // Goals
           currentMonthGoal: collector.goal || 0,
-          goalProgress: collector.goal ? Math.round((newPosted / collector.goal) * 100) : 0,
+          goalProgress: collector.goal ? Math.round((newMoney / collector.goal) * 100) : 0,
         };
       });
       
