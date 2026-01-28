@@ -75,7 +75,8 @@ export type Collector = typeof collectors.$inferSelect;
 // Global Super Admins (can manage all organizations)
 export const globalAdmins = pgTable("global_admins", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
+  username: text("username").notNull().unique(),
+  email: text("email"),
   password: text("password").notNull(),
   name: text("name").notNull(),
   createdDate: text("created_date").notNull(),

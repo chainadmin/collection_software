@@ -247,19 +247,19 @@ export async function registerRoutes(
   // Super Admin Login
   app.post("/api/super-admin/login", async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const { username, password } = req.body;
       
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required" });
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
       }
 
-      const admin = await storage.getGlobalAdminByEmail(email);
+      const admin = await storage.getGlobalAdminByUsername(username);
       if (!admin) {
-        return res.status(401).json({ error: "Invalid email or password" });
+        return res.status(401).json({ error: "Invalid username or password" });
       }
 
       if (!verifyPassword(password, admin.password)) {
-        return res.status(401).json({ error: "Invalid email or password" });
+        return res.status(401).json({ error: "Invalid username or password" });
       }
 
       if (!admin.isActive) {
@@ -270,7 +270,7 @@ export async function registerRoutes(
         message: "Super admin login successful",
         admin: {
           id: admin.id,
-          email: admin.email,
+          username: admin.username,
           name: admin.name,
         },
       });

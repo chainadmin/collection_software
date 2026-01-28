@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 export default function SuperAdminLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -20,7 +20,7 @@ export default function SuperAdminLogin() {
     setIsLoading(true);
 
     try {
-      const res = await apiRequest("POST", "/api/super-admin/login", { email, password });
+      const res = await apiRequest("POST", "/api/super-admin/login", { username, password });
       const data = await res.json();
 
       if (res.ok) {
@@ -52,15 +52,15 @@ export default function SuperAdminLogin() {
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="username">Username</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="admin@debtmanagerpro.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder="chainadmin"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
-                data-testid="input-email"
+                data-testid="input-username"
               />
             </div>
             <div className="space-y-2">

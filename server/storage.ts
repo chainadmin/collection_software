@@ -283,6 +283,7 @@ export interface IStorage {
   getGlobalAdmins(): Promise<GlobalAdmin[]>;
   getGlobalAdmin(id: string): Promise<GlobalAdmin | undefined>;
   getGlobalAdminByEmail(email: string): Promise<GlobalAdmin | undefined>;
+  getGlobalAdminByUsername(username: string): Promise<GlobalAdmin | undefined>;
   createGlobalAdmin(admin: InsertGlobalAdmin): Promise<GlobalAdmin>;
   updateGlobalAdmin(id: string, admin: Partial<InsertGlobalAdmin>): Promise<GlobalAdmin | undefined>;
   deleteGlobalAdmin(id: string): Promise<boolean>;
@@ -2285,11 +2286,16 @@ export class MemStorage implements IStorage {
     return Array.from(this.globalAdmins.values()).find((a) => a.email === email);
   }
 
+  async getGlobalAdminByUsername(username: string): Promise<GlobalAdmin | undefined> {
+    return Array.from(this.globalAdmins.values()).find((a) => a.username === username);
+  }
+
   async createGlobalAdmin(admin: InsertGlobalAdmin): Promise<GlobalAdmin> {
     const id = randomUUID();
     const newAdmin: GlobalAdmin = {
       id,
-      email: admin.email,
+      username: admin.username,
+      email: admin.email ?? null,
       password: admin.password,
       name: admin.name,
       createdDate: admin.createdDate,
