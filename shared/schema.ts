@@ -220,6 +220,7 @@ export const bankAccounts = pgTable("bank_accounts", {
   bankName: text("bank_name").notNull(),
   accountType: text("account_type").notNull(), // checking, savings
   routingNumber: text("routing_number"),
+  accountNumber: text("account_number"), // Full account number for ACH processing
   accountNumberLast4: text("account_number_last_4"),
   isVerified: boolean("is_verified").default(false),
   verifiedDate: text("verified_date"),
@@ -375,9 +376,12 @@ export const merchants = pgTable("merchants", {
   organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   merchantId: text("merchant_id").notNull(),
-  processorType: text("processor_type").notNull(), // nmi, usaepay, stripe, authorize_net
+  processorType: text("processor_type").notNull(), // nmi, usaepay, authorize_net
   isActive: boolean("is_active").default(true),
   apiKeyRef: text("api_key_ref"), // reference to secrets
+  // Authorize.net-specific fields
+  authorizeNetApiLoginId: text("authorize_net_api_login_id"),
+  authorizeNetTransactionKey: text("authorize_net_transaction_key"),
   // NMI-specific fields
   nmiSecurityKey: text("nmi_security_key"),
   nmiUsername: text("nmi_username"),

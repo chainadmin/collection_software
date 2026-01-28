@@ -112,12 +112,20 @@ Preferred communication style: Simple, everyday language.
 - **Billing Endpoints**: `/api/billing/plans`, `/api/billing/subscribe`, `/api/billing/status`
 
 ### Payment Runner Features (Debt Collection)
-- **Batch Processing**: Process pending debtor payments in batches (organization's own gateway)
+- **Batch Processing**: Process pending debtor payments in batches through organization's own merchant
 - **Re-run Failed**: Re-run individual failed/declined payments with updated info
 - **Run Single Payment**: Process individual payments outside of batch runs
-- **Reverse Payments**: Reverse completed payments and auto-cancel future scheduled payments
+- **Reverse Payments**: Reverse completed payments with automatic gateway void and auto-cancel future scheduled payments
 - **Decline Notes**: Auto-add decline reasons to account notes when payments fail
-- **Simulated Processing**: Currently simulated - organizations would integrate their own payment gateway
+- **Transaction Tracking**: Transaction IDs stored in payment notes for audit trail
+
+### Organization Merchant Configuration
+- **Merchant Table**: Each organization stores their own merchant account credentials
+- **Authorize.net Fields**: `authorizeNetApiLoginId` and `authorizeNetTransactionKey` stored in merchants table
+- **Test Mode**: Organizations can enable test mode for sandbox transactions
+- **Processor Types**: Supports authorize_net, nmi, usaepay processor types
+- **Gateway Functions**: `processDebtorCardPayment`, `processDebtorAchPayment`, `voidDebtorTransaction`
+- **Fallback**: If no merchant configured, payments use demo simulation mode
 
 ### Import/Export Features
 - **Flexible Partial Imports**: Import accounts, contacts, payments, notes independently

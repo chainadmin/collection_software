@@ -246,3 +246,263 @@ export function getSubscriptionPrices() {
     agency: { price: 750, seats: 40 },
   };
 }
+
+// ============================================================================
+// ORGANIZATION MERCHANT PAYMENT PROCESSING
+// These functions process debtor payments using the organization's own merchant account
+// ============================================================================
+
+export interface MerchantCredentials {
+  apiLoginId: string;
+  transactionKey: string;
+  testMode?: boolean;
+}
+
+export interface DebtorPaymentData {
+  cardNumber: string;
+  expirationDate: string; // MMYY format
+  cardCode: string;
+}
+
+export interface AchPaymentData {
+  accountType: 'checking' | 'savings';
+  routingNumber: string;
+  accountNumber: string;
+  nameOnAccount: string;
+}
+
+/**
+ * Process a debtor card payment using the organization's merchant account
+ */
+export async function processDebtorCardPayment(
+  merchantCredentials: MerchantCredentials,
+  paymentData: DebtorPaymentData,
+  amount: number,
+  invoiceNumber?: string,
+  customerEmail?: string
+): Promise<ChargeResult> {
+  return new Promise((resolve) => {
+    if (!merchantCredentials.apiLoginId || !merchantCredentials.transactionKey) {
+      resolve({
+        success: false,
+        errorMessage: 'Merchant credentials not configured',
+      });
+      return;
+    }
+
+    const merchantAuth = new APIContracts.MerchantAuthenticationType();
+    merchantAuth.setName(merchantCredentials.apiLoginId);
+    merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
+
+    const creditCard = new APIContracts.CreditCardType();
+    creditCard.setCardNumber(paymentData.cardNumber.replace(/\s/g, ''));
+    creditCard.setExpirationDate(paymentData.expirationDate);
+    creditCard.setCardCode(paymentData.cardCode);
+
+    const paymentType = new APIContracts.PaymentType();
+    paymentType.setCreditCard(creditCard);
+
+    const orderDetails = new APIContracts.OrderType();
+    orderDetails.setInvoiceNumber(invoiceNumber || `PMT-${Date.now()}`);
+    orderDetails.setDescription('Debt Payment');
+
+    const transactionRequest = new APIContracts.TransactionRequestType();
+    transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
+    transactionRequest.setPayment(paymentType);
+    transactionRequest.setAmount(amount);
+    transactionRequest.setOrder(orderDetails);
+
+    if (customerEmail) {
+      const customer = new APIContracts.CustomerDataType();
+      customer.setEmail(customerEmail);
+      transactionRequest.setCustomer(customer);
+    }
+
+    const createRequest = new APIContracts.CreateTransactionRequest();
+    createRequest.setMerchantAuthentication(merchantAuth);
+    createRequest.setTransactionRequest(transactionRequest);
+
+    const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
+    
+    // Use sandbox for test mode, production otherwise
+    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
+    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+
+    ctrl.execute(() => {
+      const apiResponse = ctrl.getResponse();
+      const response = new APIContracts.CreateTransactionResponse(apiResponse);
+
+      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK) {
+        const transResponse = response.getTransactionResponse();
+        if (transResponse && transResponse.getMessages()) {
+          resolve({
+            success: true,
+            transactionId: transResponse.getTransId(),
+            authCode: transResponse.getAuthCode(),
+            responseCode: transResponse.getResponseCode(),
+          });
+        } else {
+          const errors = transResponse?.getErrors()?.getError();
+          resolve({
+            success: false,
+            errorMessage: errors?.[0]?.getErrorText() || 'Transaction failed',
+            responseCode: transResponse?.getResponseCode(),
+          });
+        }
+      } else {
+        const transResponse = response.getTransactionResponse();
+        const errors = transResponse?.getErrors()?.getError();
+        const messages = response.getMessages()?.getMessage();
+        resolve({
+          success: false,
+          errorMessage: errors?.[0]?.getErrorText() || messages?.[0]?.getText() || 'API Error',
+          responseCode: transResponse?.getResponseCode(),
+        });
+      }
+    });
+  });
+}
+
+/**
+ * Process a debtor ACH payment using the organization's merchant account
+ */
+export async function processDebtorAchPayment(
+  merchantCredentials: MerchantCredentials,
+  achData: AchPaymentData,
+  amount: number,
+  invoiceNumber?: string
+): Promise<ChargeResult> {
+  return new Promise((resolve) => {
+    if (!merchantCredentials.apiLoginId || !merchantCredentials.transactionKey) {
+      resolve({
+        success: false,
+        errorMessage: 'Merchant credentials not configured',
+      });
+      return;
+    }
+
+    const merchantAuth = new APIContracts.MerchantAuthenticationType();
+    merchantAuth.setName(merchantCredentials.apiLoginId);
+    merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
+
+    const bankAccount = new APIContracts.BankAccountType();
+    bankAccount.setAccountType(
+      achData.accountType === 'checking' 
+        ? APIContracts.BankAccountTypeEnum.CHECKING 
+        : APIContracts.BankAccountTypeEnum.SAVINGS
+    );
+    bankAccount.setRoutingNumber(achData.routingNumber);
+    bankAccount.setAccountNumber(achData.accountNumber);
+    bankAccount.setNameOnAccount(achData.nameOnAccount);
+    bankAccount.setEcheckType(APIContracts.EcheckTypeEnum.WEB);
+
+    const paymentType = new APIContracts.PaymentType();
+    paymentType.setBankAccount(bankAccount);
+
+    const orderDetails = new APIContracts.OrderType();
+    orderDetails.setInvoiceNumber(invoiceNumber || `ACH-${Date.now()}`);
+    orderDetails.setDescription('ACH Debt Payment');
+
+    const transactionRequest = new APIContracts.TransactionRequestType();
+    transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
+    transactionRequest.setPayment(paymentType);
+    transactionRequest.setAmount(amount);
+    transactionRequest.setOrder(orderDetails);
+
+    const createRequest = new APIContracts.CreateTransactionRequest();
+    createRequest.setMerchantAuthentication(merchantAuth);
+    createRequest.setTransactionRequest(transactionRequest);
+
+    const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
+    
+    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
+    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+
+    ctrl.execute(() => {
+      const apiResponse = ctrl.getResponse();
+      const response = new APIContracts.CreateTransactionResponse(apiResponse);
+
+      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK) {
+        const transResponse = response.getTransactionResponse();
+        if (transResponse && transResponse.getMessages()) {
+          resolve({
+            success: true,
+            transactionId: transResponse.getTransId(),
+            authCode: transResponse.getAuthCode(),
+            responseCode: transResponse.getResponseCode(),
+          });
+        } else {
+          const errors = transResponse?.getErrors()?.getError();
+          resolve({
+            success: false,
+            errorMessage: errors?.[0]?.getErrorText() || 'Transaction failed',
+            responseCode: transResponse?.getResponseCode(),
+          });
+        }
+      } else {
+        const transResponse = response.getTransactionResponse();
+        const errors = transResponse?.getErrors()?.getError();
+        const messages = response.getMessages()?.getMessage();
+        resolve({
+          success: false,
+          errorMessage: errors?.[0]?.getErrorText() || messages?.[0]?.getText() || 'API Error',
+          responseCode: transResponse?.getResponseCode(),
+        });
+      }
+    });
+  });
+}
+
+/**
+ * Void a transaction using the organization's merchant account
+ */
+export async function voidDebtorTransaction(
+  merchantCredentials: MerchantCredentials,
+  transactionId: string
+): Promise<ChargeResult> {
+  return new Promise((resolve) => {
+    if (!merchantCredentials.apiLoginId || !merchantCredentials.transactionKey) {
+      resolve({
+        success: false,
+        errorMessage: 'Merchant credentials not configured',
+      });
+      return;
+    }
+
+    const merchantAuth = new APIContracts.MerchantAuthenticationType();
+    merchantAuth.setName(merchantCredentials.apiLoginId);
+    merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
+
+    const transactionRequest = new APIContracts.TransactionRequestType();
+    transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.VOIDTRANSACTION);
+    transactionRequest.setRefTransId(transactionId);
+
+    const createRequest = new APIContracts.CreateTransactionRequest();
+    createRequest.setMerchantAuthentication(merchantAuth);
+    createRequest.setTransactionRequest(transactionRequest);
+
+    const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
+    
+    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
+    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+
+    ctrl.execute(() => {
+      const apiResponse = ctrl.getResponse();
+      const response = new APIContracts.CreateTransactionResponse(apiResponse);
+
+      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK) {
+        const transResponse = response.getTransactionResponse();
+        resolve({
+          success: true,
+          transactionId: transResponse?.getTransId(),
+        });
+      } else {
+        const messages = response.getMessages()?.getMessage();
+        resolve({
+          success: false,
+          errorMessage: messages?.[0]?.getText() || 'Void failed',
+        });
+      }
+    });
+  });
+}

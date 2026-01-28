@@ -173,11 +173,14 @@ export interface IStorage {
   getDashboardStats(dateRange?: string): Promise<DashboardStats>;
 
   // Merchants
-  getMerchants(): Promise<Merchant[]>;
+  getMerchants(organizationId?: string): Promise<Merchant[]>;
   getMerchant(id: string): Promise<Merchant | undefined>;
   createMerchant(merchant: InsertMerchant): Promise<Merchant>;
   updateMerchant(id: string, merchant: Partial<InsertMerchant>): Promise<Merchant | undefined>;
   deleteMerchant(id: string): Promise<boolean>;
+
+  // Payment Card (singular)
+  getPaymentCard(id: string): Promise<PaymentCard | undefined>;
 
   // Time Clock
   getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]>;
@@ -699,6 +702,7 @@ export class MemStorage implements IStorage {
       bankName: "Bank of America",
       accountType: "checking",
       routingNumber: "026009593",
+      accountNumber: "1234567894521",
       accountNumberLast4: "4521",
       isVerified: true,
       verifiedDate: "2024-12-05",
@@ -710,6 +714,7 @@ export class MemStorage implements IStorage {
       bankName: "Chase Bank",
       accountType: "savings",
       routingNumber: "021000021",
+      accountNumber: "9876543218834",
       accountNumberLast4: "8834",
       isVerified: false,
       verifiedDate: null,
@@ -1383,6 +1388,7 @@ export class MemStorage implements IStorage {
       bankName: account.bankName,
       accountType: account.accountType,
       routingNumber: account.routingNumber ?? null,
+      accountNumber: account.accountNumber ?? null,
       accountNumberLast4: account.accountNumberLast4 ?? null,
       isVerified: account.isVerified ?? false,
       verifiedDate: account.verifiedDate ?? null,
@@ -1678,8 +1684,16 @@ export class MemStorage implements IStorage {
   }
 
   // Merchants
-  async getMerchants(): Promise<Merchant[]> {
-    return Array.from(this.merchants.values());
+  async getMerchants(organizationId?: string): Promise<Merchant[]> {
+    const all = Array.from(this.merchants.values());
+    if (organizationId) {
+      return all.filter(m => m.organizationId === organizationId);
+    }
+    return all;
+  }
+
+  async getPaymentCard(id: string): Promise<PaymentCard | undefined> {
+    return this.paymentCards.get(id);
   }
 
   async getMerchant(id: string): Promise<Merchant | undefined> {
@@ -1696,6 +1710,8 @@ export class MemStorage implements IStorage {
       processorType: merchant.processorType,
       isActive: merchant.isActive ?? true,
       apiKeyRef: merchant.apiKeyRef ?? null,
+      authorizeNetApiLoginId: merchant.authorizeNetApiLoginId ?? null,
+      authorizeNetTransactionKey: merchant.authorizeNetTransactionKey ?? null,
       nmiSecurityKey: merchant.nmiSecurityKey ?? null,
       nmiUsername: merchant.nmiUsername ?? null,
       nmiPassword: merchant.nmiPassword ?? null,
