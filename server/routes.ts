@@ -609,8 +609,8 @@ export async function registerRoutes(
       
       // Get current month and next month date ranges
       const now = new Date();
+      const today = now.toISOString().split('T')[0];
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
       const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split('T')[0];
       const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().split('T')[0];
       
@@ -618,15 +618,22 @@ export async function registerRoutes(
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
         
-        // Current month payments
-        const currentMonthPayments = collectorPayments.filter(p => {
+        // Payments before start of current month (start of month baseline)
+        const beforeMonthPayments = collectorPayments.filter(p => {
           if (!p.paymentDate) return false;
           const paymentDate = p.paymentDate.split('T')[0];
-          return paymentDate >= currentMonthStart && paymentDate <= currentMonthEnd;
+          return paymentDate < currentMonthStart;
         });
         
-        // Next month scheduled payments (pending)
-        const nextMonthPayments = orgPayments.filter(p => {
+        // All payments up to today (current totals)
+        const allTimePayments = collectorPayments.filter(p => {
+          if (!p.paymentDate) return false;
+          const paymentDate = p.paymentDate.split('T')[0];
+          return paymentDate <= today;
+        });
+        
+        // Next month scheduled payments from post dates
+        const nextMonthPending = orgPayments.filter(p => {
           if (p.nextPaymentDate && p.processedBy === collector.id) {
             const nextDate = p.nextPaymentDate.split('T')[0];
             return nextDate >= nextMonthStart && nextDate <= nextMonthEnd;
@@ -634,31 +641,49 @@ export async function registerRoutes(
           return false;
         });
         
-        // Calculate totals by status for current month
-        const pending = currentMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const posted = currentMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
-        const declined = currentMonthPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const reversed = currentMonthPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        // Start of month baseline totals (before month started)
+        const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const somDeclined = beforeMonthPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const somReversed = beforeMonthPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
         
-        // Next month goal (same as current goal)
-        const nextMonthGoal = collector.goal || 0;
+        // Current totals (all time including this month)
+        const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+        const currentPosted = allTimePayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const currentDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const currentReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
         
-        // Next month projected from scheduled payments
-        const nextMonthProjected = nextMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+        // New money = difference between current and start of month
+        const newPosted = currentPosted - somPosted;
+        const newDeclined = currentDeclined - somDeclined;
+        const newReversed = currentReversed - somReversed;
+        
+        // Next month pending total
+        const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + p.amount, 0);
         
         return {
           id: collector.id,
           name: collector.name,
           role: collector.role,
-          pending,
-          posted,
-          declined,
-          reversed,
-          currentMonthTotal: posted,
+          // Start of month baseline
+          somPending,
+          somPosted,
+          somDeclined,
+          somReversed,
+          // Current totals
+          currentPending,
+          currentPosted,
+          currentDeclined,
+          currentReversed,
+          // New money this month
+          newPosted,
+          newDeclined,
+          newReversed,
+          // Next month
+          nextMonthPending: nextMonthPendingTotal,
+          // Goals
           currentMonthGoal: collector.goal || 0,
-          nextMonthGoal,
-          nextMonthProjected,
-          goalProgress: collector.goal ? Math.round((posted / collector.goal) * 100) : 0,
+          goalProgress: collector.goal ? Math.round((newPosted / collector.goal) * 100) : 0,
         };
       });
       

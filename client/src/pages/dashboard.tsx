@@ -25,14 +25,19 @@ interface CollectorPerformance {
   id: string;
   name: string;
   role: string;
-  pending: number;
-  posted: number;
-  declined: number;
-  reversed: number;
-  currentMonthTotal: number;
+  somPending: number;
+  somPosted: number;
+  somDeclined: number;
+  somReversed: number;
+  currentPending: number;
+  currentPosted: number;
+  currentDeclined: number;
+  currentReversed: number;
+  newPosted: number;
+  newDeclined: number;
+  newReversed: number;
+  nextMonthPending: number;
   currentMonthGoal: number;
-  nextMonthGoal: number;
-  nextMonthProjected: number;
   goalProgress: number;
 }
 
@@ -133,7 +138,7 @@ export default function Dashboard() {
               Team Performance
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              {currentMonth} collections progress and {nextMonth} goals
+              {currentMonth} collections with new money and {nextMonth} scheduled payments
             </p>
           </div>
           <Button variant="ghost" size="sm" asChild data-testid="link-view-collectors">
@@ -156,13 +161,14 @@ export default function Dashboard() {
                 <thead>
                   <tr className="text-left text-xs font-medium uppercase tracking-wide text-muted-foreground border-b">
                     <th className="pb-2 pr-4">Collector</th>
-                    <th className="pb-2 pr-4 text-right">Pending</th>
-                    <th className="pb-2 pr-4 text-right">Posted</th>
+                    <th className="pb-2 pr-4 text-right">Start of Month</th>
+                    <th className="pb-2 pr-4 text-right">Current</th>
+                    <th className="pb-2 pr-4 text-right">New Money</th>
                     <th className="pb-2 pr-4 text-right">Declined</th>
                     <th className="pb-2 pr-4 text-right">Reversed</th>
-                    <th className="pb-2 pr-4 text-right">{currentMonth} Goal</th>
-                    <th className="pb-2 pr-4" style={{ minWidth: "150px" }}>Progress</th>
-                    <th className="pb-2 text-right">{nextMonth} Goal</th>
+                    <th className="pb-2 pr-4 text-right">{nextMonth} Pending</th>
+                    <th className="pb-2 pr-4 text-right">Goal</th>
+                    <th className="pb-2" style={{ minWidth: "150px" }}>Progress</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -181,23 +187,33 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td className="py-3 pr-4 text-right">
-                        <span className="text-sm font-mono text-yellow-600 dark:text-yellow-400">
-                          {formatCurrencyCompact(collector.pending)}
+                        <span className="text-sm font-mono text-muted-foreground">
+                          {formatCurrencyCompact(collector.somPosted)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono">
+                          {formatCurrencyCompact(collector.currentPosted)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-green-600 dark:text-green-400 font-medium">
-                          {formatCurrencyCompact(collector.posted)}
+                          {formatCurrencyCompact(collector.newPosted)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-red-600 dark:text-red-400">
-                          {formatCurrencyCompact(collector.declined)}
+                          {formatCurrencyCompact(collector.currentDeclined)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <span className="text-sm font-mono text-orange-600 dark:text-orange-400">
-                          {formatCurrencyCompact(collector.reversed)}
+                          {formatCurrencyCompact(collector.currentReversed)}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <span className="text-sm font-mono text-yellow-600 dark:text-yellow-400">
+                          {formatCurrencyCompact(collector.nextMonthPending)}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
@@ -205,7 +221,7 @@ export default function Dashboard() {
                           {formatCurrencyCompact(collector.currentMonthGoal)}
                         </span>
                       </td>
-                      <td className="py-3 pr-4">
+                      <td className="py-3">
                         <div className="flex items-center gap-2">
                           <Progress 
                             value={Math.min(collector.goalProgress, 100)} 
@@ -221,11 +237,6 @@ export default function Dashboard() {
                             {collector.goalProgress}%
                           </span>
                         </div>
-                      </td>
-                      <td className="py-3 text-right">
-                        <span className="text-sm font-mono">
-                          {formatCurrencyCompact(collector.nextMonthGoal)}
-                        </span>
                       </td>
                     </tr>
                   ))}
