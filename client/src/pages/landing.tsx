@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
+import workstationPreview from "@/assets/images/workstation-preview.png";
 
 export default function Landing() {
   return (
@@ -208,14 +209,13 @@ export default function Landing() {
                 </div>
               </div>
             </div>
-            <div className="bg-card border rounded-lg p-6 shadow-lg">
-              <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
-                <div className="text-center">
-                  <Zap className="h-12 w-12 text-primary mx-auto mb-2" />
-                  <div className="text-lg font-medium">Workstation Preview</div>
-                  <div className="text-sm text-muted-foreground">Schedule a demo to see it in action</div>
-                </div>
-              </div>
+            <div className="bg-card border rounded-lg p-2 shadow-lg">
+              <img 
+                src={workstationPreview} 
+                alt="Debt Manager Pro Workstation Interface" 
+                className="w-full rounded-md"
+                data-testid="img-workstation-preview"
+              />
             </div>
           </div>
         </div>
