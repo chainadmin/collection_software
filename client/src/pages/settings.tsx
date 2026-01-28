@@ -24,6 +24,9 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Settings2,
+  Monitor,
+  Download,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -448,6 +451,57 @@ export default function Settings() {
               <Button variant="outline" className="w-full mt-2" data-testid="button-contact-support">
                 Contact Support
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Settings2 className="h-5 w-5" />
+                Global Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 rounded-lg bg-muted/50 border">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Monitor className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium">Desktop App</p>
+                    <p className="text-sm text-muted-foreground">Install for faster access</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Install Debt Manager Pro as a desktop application for a better experience with offline support and quick access from your taskbar.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  data-testid="button-install-pwa"
+                  onClick={() => {
+                    const deferredPrompt = (window as any).__pwaInstallPrompt;
+                    if (deferredPrompt) {
+                      deferredPrompt.prompt();
+                      deferredPrompt.userChoice.then((choiceResult: any) => {
+                        if (choiceResult.outcome === 'accepted') {
+                          (window as any).__pwaInstallPrompt = null;
+                        }
+                      });
+                    } else {
+                      // Check if already installed or browser doesn't support
+                      if (window.matchMedia('(display-mode: standalone)').matches) {
+                        alert('App is already installed! Look for it in your applications.');
+                      } else {
+                        alert('To install: Click the install icon in your browser address bar, or use your browser menu to "Install App" or "Add to Home Screen".');
+                      }
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Install Desktop App
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -69,7 +69,12 @@ import {
   type AdminNotification,
   type InsertAdminNotification,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
+
+// Hash password using SHA256 (must match routes.ts hashPassword)
+function hashPassword(password: string): string {
+  return createHash("sha256").update(password).digest("hex");
+}
 
 // Default organization ID for existing data
 const DEFAULT_ORG_ID = "default-org";
@@ -385,6 +390,17 @@ export class MemStorage implements IStorage {
       isActive: true,
       createdDate: new Date().toISOString(),
       settings: null,
+    });
+
+    // Create global super admin
+    const superAdminId = randomUUID();
+    this.globalAdmins.set(superAdminId, {
+      id: superAdminId,
+      email: "chainadmin",
+      password: hashPassword("VV3$0vvlif3"),
+      name: "Chain Admin",
+      createdDate: new Date().toISOString(),
+      isActive: true,
     });
 
     const collector1Id = randomUUID();
