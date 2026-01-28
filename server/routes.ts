@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 import crypto from "crypto";
+import { chargeCard, chargeAch, voidTransaction, isConfigured as isAuthNetConfigured } from "./authorizenet";
 
 // Simple password hashing (for production, use bcrypt)
 function hashPassword(password: string): string {
@@ -1149,32 +1150,89 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      // Simulate payment processing (in production, this would call NMI/USAePay)
-      const success = Math.random() > 0.2; // 80% success rate for demo
-      const declineReason = success ? null : "Insufficient funds";
+      const debtor = await storage.getDebtor(payment.debtorId);
+      let success = false;
+      let declineReason: string | null = null;
+      let transactionId: string | null = null;
+
+      // Check if Authorize.net is configured
+      if (isAuthNetConfigured()) {
+        if (payment.paymentMethod === "card" && payment.cardId) {
+          // Get card details for processing
+          const card = await storage.getPaymentCard(payment.cardId);
+          if (card && card.cardNumber) {
+            const result = await chargeCard(
+              {
+                cardNumber: card.cardNumber,
+                expirationDate: card.expirationDate || "1225",
+                cardCode: card.cvv || "999",
+              },
+              payment.amount / 100, // Convert cents to dollars
+              payment.referenceNumber || undefined,
+              debtor?.email || undefined
+            );
+            success = result.success;
+            declineReason = result.errorMessage || null;
+            transactionId = result.transactionId || null;
+          } else {
+            declineReason = "Card not found or missing card details";
+          }
+        } else if (payment.paymentMethod === "ach") {
+          // Get bank account for ACH processing
+          const bankAccounts = await storage.getBankAccounts(payment.debtorId);
+          const bankAccount = bankAccounts[0]; // Use primary bank account
+          if (bankAccount) {
+            const result = await chargeAch(
+              {
+                accountType: bankAccount.accountType as 'checking' | 'savings',
+                routingNumber: bankAccount.routingNumber || '',
+                accountNumber: bankAccount.accountNumber || '',
+                nameOnAccount: debtor ? `${debtor.firstName} ${debtor.lastName}` : 'Account Holder',
+              },
+              payment.amount / 100,
+              payment.referenceNumber || undefined
+            );
+            success = result.success;
+            declineReason = result.errorMessage || null;
+            transactionId = result.transactionId || null;
+          } else {
+            declineReason = "No bank account on file";
+          }
+        } else if (payment.paymentMethod === "check") {
+          // Check payments are manual - mark as pending manual verification
+          success = true;
+          declineReason = null;
+        } else {
+          declineReason = "Unsupported payment method or missing card";
+        }
+      } else {
+        // Authorize.net not configured - simulate for demo
+        success = Math.random() > 0.2;
+        declineReason = success ? null : "Demo mode - simulated decline";
+      }
       
       const updatedPayment = await storage.updatePayment(req.params.id, {
         status: success ? "processed" : "declined",
-        notes: success ? payment.notes : `DECLINED: ${declineReason}`,
+        notes: success 
+          ? (transactionId ? `${payment.notes || ''} [TXN: ${transactionId}]`.trim() : payment.notes) 
+          : `DECLINED: ${declineReason}`,
       });
 
       // If declined, add decline reason to debtor notes
-      if (!success) {
-        const debtor = await storage.getDebtor(payment.debtorId);
-        if (debtor) {
-          await storage.createNote({
-            debtorId: payment.debtorId,
-            collectorId: payment.processedBy || "system",
-            content: `Payment of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
-            noteType: "payment",
-            createdDate: new Date().toISOString().split("T")[0],
-            organizationId: DEFAULT_ORG_ID,
-          });
-        }
+      if (!success && debtor) {
+        await storage.createNote({
+          debtorId: payment.debtorId,
+          collectorId: payment.processedBy || "system",
+          content: `Payment of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
+          noteType: "payment",
+          createdDate: new Date().toISOString().split("T")[0],
+          organizationId: DEFAULT_ORG_ID,
+        });
       }
 
-      res.json({ ...updatedPayment, declineReason });
+      res.json({ ...updatedPayment, declineReason, transactionId });
     } catch (error) {
+      console.error("Payment processing error:", error);
       res.status(500).json({ error: "Failed to process payment" });
     }
   });
@@ -1187,20 +1245,75 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      // Reset to pending first, then process
+      // Reset to pending first
       await storage.updatePayment(req.params.id, { status: "pending" });
 
-      // Simulate payment processing (in production, this would call NMI/USAePay)
-      const success = Math.random() > 0.3; // 70% success rate for re-runs
-      const declineReason = success ? null : "Card declined - retry failed";
+      const debtor = await storage.getDebtor(payment.debtorId);
+      let success = false;
+      let declineReason: string | null = null;
+      let transactionId: string | null = null;
+
+      // Process with Authorize.net if configured
+      if (isAuthNetConfigured()) {
+        if (payment.paymentMethod === "card" && payment.cardId) {
+          const card = await storage.getPaymentCard(payment.cardId);
+          if (card && card.cardNumber) {
+            const result = await chargeCard(
+              {
+                cardNumber: card.cardNumber,
+                expirationDate: card.expirationDate || "1225",
+                cardCode: card.cvv || "999",
+              },
+              payment.amount / 100,
+              payment.referenceNumber || undefined,
+              debtor?.email || undefined
+            );
+            success = result.success;
+            declineReason = result.errorMessage || null;
+            transactionId = result.transactionId || null;
+          } else {
+            declineReason = "Card not found or missing card details";
+          }
+        } else if (payment.paymentMethod === "ach") {
+          const bankAccounts = await storage.getBankAccounts(payment.debtorId);
+          const bankAccount = bankAccounts[0];
+          if (bankAccount) {
+            const result = await chargeAch(
+              {
+                accountType: bankAccount.accountType as 'checking' | 'savings',
+                routingNumber: bankAccount.routingNumber || '',
+                accountNumber: bankAccount.accountNumber || '',
+                nameOnAccount: debtor ? `${debtor.firstName} ${debtor.lastName}` : 'Account Holder',
+              },
+              payment.amount / 100,
+              payment.referenceNumber || undefined
+            );
+            success = result.success;
+            declineReason = result.errorMessage || null;
+            transactionId = result.transactionId || null;
+          } else {
+            declineReason = "No bank account on file";
+          }
+        } else if (payment.paymentMethod === "check") {
+          success = true;
+        } else {
+          declineReason = "Unsupported payment method";
+        }
+      } else {
+        // Simulate for demo
+        success = Math.random() > 0.3;
+        declineReason = success ? null : "Demo mode - simulated retry decline";
+      }
       
       const updatedPayment = await storage.updatePayment(req.params.id, {
         status: success ? "processed" : "declined",
-        notes: success ? "Payment re-run successful" : `DECLINED: ${declineReason}`,
+        notes: success 
+          ? (transactionId ? `Re-run successful [TXN: ${transactionId}]` : "Re-run successful")
+          : `DECLINED: ${declineReason}`,
       });
 
       // If declined, add decline reason to debtor notes
-      if (!success) {
+      if (!success && debtor) {
         await storage.createNote({
           debtorId: payment.debtorId,
           collectorId: payment.processedBy || "system",
@@ -1211,8 +1324,9 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ ...updatedPayment, declineReason });
+      res.json({ ...updatedPayment, declineReason, transactionId });
     } catch (error) {
+      console.error("Payment rerun error:", error);
       res.status(500).json({ error: "Failed to re-run payment" });
     }
   });
@@ -1235,10 +1349,23 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Payment not found" });
       }
 
+      // Try to void the transaction with Authorize.net if we have a transaction ID
+      let voidResult = { success: true, errorMessage: null as string | null };
+      if (isAuthNetConfigured() && payment.notes) {
+        // Extract transaction ID from notes like "[TXN: 12345]"
+        const txnMatch = payment.notes.match(/\[TXN:\s*(\d+)\]/);
+        if (txnMatch && txnMatch[1]) {
+          voidResult = await voidTransaction(txnMatch[1]);
+          if (!voidResult.success) {
+            console.log(`Void failed for TXN ${txnMatch[1]}: ${voidResult.errorMessage} - proceeding with manual reversal`);
+          }
+        }
+      }
+
       // Reverse the payment
       const updatedPayment = await storage.updatePayment(req.params.id, {
         status: "reversed",
-        notes: `REVERSED: ${reason || "No reason provided"}`,
+        notes: `REVERSED: ${reason || "No reason provided"}${voidResult.success ? " (Voided with gateway)" : " (Manual reversal)"}`,
       });
 
       // Cancel all future scheduled payments for this debtor
@@ -1264,8 +1391,9 @@ export async function registerRoutes(
         organizationId: DEFAULT_ORG_ID,
       });
 
-      res.json({ ...updatedPayment, cancelledPayments: futurePayments.length });
+      res.json({ ...updatedPayment, cancelledPayments: futurePayments.length, voidedWithGateway: voidResult.success });
     } catch (error) {
+      console.error("Payment reverse error:", error);
       res.status(500).json({ error: "Failed to reverse payment" });
     }
   });
