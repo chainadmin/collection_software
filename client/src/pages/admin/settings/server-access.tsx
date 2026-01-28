@@ -24,15 +24,7 @@ export default function ServerAccess() {
     queryKey: ["/api/ip-whitelist"],
   });
 
-  const sampleWhitelist = [
-    { id: "1", ipAddress: "192.168.1.100", description: "Main Office", isActive: true, createdAt: "2024-10-15", lastUsed: "2024-12-15" },
-    { id: "2", ipAddress: "10.0.0.0/24", description: "Office Network Range", isActive: true, createdAt: "2024-10-15", lastUsed: "2024-12-14" },
-    { id: "3", ipAddress: "203.45.67.89", description: "Remote Worker - Sarah", isActive: true, createdAt: "2024-11-01", lastUsed: "2024-12-15" },
-    { id: "4", ipAddress: "156.78.90.12", description: "Old Office (Disabled)", isActive: false, createdAt: "2024-08-01", lastUsed: "2024-09-15" },
-  ];
-
-  const displayWhitelist = whitelist.length > 0 ? whitelist : sampleWhitelist;
-  const activeCount = displayWhitelist.filter((ip: any) => ip.isActive).length;
+  const activeCount = whitelist.filter((ip: any) => ip.isActive).length;
 
   const handleAddIp = () => {
     if (!ipAddress) {
@@ -141,7 +133,7 @@ export default function ServerAccess() {
                 <Globe className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{displayWhitelist.length}</p>
+                <p className="text-2xl font-bold">{whitelist.length}</p>
                 <p className="text-sm text-muted-foreground">Total IPs</p>
               </div>
             </div>
@@ -167,7 +159,7 @@ export default function ServerAccess() {
                 <AlertTriangle className="h-6 w-6 text-red-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">3</p>
+                <p className="text-2xl font-bold">0</p>
                 <p className="text-sm text-muted-foreground">Blocked Today</p>
               </div>
             </div>
@@ -182,7 +174,14 @@ export default function ServerAccess() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {displayWhitelist.map((ip: any) => (
+            {whitelist.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Globe className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No IP addresses in whitelist</p>
+                <p className="text-sm">Add IP addresses to restrict collector login access</p>
+              </div>
+            ) : null}
+            {whitelist.map((ip: any) => (
               <div 
                 key={ip.id} 
                 className={`flex items-center justify-between p-4 border rounded-lg ${!ip.isActive ? "opacity-60" : ""}`}
@@ -234,32 +233,10 @@ export default function ServerAccess() {
           <CardDescription>Login attempts from non-whitelisted IPs</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {[
-              { ip: "45.67.89.123", user: "unknown", time: "10 min ago", blocked: true },
-              { ip: "98.76.54.32", user: "mchen", time: "2 hours ago", blocked: true },
-              { ip: "192.168.1.100", user: "sjohnson", time: "3 hours ago", blocked: false },
-            ].map((attempt, i) => (
-              <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center gap-3">
-                  {attempt.blocked ? (
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  ) : (
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                  )}
-                  <div>
-                    <p className="font-mono text-sm">{attempt.ip}</p>
-                    <p className="text-xs text-muted-foreground">User: {attempt.user}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">{attempt.time}</span>
-                  <Badge variant={attempt.blocked ? "destructive" : "outline"}>
-                    {attempt.blocked ? "Blocked" : "Allowed"}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+          <div className="text-center py-8 text-muted-foreground">
+            <Shield className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p>No recent access attempts</p>
+            <p className="text-sm">Login attempts will appear here when IP restriction is enabled</p>
           </div>
         </CardContent>
       </Card>

@@ -23,17 +23,7 @@ export default function EmailTemplates() {
     queryKey: ["/api/email-templates"],
   });
 
-  const sampleTemplates = [
-    { id: "1", name: "Initial Contact", subject: "Important Notice Regarding Your Account", category: "first_contact", isActive: true },
-    { id: "2", name: "Payment Reminder", subject: "Payment Due - Account {{account_number}}", category: "reminder", isActive: true },
-    { id: "3", name: "Payment Confirmation", subject: "Payment Received - Thank You", category: "confirmation", isActive: true },
-    { id: "4", name: "Settlement Offer", subject: "Special Settlement Opportunity", category: "offer", isActive: true },
-    { id: "5", name: "Final Notice", subject: "Final Notice Before Further Action", category: "final", isActive: false },
-  ];
-
-  const displayTemplates = templates.length > 0 ? templates : sampleTemplates;
-
-  const filteredTemplates = displayTemplates.filter((t: any) => 
+  const filteredTemplates = templates.filter((t: any) => 
     t.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 

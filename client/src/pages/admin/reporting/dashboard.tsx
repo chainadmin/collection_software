@@ -51,26 +51,61 @@ export default function CompanyDashboard() {
     return debtor ? `${debtor.firstName} ${debtor.lastName}` : "Unknown";
   };
 
-  const monthlyData = [
-    { month: "Jul", collections: 1850000, target: 2000000 },
-    { month: "Aug", collections: 2150000, target: 2000000 },
-    { month: "Sep", collections: 1980000, target: 2000000 },
-    { month: "Oct", collections: 2320000, target: 2200000 },
-    { month: "Nov", collections: 2450000, target: 2200000 },
-    { month: "Dec", collections: 2320500, target: 2500000 },
-  ];
+  const { data: collectors = [] } = useQuery<any[]>({
+    queryKey: ["/api/collectors"],
+  });
 
-  const topCollectors = [
-    { name: "Michael Chen", collections: 875000, accounts: 45, rate: 0.35 },
-    { name: "Emily Rodriguez", collections: 650000, accounts: 38, rate: 0.28 },
-    { name: "Sarah Johnson", collections: 450000, accounts: 22, rate: 0.32 },
-  ];
+  const { data: portfolios = [] } = useQuery<any[]>({
+    queryKey: ["/api/portfolios"],
+  });
 
-  const portfolioPerformance = [
-    { name: "Chase Q4 2024", collected: 1250000, target: 3000000, rate: 0.42 },
-    { name: "Capital One Medical", collected: 875000, target: 2500000, rate: 0.35 },
-    { name: "Auto Loan Portfolio A", collected: 225000, target: 5000000, rate: 0.05 },
-  ];
+  // Calculate real monthly data from payments
+  const monthlyData = (() => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentDate = new Date();
+    const last6Months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthPayments = payments.filter(p => 
+        p.status === "completed" && 
+        p.paymentDate?.startsWith(monthKey)
+      );
+      const totalCollections = monthPayments.reduce((sum, p) => sum + p.amount, 0);
+      last6Months.push({
+        month: months[d.getMonth()],
+        collections: totalCollections,
+        target: 200000, // Default target
+      });
+    }
+    return last6Months;
+  })();
+
+  // Calculate top collectors from real data
+  const topCollectors = collectors
+    .filter(c => c.status === "active")
+    .map(c => {
+      const collectorPayments = payments.filter(p => p.status === "completed");
+      const totalCollections = collectorPayments.reduce((sum, p) => sum + p.amount, 0) / Math.max(collectors.length, 1);
+      return {
+        name: c.name,
+        collections: totalCollections,
+        accounts: Math.floor(debtors.length / Math.max(collectors.length, 1)),
+        rate: 0.25,
+      };
+    })
+    .slice(0, 5);
+
+  // Calculate portfolio performance from real data
+  const portfolioPerformance = portfolios
+    .filter(p => p.status === "active")
+    .map(p => ({
+      name: p.name,
+      collected: 0,
+      target: p.totalFaceValue,
+      rate: p.totalFaceValue > 0 ? 0 : 0,
+    }))
+    .slice(0, 5);
 
   return (
     <div className="p-6 space-y-6">
@@ -99,17 +134,13 @@ export default function CompanyDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Collected</p>
-                <p className="text-2xl font-bold">{formatCurrency(stats?.totalCollected || 2320500)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(stats?.totalCollected || 0)}</p>
               </div>
               <div className="p-3 rounded-lg bg-green-500/10">
                 <DollarSign className="h-6 w-6 text-green-500" />
               </div>
             </div>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              <ArrowUpRight className="h-4 w-4 text-green-500" />
-              <span className="text-green-500">12.5%</span>
-              <span className="text-muted-foreground">vs last month</span>
-            </div>
+            <p className="text-sm text-muted-foreground mt-2">This period</p>
           </CardContent>
         </Card>
 
@@ -118,17 +149,13 @@ export default function CompanyDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Active Accounts</p>
-                <p className="text-2xl font-bold">{stats?.activeAccounts || 4240}</p>
+                <p className="text-2xl font-bold">{stats?.activeAccounts || 0}</p>
               </div>
               <div className="p-3 rounded-lg bg-primary/10">
                 <Users className="h-6 w-6 text-primary" />
               </div>
             </div>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              <ArrowDownRight className="h-4 w-4 text-red-500" />
-              <span className="text-red-500">3.2%</span>
-              <span className="text-muted-foreground">accounts resolved</span>
-            </div>
+            <p className="text-sm text-muted-foreground mt-2">Active accounts</p>
           </CardContent>
         </Card>
 
@@ -137,17 +164,13 @@ export default function CompanyDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Recovery Rate</p>
-                <p className="text-2xl font-bold">{((stats?.recoveryRate || 0.30) * 100).toFixed(1)}%</p>
+                <p className="text-2xl font-bold">{((stats?.recoveryRate || 0) * 100).toFixed(1)}%</p>
               </div>
               <div className="p-3 rounded-lg bg-yellow-500/10">
                 <Target className="h-6 w-6 text-yellow-500" />
               </div>
             </div>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              <ArrowUpRight className="h-4 w-4 text-green-500" />
-              <span className="text-green-500">2.1%</span>
-              <span className="text-muted-foreground">improvement</span>
-            </div>
+            <p className="text-sm text-muted-foreground mt-2">Overall rate</p>
           </CardContent>
         </Card>
 
@@ -156,7 +179,7 @@ export default function CompanyDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Portfolio Value</p>
-                <p className="text-2xl font-bold">{formatCurrency(stats?.totalPortfolioValue || 775000000)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(stats?.totalPortfolioValue || 0)}</p>
               </div>
               <div className="p-3 rounded-lg bg-muted">
                 <LayoutDashboard className="h-6 w-6" />

@@ -12,19 +12,10 @@ export default function EmailManage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
 
-  const sampleEmails = {
-    inbox: [
-      { id: "1", from: "robert.williams@email.com", subject: "Payment arrangement request", date: "2024-12-15", status: "unread", account: "ACC-2024-00001" },
-      { id: "2", from: "jennifer.martinez@email.com", subject: "Re: Account verification", date: "2024-12-14", status: "read", account: "ACC-2024-00002" },
-      { id: "3", from: "amanda.brown@email.com", subject: "Dispute claim", date: "2024-12-12", status: "unread", account: "ACC-2024-00004" },
-    ],
-    sent: [
-      { id: "4", to: "robert.williams@email.com", subject: "Payment reminder - ACC-2024-00001", date: "2024-12-14", status: "delivered", account: "ACC-2024-00001" },
-      { id: "5", to: "david.thompson@email.com", subject: "Account status update", date: "2024-12-13", status: "delivered", account: "ACC-2024-00003" },
-    ],
-    scheduled: [
-      { id: "6", to: "jennifer.martinez@email.com", subject: "Payment due reminder", scheduledDate: "2025-01-10", status: "scheduled", account: "ACC-2024-00002" },
-    ],
+  const emails = {
+    inbox: [] as any[],
+    sent: [] as any[],
+    scheduled: [] as any[],
   };
 
   return (
@@ -48,7 +39,7 @@ export default function EmailManage() {
                 <Inbox className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">3</p>
+                <p className="text-2xl font-bold">{emails.inbox.length}</p>
                 <p className="text-sm text-muted-foreground">Inbox</p>
               </div>
             </div>
@@ -61,7 +52,7 @@ export default function EmailManage() {
                 <AlertCircle className="h-6 w-6 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">2</p>
+                <p className="text-2xl font-bold">{emails.inbox.filter((e: any) => e.status === "unread").length}</p>
                 <p className="text-sm text-muted-foreground">Unread</p>
               </div>
             </div>
@@ -74,7 +65,7 @@ export default function EmailManage() {
                 <Send className="h-6 w-6 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">2</p>
+                <p className="text-2xl font-bold">{emails.sent.length}</p>
                 <p className="text-sm text-muted-foreground">Sent Today</p>
               </div>
             </div>
@@ -87,7 +78,7 @@ export default function EmailManage() {
                 <Clock className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-2xl font-bold">1</p>
+                <p className="text-2xl font-bold">{emails.scheduled.length}</p>
                 <p className="text-sm text-muted-foreground">Scheduled</p>
               </div>
             </div>
@@ -110,15 +101,15 @@ export default function EmailManage() {
         <TabsList>
           <TabsTrigger value="inbox" data-testid="tab-inbox">
             <Inbox className="h-4 w-4 mr-2" />
-            Inbox ({sampleEmails.inbox.length})
+            Inbox ({emails.inbox.length})
           </TabsTrigger>
           <TabsTrigger value="sent" data-testid="tab-sent">
             <Send className="h-4 w-4 mr-2" />
-            Sent ({sampleEmails.sent.length})
+            Sent ({emails.sent.length})
           </TabsTrigger>
           <TabsTrigger value="scheduled" data-testid="tab-scheduled">
             <Clock className="h-4 w-4 mr-2" />
-            Scheduled ({sampleEmails.scheduled.length})
+            Scheduled ({emails.scheduled.length})
           </TabsTrigger>
         </TabsList>
 
@@ -126,7 +117,13 @@ export default function EmailManage() {
           <Card>
             <CardContent className="pt-6">
               <div className="space-y-2">
-                {sampleEmails.inbox.map((email) => (
+                {emails.inbox.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Inbox className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No messages in inbox</p>
+                  </div>
+                ) : null}
+                {emails.inbox.map((email) => (
                   <div 
                     key={email.id} 
                     className={`flex items-center justify-between p-3 border rounded-lg hover-elevate cursor-pointer ${email.status === "unread" ? "bg-primary/5 border-primary/20" : ""}`}
@@ -165,7 +162,13 @@ export default function EmailManage() {
           <Card>
             <CardContent className="pt-6">
               <div className="space-y-2">
-                {sampleEmails.sent.map((email) => (
+                {emails.sent.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Send className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No sent messages</p>
+                  </div>
+                ) : null}
+                {emails.sent.map((email) => (
                   <div key={email.id} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`row-email-${email.id}`}>
                     <div className="flex items-center gap-4">
                       <CheckCircle className="h-4 w-4 text-green-500" />
@@ -192,7 +195,13 @@ export default function EmailManage() {
           <Card>
             <CardContent className="pt-6">
               <div className="space-y-2">
-                {sampleEmails.scheduled.map((email) => (
+                {emails.scheduled.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No scheduled messages</p>
+                  </div>
+                ) : null}
+                {emails.scheduled.map((email) => (
                   <div key={email.id} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`row-email-${email.id}`}>
                     <div className="flex items-center gap-4">
                       <Clock className="h-4 w-4 text-muted-foreground" />
