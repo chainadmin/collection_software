@@ -168,6 +168,17 @@ export async function registerRoutes(
         canViewPaymentRunner: true,
       });
 
+      // Create admin notification for new organization registration
+      await storage.createAdminNotification({
+        type: "new_org",
+        title: "New Organization Registered",
+        message: `${companyName} has registered. Contact: ${name} (${email}, ${phone || "no phone"})`,
+        organizationId: organization.id,
+        organizationName: companyName,
+        metadata: JSON.stringify({ email, phone, name }),
+        createdDate: new Date().toISOString(),
+      });
+
       // Return success with user info for auto-login
       res.status(201).json({
         message: "Account created successfully",
@@ -322,6 +333,46 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to create super admin" });
+    }
+  });
+
+  // Admin Notifications API (for super admins)
+  app.get("/api/super-admin/notifications", async (_req, res) => {
+    try {
+      const notifications = await storage.getAdminNotifications();
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/super-admin/notifications/unread", async (_req, res) => {
+    try {
+      const notifications = await storage.getUnreadAdminNotifications();
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unread notifications" });
+    }
+  });
+
+  app.patch("/api/super-admin/notifications/:id/read", async (req, res) => {
+    try {
+      const notification = await storage.markAdminNotificationRead(req.params.id);
+      if (!notification) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+      res.json(notification);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  app.post("/api/super-admin/notifications/mark-all-read", async (_req, res) => {
+    try {
+      await storage.markAllAdminNotificationsRead();
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
     }
   });
 

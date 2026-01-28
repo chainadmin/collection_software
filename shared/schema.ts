@@ -86,6 +86,23 @@ export const insertGlobalAdminSchema = createInsertSchema(globalAdmins).omit({ i
 export type InsertGlobalAdmin = z.infer<typeof insertGlobalAdminSchema>;
 export type GlobalAdmin = typeof globalAdmins.$inferSelect;
 
+// Admin Notifications (for super admin alerts)
+export const adminNotifications = pgTable("admin_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(), // new_org, payment_failed, subscription_cancelled, etc.
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  organizationId: varchar("organization_id"),
+  organizationName: text("organization_name"),
+  metadata: text("metadata"), // JSON string for additional data
+  isRead: boolean("is_read").default(false),
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertAdminNotificationSchema = createInsertSchema(adminNotifications).omit({ id: true });
+export type InsertAdminNotification = z.infer<typeof insertAdminNotificationSchema>;
+export type AdminNotification = typeof adminNotifications.$inferSelect;
+
 // Portfolios (groups of accounts purchased)
 export const portfolios = pgTable("portfolios", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

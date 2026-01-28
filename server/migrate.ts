@@ -557,6 +557,31 @@ export async function runMigrations() {
       )
     `);
 
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "global_admins" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "email" text NOT NULL UNIQUE,
+        "password" text NOT NULL,
+        "name" text NOT NULL,
+        "created_date" text NOT NULL,
+        "is_active" boolean DEFAULT true
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "admin_notifications" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "type" text NOT NULL,
+        "title" text NOT NULL,
+        "message" text NOT NULL,
+        "organization_id" varchar,
+        "organization_name" text,
+        "metadata" text,
+        "is_read" boolean DEFAULT false,
+        "created_date" text NOT NULL
+      )
+    `);
+
     console.log("All tables created successfully!");
     console.log("Database migrations complete!");
   } catch (error: any) {

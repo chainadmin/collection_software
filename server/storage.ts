@@ -66,6 +66,8 @@ import {
   type InsertApiToken,
   type CommunicationAttempt,
   type InsertCommunicationAttempt,
+  type AdminNotification,
+  type InsertAdminNotification,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -279,6 +281,13 @@ export interface IStorage {
   createGlobalAdmin(admin: InsertGlobalAdmin): Promise<GlobalAdmin>;
   updateGlobalAdmin(id: string, admin: Partial<InsertGlobalAdmin>): Promise<GlobalAdmin | undefined>;
   deleteGlobalAdmin(id: string): Promise<boolean>;
+
+  // Admin Notifications
+  getAdminNotifications(): Promise<AdminNotification[]>;
+  getUnreadAdminNotifications(): Promise<AdminNotification[]>;
+  createAdminNotification(notification: InsertAdminNotification): Promise<AdminNotification>;
+  markAdminNotificationRead(id: string): Promise<AdminNotification | undefined>;
+  markAllAdminNotificationsRead(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -315,6 +324,7 @@ export class MemStorage implements IStorage {
   private apiTokens: Map<string, ApiToken>;
   private communicationAttempts: Map<string, CommunicationAttempt>;
   private globalAdmins: Map<string, GlobalAdmin>;
+  private adminNotifications: Map<string, AdminNotification>;
 
   constructor() {
     this.organizations = new Map();
@@ -350,6 +360,7 @@ export class MemStorage implements IStorage {
     this.apiTokens = new Map();
     this.communicationAttempts = new Map();
     this.globalAdmins = new Map();
+    this.adminNotifications = new Map();
     
     // Only seed demo data in development mode - production starts with empty database
     if (process.env.NODE_ENV !== 'production') {
@@ -2282,6 +2293,50 @@ export class MemStorage implements IStorage {
 
   async deleteGlobalAdmin(id: string): Promise<boolean> {
     return this.globalAdmins.delete(id);
+  }
+
+  // Admin Notification methods
+  async getAdminNotifications(): Promise<AdminNotification[]> {
+    return Array.from(this.adminNotifications.values()).sort((a, b) => 
+      new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime()
+    );
+  }
+
+  async getUnreadAdminNotifications(): Promise<AdminNotification[]> {
+    return Array.from(this.adminNotifications.values())
+      .filter((n) => !n.isRead)
+      .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
+  }
+
+  async createAdminNotification(notification: InsertAdminNotification): Promise<AdminNotification> {
+    const id = randomUUID();
+    const newNotification: AdminNotification = {
+      id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      organizationId: notification.organizationId ?? null,
+      organizationName: notification.organizationName ?? null,
+      metadata: notification.metadata ?? null,
+      isRead: notification.isRead ?? false,
+      createdDate: notification.createdDate,
+    };
+    this.adminNotifications.set(id, newNotification);
+    return newNotification;
+  }
+
+  async markAdminNotificationRead(id: string): Promise<AdminNotification | undefined> {
+    const notification = this.adminNotifications.get(id);
+    if (!notification) return undefined;
+    const updated = { ...notification, isRead: true };
+    this.adminNotifications.set(id, updated);
+    return updated;
+  }
+
+  async markAllAdminNotificationsRead(): Promise<void> {
+    for (const [id, notification] of this.adminNotifications) {
+      this.adminNotifications.set(id, { ...notification, isRead: true });
+    }
   }
 }
 
