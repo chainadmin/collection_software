@@ -142,14 +142,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "An account with this email already exists" });
       }
 
-      // Create organization
+      // Create organization with isActive=false until payment is processed
       const slug = generateSlug(companyName) + "-" + Date.now().toString(36);
       const organization = await storage.createOrganization({
         name: companyName,
         slug,
         phone: phone || null,
         email: email,
-        isActive: true,
+        isActive: false, // Inactive until subscription payment is processed
         createdDate: new Date().toISOString().split("T")[0],
       });
 
@@ -360,7 +360,8 @@ export async function registerRoutes(
       }
 
       if (!isAuthNetConfigured()) {
-        // Demo mode - simulate successful subscription
+        // Demo mode - simulate successful subscription and activate organization
+        await storage.updateOrganization(organizationId, { isActive: true });
         return res.json({
           success: true,
           message: "Subscription activated (demo mode)",
@@ -380,6 +381,9 @@ export async function registerRoutes(
       );
 
       if (result.success) {
+        // Activate organization after successful payment
+        await storage.updateOrganization(organizationId, { isActive: true });
+        
         res.json({
           success: true,
           message: "Subscription payment processed successfully",
