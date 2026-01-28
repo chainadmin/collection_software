@@ -670,28 +670,22 @@ export async function runMigrations() {
 
     console.log("Schema updates complete!");
 
-    // Seed chainadmin super admin - create or ALWAYS update password to ensure it's correct
-    console.log("Checking for chainadmin super admin...");
+    // Seed chainadmin super admin - DELETE and recreate to ensure correct password
+    console.log("Setting up chainadmin super admin...");
     // Password hash for VV3$0vvlif3 (SHA-256)
     const passwordHash = '67ba92b9952c2ba4d266a0c79a80f09b3a1930f6b9a95e66f37eec6df9f7bb43';
     
-    const existingAdmin = await db.execute(sql`
-      SELECT id, password FROM global_admins WHERE username = 'chainadmin'
+    // Delete existing chainadmin if present
+    await db.execute(sql`
+      DELETE FROM global_admins WHERE username = 'chainadmin'
     `);
     
-    if (existingAdmin.rows.length === 0) {
-      await db.execute(sql`
-        INSERT INTO global_admins (id, username, password, name, created_date, is_active)
-        VALUES (gen_random_uuid(), 'chainadmin', ${passwordHash}, 'Chain Admin', ${new Date().toISOString().split('T')[0]}, true)
-      `);
-      console.log("Created chainadmin super admin account");
-    } else {
-      // Always update password to ensure it's correct (forces sync on every deploy)
-      await db.execute(sql`
-        UPDATE global_admins SET password = ${passwordHash}, is_active = true WHERE username = 'chainadmin'
-      `);
-      console.log("Synced chainadmin password and ensured account is active");
-    }
+    // Create fresh chainadmin with correct password
+    await db.execute(sql`
+      INSERT INTO global_admins (id, username, password, name, created_date, is_active)
+      VALUES (gen_random_uuid(), 'chainadmin', ${passwordHash}, 'Chain Admin', ${new Date().toISOString().split('T')[0]}, true)
+    `);
+    console.log("Created chainadmin super admin with password hash: " + passwordHash.substring(0, 10) + "...");
 
     console.log("Database migrations complete!");
   } catch (error: any) {
