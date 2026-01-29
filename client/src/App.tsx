@@ -189,13 +189,16 @@ function AppContent() {
   const [location] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
   
-  const isPublicRoute = 
+  const isPublicOnlyRoute = 
     location === "/" || 
     location === "/login" || 
     location === "/signup" ||
-    location === "/subscribe" ||
     location === "/demo" ||
-    location === "/contact" ||
+    location === "/contact";
+    
+  const isPublicRoute = 
+    isPublicOnlyRoute ||
+    location === "/subscribe" ||
     location === "/super-admin-login" ||
     location === "/super-admin";
 
@@ -208,6 +211,11 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // Redirect authenticated users from public pages to dashboard
+  if (isAuthenticated && isPublicOnlyRoute) {
+    return <Redirect to="/app" />;
   }
 
   if (isPublicRoute) {
