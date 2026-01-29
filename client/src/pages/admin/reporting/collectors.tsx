@@ -4,10 +4,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet } from "lucide-react";
+import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet, Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
 import type { Collector } from "@shared/schema";
+
+interface CollectorPerformance {
+  id: string;
+  name: string;
+  role: string;
+  somTotal: number;
+  currentTotal: number;
+  currentPending: number;
+  currentPosted: number;
+  newMoney: number;
+  totalDeclined: number;
+  totalReversed: number;
+  nextMonthPending: number;
+  currentMonthGoal: number;
+  goalProgress: number;
+}
 
 export default function CollectorReporting() {
   const [dateRange, setDateRange] = useState("this_month");
@@ -15,6 +31,10 @@ export default function CollectorReporting() {
 
   const { data: collectors = [] } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
+  });
+
+  const { data: performanceData = [], isLoading: perfLoading } = useQuery<CollectorPerformance[]>({
+    queryKey: ["/api/collectors/performance"],
   });
 
   // Calculate hours based on date range
@@ -30,30 +50,25 @@ export default function CollectorReporting() {
 
   const hoursWorked = getHoursWorked();
 
+  // Merge collector data with performance data
   const collectorMetrics = collectors.map((c) => {
-    const collections = Math.floor(Math.random() * 1000000) + 200000;
-    const callsMade = Math.floor(Math.random() * 500) + 100;
-    const promisesSecured = Math.floor(Math.random() * 50) + 10;
-    const accountsWorked = Math.floor(Math.random() * 100) + 20;
-    const avgCallDuration = Math.floor(Math.random() * 180) + 60;
-    const conversionRate = Math.random() * 0.3 + 0.1;
+    const perf = performanceData.find(p => p.id === c.id);
+    const collections = perf?.currentPosted || 0;
     
     // Profitability calculation
     const hourlyWage = c.hourlyWage || 1500; // Default $15/hr in cents
     const wageCost = (hourlyWage / 100) * hoursWorked;
     const collectionsInDollars = collections / 100;
     const profit = collectionsInDollars - wageCost;
-    const profitMargin = wageCost > 0 ? (profit / collectionsInDollars) * 100 : 0;
+    const profitMargin = collectionsInDollars > 0 ? (profit / collectionsInDollars) * 100 : 0;
     const roi = wageCost > 0 ? (collectionsInDollars / wageCost) : 0;
 
     return {
       ...c,
       collections,
-      callsMade,
-      promisesSecured,
-      accountsWorked,
-      avgCallDuration,
-      conversionRate,
+      newMoney: perf?.newMoney || 0,
+      currentPending: perf?.currentPending || 0,
+      goalProgress: perf?.goalProgress || 0,
       hourlyWage,
       wageCost,
       profit,
@@ -63,7 +78,7 @@ export default function CollectorReporting() {
   });
 
   const totalCollections = collectorMetrics.reduce((sum, c) => sum + c.collections, 0);
-  const totalCalls = collectorMetrics.reduce((sum, c) => sum + c.callsMade, 0);
+  const totalNewMoney = collectorMetrics.reduce((sum, c) => sum + c.newMoney, 0);
   const totalWageCost = collectorMetrics.reduce((sum, c) => sum + c.wageCost, 0);
   const totalProfit = (totalCollections / 100) - totalWageCost;
   const overallROI = totalWageCost > 0 ? ((totalCollections / 100) / totalWageCost) : 0;
@@ -125,11 +140,11 @@ export default function CollectorReporting() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-lg bg-blue-500/10">
-                <Phone className="h-6 w-6 text-blue-500" />
+                <DollarSign className="h-6 w-6 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{totalCalls.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Total Calls</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalNewMoney)}</p>
+                <p className="text-sm text-muted-foreground">New Money</p>
               </div>
             </div>
           </CardContent>
@@ -180,8 +195,8 @@ export default function CollectorReporting() {
                   <th className="text-right py-3 px-4 font-medium">Collections</th>
                   <th className="text-right py-3 px-4 font-medium">Profit</th>
                   <th className="text-right py-3 px-4 font-medium">ROI</th>
-                  <th className="text-right py-3 px-4 font-medium">Calls</th>
-                  <th className="text-right py-3 px-4 font-medium">Conv. Rate</th>
+                  <th className="text-right py-3 px-4 font-medium">New Money</th>
+                  <th className="text-right py-3 px-4 font-medium">Pending</th>
                   <th className="text-right py-3 px-4 font-medium">Goal Progress</th>
                 </tr>
               </thead>
@@ -216,12 +231,8 @@ export default function CollectorReporting() {
                           {collector.roi.toFixed(1)}x
                         </Badge>
                       </td>
-                      <td className="text-right py-3 px-4">{collector.callsMade}</td>
-                      <td className="text-right py-3 px-4">
-                        <Badge variant={collector.conversionRate >= 0.25 ? "default" : "secondary"}>
-                          {(collector.conversionRate * 100).toFixed(1)}%
-                        </Badge>
-                      </td>
+                      <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.newMoney)}</td>
+                      <td className="text-right py-3 px-4 font-mono text-muted-foreground">{formatCurrency(collector.currentPending)}</td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2 justify-end">
                           <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">

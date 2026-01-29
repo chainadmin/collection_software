@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Clock, Download, Calendar, Play, Square, Coffee, Users } from "lucide-react";
+import { Clock, Download, Calendar, Play, Square, Coffee, Users, Inbox } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import type { Collector, TimeClockEntry } from "@shared/schema";
 
@@ -14,35 +14,110 @@ export default function TimeClock() {
   const [dateRange, setDateRange] = useState("this_week");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
 
-  const { data: collectors = [] } = useQuery<Collector[]>({
+  const { data: collectors = [], isLoading: collectorsLoading } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
 
-  const { data: timeEntries = [] } = useQuery<TimeClockEntry[]>({
+  const { data: timeEntries = [], isLoading: entriesLoading } = useQuery<TimeClockEntry[]>({
     queryKey: ["/api/time-clock"],
   });
 
-  const sampleTimeData = collectors.map((c) => ({
-    collector: c,
-    clockedIn: Math.random() > 0.3,
-    clockInTime: "08:32 AM",
-    totalToday: 7.5,
-    totalWeek: 38.5,
-    breaks: 2,
-    breakTime: 45,
-    status: Math.random() > 0.5 ? "working" : "break",
-  }));
+  // Helper to extract date from clockIn timestamp
+  const getDateFromClockIn = (clockIn: string): string => {
+    try {
+      return new Date(clockIn).toISOString().split("T")[0];
+    } catch {
+      return "";
+    }
+  };
 
-  const weeklyReport = [
-    { date: "Mon 12/9", hours: 8.0, overtime: 0 },
-    { date: "Tue 12/10", hours: 8.5, overtime: 0.5 },
-    { date: "Wed 12/11", hours: 7.5, overtime: 0 },
-    { date: "Thu 12/12", hours: 9.0, overtime: 1.0 },
-    { date: "Fri 12/13", hours: 8.0, overtime: 0 },
-  ];
+  // Calculate real time data from actual entries
+  const collectorTimeData = useMemo(() => {
+    const today = selectedDate;
+    const weekStart = new Date(selectedDate);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekStartStr = weekStart.toISOString().split("T")[0];
 
-  const activeCount = sampleTimeData.filter((d) => d.clockedIn).length;
-  const onBreakCount = sampleTimeData.filter((d) => d.status === "break").length;
+    return collectors.map((c) => {
+      const collectorEntries = timeEntries.filter((e) => e.collectorId === c.id);
+      const todayEntries = collectorEntries.filter((e) => getDateFromClockIn(e.clockIn) === today);
+      const weekEntries = collectorEntries.filter((e) => {
+        const entryDate = getDateFromClockIn(e.clockIn);
+        return entryDate && entryDate >= weekStartStr;
+      });
+
+      // Check if currently clocked in (entry with no clockOut)
+      const activeEntry = todayEntries.find((e) => !e.clockOut);
+
+      // Calculate total hours today
+      const hoursToday = todayEntries.reduce((total, entry) => {
+        if (!entry.clockIn) return total;
+        const clockIn = new Date(entry.clockIn);
+        const clockOut = entry.clockOut
+          ? new Date(entry.clockOut)
+          : new Date();
+        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+        return total + Math.max(0, diff);
+      }, 0);
+
+      // Calculate total hours this week
+      const hoursThisWeek = weekEntries.reduce((total, entry) => {
+        if (!entry.clockIn || !entry.clockOut) return total;
+        const clockIn = new Date(entry.clockIn);
+        const clockOut = new Date(entry.clockOut);
+        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+        return total + Math.max(0, diff);
+      }, 0);
+
+      return {
+        collector: c,
+        clockedIn: !!activeEntry,
+        clockInTime: activeEntry?.clockIn || null,
+        totalToday: hoursToday,
+        totalWeek: hoursThisWeek,
+        status: activeEntry ? "working" : "off",
+      };
+    });
+  }, [collectors, timeEntries, selectedDate]);
+
+  // Calculate weekly report from actual entries
+  const weeklyReport = useMemo(() => {
+    const weekStart = new Date(selectedDate);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const days = [];
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(weekStart);
+      date.setDate(date.getDate() + i);
+      const dateStr = date.toISOString().split("T")[0];
+      const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
+      const dayNum = date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+
+      const dayEntries = timeEntries.filter((e) => getDateFromClockIn(e.clockIn) === dateStr);
+      const hours = dayEntries.reduce((total, entry) => {
+        if (!entry.clockIn || !entry.clockOut) return total;
+        const clockIn = new Date(entry.clockIn);
+        const clockOut = new Date(entry.clockOut);
+        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+        return total + Math.max(0, diff);
+      }, 0);
+
+      days.push({
+        date: `${dayName} ${dayNum}`,
+        hours: Math.round(hours * 10) / 10,
+        overtime: Math.max(0, hours - 8),
+      });
+    }
+
+    return days;
+  }, [timeEntries, selectedDate]);
+
+  const activeCount = collectorTimeData.filter((d) => d.clockedIn).length;
+  const onBreakCount = collectorTimeData.filter((d) => d.status === "break").length;
+  const totalHoursToday = collectorTimeData.reduce((sum, d) => sum + d.totalToday, 0);
+  const totalHoursWeek = collectorTimeData.reduce((sum, d) => sum + d.totalWeek, 0);
+
+  const isLoading = collectorsLoading || entriesLoading;
 
   return (
     <div className="p-6 space-y-6">
@@ -100,7 +175,7 @@ export default function TimeClock() {
                 <Clock className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">45.2</p>
+                <p className="text-2xl font-bold">{totalHoursToday.toFixed(1)}</p>
                 <p className="text-sm text-muted-foreground">Hours Today</p>
               </div>
             </div>
@@ -113,7 +188,7 @@ export default function TimeClock() {
                 <Calendar className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-2xl font-bold">192.5</p>
+                <p className="text-2xl font-bold">{totalHoursWeek.toFixed(1)}</p>
                 <p className="text-sm text-muted-foreground">Hours This Week</p>
               </div>
             </div>
@@ -128,31 +203,41 @@ export default function TimeClock() {
             <CardDescription>{formatDate(selectedDate)}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {sampleTimeData.map((entry) => (
-                <div 
-                  key={entry.collector.id} 
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                  data-testid={`row-collector-${entry.collector.id}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback>{entry.collector.avatarInitials}</AvatarFallback>
-                      </Avatar>
-                      <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
-                        entry.clockedIn 
-                          ? entry.status === "break" ? "bg-yellow-500" : "bg-green-500"
-                          : "bg-muted"
-                      }`} />
-                    </div>
-                    <div>
-                      <p className="font-medium">{entry.collector.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {entry.clockedIn ? `Clocked in at ${entry.clockInTime}` : "Not clocked in"}
-                      </p>
-                    </div>
-                  </div>
+            {collectorTimeData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <Inbox className="h-12 w-12 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground">No collectors found</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {collectorTimeData.map((entry) => {
+                  const clockInDisplay = entry.clockInTime 
+                    ? new Date(entry.clockInTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                    : null;
+                  return (
+                    <div 
+                      key={entry.collector.id} 
+                      className="flex items-center justify-between p-3 border rounded-lg"
+                      data-testid={`row-collector-${entry.collector.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Avatar className="h-10 w-10">
+                            <AvatarFallback>{entry.collector.avatarInitials}</AvatarFallback>
+                          </Avatar>
+                          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+                            entry.clockedIn 
+                              ? entry.status === "break" ? "bg-yellow-500" : "bg-green-500"
+                              : "bg-muted"
+                          }`} />
+                        </div>
+                        <div>
+                          <p className="font-medium">{entry.collector.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {entry.clockedIn ? `Clocked in at ${clockInDisplay}` : "Not clocked in"}
+                          </p>
+                        </div>
+                      </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right">
                       <p className="font-mono">{entry.totalToday.toFixed(1)} hrs</p>
@@ -168,10 +253,12 @@ export default function TimeClock() {
                     }>
                       {!entry.clockedIn ? "Offline" : entry.status === "break" ? "On Break" : "Working"}
                     </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
