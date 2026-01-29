@@ -1,13 +1,15 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, FileText, CheckCircle, XCircle, AlertCircle, Download, Eye } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, AlertCircle, Download, Eye, Inbox } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import type { ImportBatch as ImportBatchType } from "@shared/schema";
 
 export default function ImportBatch() {
   const { toast } = useToast();
@@ -15,11 +17,9 @@ export default function ImportBatch() {
   const [paymentType, setPaymentType] = useState("ach");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const recentImports = [
-    { id: "1", filename: "ach_batch_dec_15.csv", date: "2024-12-15", records: 145, successful: 142, failed: 3, total: 8750000, status: "completed" },
-    { id: "2", filename: "card_payments_dec_10.csv", date: "2024-12-10", records: 89, successful: 87, failed: 2, total: 4250000, status: "completed" },
-    { id: "3", filename: "check_batch_dec_05.csv", date: "2024-12-05", records: 56, successful: 56, failed: 0, total: 2125000, status: "completed" },
-  ];
+  const { data: recentImports = [], isLoading } = useQuery<ImportBatchType[]>({
+    queryKey: ["/api/import-batches"],
+  });
 
   const handleImport = () => {
     if (!importFile) {
@@ -147,42 +147,51 @@ export default function ImportBatch() {
           <CardTitle className="text-lg">Recent Imports</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {recentImports.map((batch) => (
-              <div key={batch.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`row-import-${batch.id}`}>
-                <div className="flex items-center gap-4">
-                  <div className="p-2 rounded-lg bg-muted">
-                    <FileText className="h-5 w-5" />
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">Loading...</div>
+          ) : recentImports.length === 0 ? (
+            <div className="text-center py-8">
+              <Inbox className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+              <p className="text-muted-foreground">No import history yet</p>
+              <p className="text-sm text-muted-foreground">Import batches will appear here after processing</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentImports.map((batch) => (
+                <div key={batch.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`row-import-${batch.id}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 rounded-lg bg-muted">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{batch.fileName || batch.name}</p>
+                      <p className="text-sm text-muted-foreground">{batch.createdDate ? formatDate(batch.createdDate) : 'N/A'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{batch.filename}</p>
-                    <p className="text-sm text-muted-foreground">{formatDate(batch.date)}</p>
+                  <div className="flex items-center gap-6">
+                    <div className="text-center">
+                      <p className="font-medium">{batch.totalRecords || 0}</p>
+                      <p className="text-xs text-muted-foreground">Records</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="font-medium text-green-600">{batch.successRecords || 0}</p>
+                      <p className="text-xs text-muted-foreground">Success</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="font-medium text-red-600">{batch.failedRecords || 0}</p>
+                      <p className="text-xs text-muted-foreground">Failed</p>
+                    </div>
+                    <div className="text-right">
+                      <Badge variant="secondary" className="capitalize">{batch.status}</Badge>
+                    </div>
+                    <Button variant="ghost" size="icon">
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-center">
-                    <p className="font-medium">{batch.records}</p>
-                    <p className="text-xs text-muted-foreground">Records</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="font-medium text-green-600">{batch.successful}</p>
-                    <p className="text-xs text-muted-foreground">Success</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="font-medium text-red-600">{batch.failed}</p>
-                    <p className="text-xs text-muted-foreground">Failed</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono">{formatCurrency(batch.total)}</p>
-                    <Badge variant="secondary" className="mt-1">Completed</Badge>
-                  </div>
-                  <Button variant="ghost" size="icon">
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

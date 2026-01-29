@@ -66,6 +66,7 @@ import { RecordPaymentDialog } from "@/components/record-payment-dialog";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import type {
   Debtor,
   DebtorContact,
@@ -83,6 +84,7 @@ type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_num
 
 export default function Workstation() {
   const { toast } = useToast();
+  const { user: authUser, isLoading: authLoading } = useAuth();
   const [selectedDebtorId, setSelectedDebtorId] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState("");
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -168,8 +170,8 @@ export default function Workstation() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = collectors?.find((c) => c.role === "collector") || collectors?.[0];
-  const isReady = !collectorsLoading && currentCollector;
+  const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : collectors?.[0];
+  const isReady = !collectorsLoading && !authLoading && currentCollector && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
 
   const { data: activeTimeEntry } = useQuery<TimeClockEntry | null>({

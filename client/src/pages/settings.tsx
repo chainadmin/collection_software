@@ -27,6 +27,9 @@ import {
   Settings2,
   Monitor,
   Download,
+  Smartphone,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -493,6 +496,56 @@ export default function Settings() {
               </div>
               <Button variant="outline" className="w-full mt-2" data-testid="button-contact-support">
                 Contact Support
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Smartphone className="h-5 w-5" />
+                Install App
+              </CardTitle>
+              <CardDescription>
+                Share this link with your team to install the app
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-3 rounded-md bg-muted/50">
+                <p className="text-xs text-muted-foreground mb-2">App Download Link</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-background p-2 rounded border truncate" data-testid="text-app-url">
+                    {typeof window !== 'undefined' ? window.location.origin : ''}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(window.location.origin);
+                      toast({ title: "Copied!", description: "App link copied to clipboard" });
+                    }}
+                    data-testid="button-copy-app-link"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Installation Instructions:</p>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><strong>Desktop (Chrome/Edge):</strong> Click the install icon in the address bar or use browser menu → "Install App"</p>
+                  <p><strong>iOS Safari:</strong> Tap Share → "Add to Home Screen"</p>
+                  <p><strong>Android Chrome:</strong> Tap menu → "Add to Home Screen" or "Install App"</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => window.open(window.location.origin, '_blank')}
+                data-testid="button-open-app"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Open App in New Tab
               </Button>
             </CardContent>
           </Card>
