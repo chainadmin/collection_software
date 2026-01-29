@@ -19,6 +19,12 @@ export const organizations = pgTable("organizations", {
   isActive: boolean("is_active").default(true),
   createdDate: text("created_date").notNull(),
   settings: text("settings"), // JSON for organization-specific settings
+  subscriptionPlan: text("subscription_plan").default("starter"), // starter, growth, agency
+  subscriptionStatus: text("subscription_status").default("trial"), // trial, active, past_due, cancelled
+  trialEndDate: text("trial_end_date"), // ISO date when trial ends
+  billingStartDate: text("billing_start_date"), // ISO date when billing starts
+  firstMonthFree: boolean("first_month_free").default(false), // First month free promotion
+  seatLimit: integer("seat_limit").default(4), // Max collectors allowed
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true });

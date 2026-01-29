@@ -668,6 +668,31 @@ export async function runMigrations() {
       END $$;
     `);
 
+    // Add subscription billing fields to organizations if they don't exist
+    await db.execute(sql`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'subscription_plan') THEN
+          ALTER TABLE organizations ADD COLUMN subscription_plan text DEFAULT 'starter';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'subscription_status') THEN
+          ALTER TABLE organizations ADD COLUMN subscription_status text DEFAULT 'trial';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'trial_end_date') THEN
+          ALTER TABLE organizations ADD COLUMN trial_end_date text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'billing_start_date') THEN
+          ALTER TABLE organizations ADD COLUMN billing_start_date text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'first_month_free') THEN
+          ALTER TABLE organizations ADD COLUMN first_month_free boolean DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'seat_limit') THEN
+          ALTER TABLE organizations ADD COLUMN seat_limit integer DEFAULT 4;
+        END IF;
+      END $$;
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

@@ -304,6 +304,79 @@ export async function registerRoutes(
     }
   });
 
+  // Super Admin - Create new organization with admin
+  app.post("/api/super-admin/organizations", async (req, res) => {
+    try {
+      const { name, slug, email, phone, plan, firstMonthFree, adminName, adminEmail, adminPassword } = req.body;
+      
+      if (!name || !slug || !adminName || !adminEmail || !adminPassword) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      // Validate plan is one of the allowed values
+      const validPlans = ["starter", "growth", "agency"];
+      const selectedPlan = validPlans.includes(plan) ? plan : "starter";
+
+      // Check if slug already exists
+      const existingOrgs = await storage.getOrganizations();
+      if (existingOrgs.some(o => o.slug === slug)) {
+        return res.status(400).json({ error: "Organization slug already exists" });
+      }
+
+      // Calculate seat limit based on plan
+      const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
+      const seatLimit = seatLimits[selectedPlan] || 4;
+
+      // Calculate trial end date (2 weeks from now)
+      const trialEndDate = new Date();
+      trialEndDate.setDate(trialEndDate.getDate() + 14);
+
+      // Calculate billing start date
+      const billingStartDate = new Date();
+      if (firstMonthFree) {
+        billingStartDate.setMonth(billingStartDate.getMonth() + 1);
+      }
+
+      // Create organization
+      const org = await storage.createOrganization({
+        name,
+        slug,
+        email: email || null,
+        phone: phone || null,
+        createdDate: new Date().toISOString().split('T')[0],
+        isActive: true,
+        subscriptionPlan: selectedPlan,
+        subscriptionStatus: "trial",
+        trialEndDate: trialEndDate.toISOString().split('T')[0],
+        billingStartDate: billingStartDate.toISOString().split('T')[0],
+        firstMonthFree: firstMonthFree || false,
+        seatLimit,
+      });
+
+      // Create admin collector for this organization
+      await storage.createCollector({
+        organizationId: org.id,
+        name: adminName,
+        email: adminEmail,
+        username: adminEmail,
+        password: hashPassword(adminPassword),
+        role: "admin",
+        status: "active",
+        avatarInitials: adminName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+        goal: 0,
+        hourlyWage: 0,
+        canViewDashboard: true,
+        canViewEmail: true,
+        canViewPaymentRunner: true,
+      });
+
+      res.json(org);
+    } catch (error: any) {
+      console.error("Failed to create organization:", error);
+      res.status(500).json({ error: error.message || "Failed to create organization" });
+    }
+  });
+
   // Super Admin - Create new super admin
   app.post("/api/super-admin/admins", async (req, res) => {
     try {
