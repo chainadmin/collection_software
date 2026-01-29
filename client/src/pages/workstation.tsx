@@ -1003,7 +1003,7 @@ export default function Workstation() {
                 </Badge>
               )}
               {currentCollector && (currentCollector.role === "admin" || currentCollector.role === "manager") && (
-                <Link href="/">
+                <Link href="/app">
                   <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
                     <LayoutDashboard className="h-4 w-4 mr-1" />
                     Dashboard
