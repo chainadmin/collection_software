@@ -101,6 +101,15 @@ Preferred communication style: Simple, everyday language.
 - **esbuild**: Fast server-side TypeScript bundling
 - **Replit plugins**: Development banner and cartographer for Replit environment
 
+### Public Signup Flow
+- **2-Week Free Trial**: New organizations get 14-day free trial with full feature access
+- **No Credit Card Required**: Payment not required during signup, only after trial expires
+- **Multi-Step Signup**: Step 1 (company info + admin account) → Step 2 (plan selection)
+- **Trial Expiration**: After trial ends, users are redirected to /subscribe to select a plan
+- **Subscription Status**: Organizations have subscriptionStatus (trial/active) and trialEndDate fields
+- **Server-Side Enforcement**: checkSubscriptionActive function validates trial/subscription on API routes
+- **Pages**: `/signup` (public signup), `/subscribe` (payment after trial)
+
 ### Organization Subscription Billing (Authorize.net)
 - **Purpose**: Authorize.net is used ONLY for billing organizations for their Debt Manager Pro subscription
 - **NOT for Debt Collection**: Authorize.net is NOT used for processing debtor payments - that would be handled by each organization's own merchant account
@@ -109,7 +118,7 @@ Preferred communication style: Simple, everyday language.
 - **Credentials**: AUTHORIZENET_API_LOGIN_ID and AUTHORIZENET_TRANSACTION_KEY stored in secrets
 - **Fallback Mode**: Demo simulation when Authorize.net credentials not configured
 - **Server Module**: `server/authorizenet.ts` contains chargeSubscription for organization billing
-- **Billing Endpoints**: `/api/billing/plans`, `/api/billing/subscribe`, `/api/billing/status`
+- **Billing Endpoints**: `/api/billing/plans`, `/api/billing/subscribe`, `/api/billing/status`, `/api/billing/subscription`
 
 ### Payment Runner Features (Debt Collection)
 - **Batch Processing**: Process pending debtor payments in batches through organization's own merchant

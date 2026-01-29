@@ -14,6 +14,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  setAuthUser: (user: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -71,6 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
+  const setAuthUser = (authUser: AuthUser) => {
+    setUser(authUser);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -79,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         logout,
+        setAuthUser,
       }}
     >
       {children}

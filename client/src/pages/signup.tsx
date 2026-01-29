@@ -5,11 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import { CheckCircle, Download, Building2, Users, ArrowLeft, ArrowRight, Check, Loader2, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-
-const AUTH_STORAGE_KEY = "debtmanager_auth";
 
 const PLANS = [
   {
@@ -43,6 +42,7 @@ export default function Signup() {
   const [, setLocation] = useLocation();
   const searchString = useSearch();
   const { toast } = useToast();
+  const { setAuthUser } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [showPwaPrompt, setShowPwaPrompt] = useState(false);
@@ -147,19 +147,21 @@ export default function Signup() {
         return;
       }
 
-      const authUser = {
+      setAuthUser({
         id: signupData.collector.id,
         email: signupData.collector.email,
         name: signupData.collector.name,
         role: signupData.collector.role,
         organizationId: signupData.organizationId,
-      };
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+      });
 
       toast({
         title: "Welcome to Debt Manager Pro!",
         description: `Your 14-day free trial has started. Enjoy full access to the ${selectedPlan} plan features.`,
       });
+
+      // Small delay to allow React state to update before navigation
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       if (deferredPrompt) {
         setShowPwaPrompt(true);
