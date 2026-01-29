@@ -357,6 +357,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(debtorContacts).where(eq(debtorContacts.debtorId, debtorId));
   }
 
+  async getDebtorContact(id: string): Promise<DebtorContact | undefined> {
+    const [contact] = await db.select().from(debtorContacts).where(eq(debtorContacts.id, id));
+    return contact;
+  }
+
   async createDebtorContact(contact: InsertDebtorContact): Promise<DebtorContact> {
     const id = randomUUID();
     const [created] = await db.insert(debtorContacts).values({ ...contact, id }).returning();

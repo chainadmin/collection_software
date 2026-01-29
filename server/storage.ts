@@ -132,6 +132,7 @@ export interface IStorage {
   deleteDebtor(id: string): Promise<boolean>;
 
   getDebtorContacts(debtorId: string): Promise<DebtorContact[]>;
+  getDebtorContact(id: string): Promise<DebtorContact | undefined>;
   createDebtorContact(contact: InsertDebtorContact): Promise<DebtorContact>;
   updateDebtorContact(id: string, contact: Partial<InsertDebtorContact>): Promise<DebtorContact | undefined>;
   deleteDebtorContact(id: string): Promise<boolean>;
@@ -1304,6 +1305,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.debtorContacts.values()).filter((c) => c.debtorId === debtorId);
   }
 
+  async getDebtorContact(id: string): Promise<DebtorContact | undefined> {
+    return this.debtorContacts.get(id);
+  }
+
   async createDebtorContact(contact: InsertDebtorContact): Promise<DebtorContact> {
     const id = randomUUID();
     const newContact: DebtorContact = {
@@ -2221,6 +2226,7 @@ export class MemStorage implements IStorage {
       createdDate: token.createdDate,
       lastUsedDate: token.lastUsedDate ?? null,
       expiresAt: token.expiresAt ?? null,
+      organizationId: token.organizationId ?? null,
     };
     this.apiTokens.set(id, newToken);
     return newToken;

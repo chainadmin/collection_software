@@ -2,9 +2,7 @@
 
 ## Overview
 
-DebtFlow Pro is a professional debt collection management platform built for enterprise use. The application enables collection agencies to manage debtor accounts, process payments via Authorize.net merchant integration, track portfolio performance, manage collector teams, and monitor liquidation rates across purchased debt portfolios.
-
-The system is designed as a data-heavy enterprise application following Carbon Design System principles, prioritizing efficiency, dense information display, and workflow optimization similar to platforms like Salesforce or HubSpot CRM.
+DebtFlow Pro is an enterprise-grade debt collection management platform designed for collection agencies. It enables comprehensive management of debtor accounts, facilitates payment processing, tracks portfolio performance, manages collector teams, and monitors liquidation rates for purchased debt portfolios. The system emphasizes efficiency, dense information display, and optimized workflows, similar to leading CRM platforms. Its core purpose is to streamline debt collection processes, improve operational efficiency, and maximize liquidation rates for agencies.
 
 ## User Preferences
 
@@ -12,154 +10,103 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
-- **Framework**: React with TypeScript, bundled via Vite
-- **Routing**: Wouter (lightweight React router)
-- **State Management**: TanStack React Query for server state caching and synchronization
-- **UI Components**: shadcn/ui component library built on Radix UI primitives
-- **Styling**: Tailwind CSS with CSS variables for theming (light/dark mode support)
-- **Forms**: React Hook Form with Zod validation via @hookform/resolvers
+### Frontend
+The frontend is built with React and TypeScript, using Vite for bundling, Wouter for routing, and TanStack React Query for state management. UI components are from shadcn/ui (based on Radix UI), styled with Tailwind CSS (supporting light/dark modes). Forms are managed with React Hook Form and Zod for validation.
 
-### Backend Architecture
-- **Runtime**: Node.js with Express
-- **Language**: TypeScript (ESM modules)
-- **API Design**: RESTful JSON API under `/api/*` routes
-- **Build System**: esbuild for server bundling, Vite for client bundling
+### Backend
+The backend utilizes Node.js with Express and TypeScript (ESM modules), providing a RESTful JSON API. esbuild is used for server bundling.
 
 ### Data Layer
-- **ORM**: Drizzle ORM with PostgreSQL dialect
-- **Database Connection**: `server/db.ts` uses @neondatabase/serverless for PostgreSQL connection
-- **Schema Location**: `shared/schema.ts` contains all table definitions
-- **Validation**: Drizzle-Zod for automatic schema-to-validation conversion
-- **Storage Abstraction**: `server/storage.ts` provides an interface layer over database operations
-- **Migrations**: `server/migrate.ts` runs at server startup to ensure tables exist (idempotent CREATE TABLE IF NOT EXISTS)
+Drizzle ORM with PostgreSQL is used for data persistence, connecting via `@neondatabase/serverless`. Schema definitions are centralized, and Drizzle-Zod provides automatic validation. A storage abstraction layer manages database operations, and migrations run at server startup.
 
 ### Multi-Organization Architecture
-- **Organization Isolation**: Each collection agency operates as a separate organization with complete data isolation
-- **Organization Table**: Contains company name, slug, address, timezone, and settings
-- **Organization Scoping**: All data tables include organizationId foreign key for tenant isolation
-- **Organization Context**: Frontend OrganizationProvider manages current organization state
-- **Header-Based Routing**: X-Organization-Id header used for organization context in API requests
-- **Default Organization**: Uses "default-org" ID for backward compatibility during migration
+The system supports multiple collection agencies, each operating with complete data isolation. Data tables include an `organizationId` for tenant isolation, and the frontend manages the current organization context. API requests use an `X-Organization-Id` header for organization context.
 
 ### Key Domain Models
-- **Organizations**: Collection agencies with company details and settings
-- **Collectors**: Staff members who work accounts (roles: admin, manager, collector)
-- **Portfolios**: Groups of purchased debt accounts with face value and purchase price tracking
-- **Debtors**: Individual accounts with contact info, employment, and bank account records
-- **Payments**: Individual payment records organized into batches for processing
-- **Payment Batches**: Groups of payments for bulk processing through the payment runner
-- **Liquidation Snapshots**: Point-in-time performance metrics for portfolios
+Core models include Organizations, Collectors (with roles), Portfolios, Debtors (with contact, employment, bank info), Payments (individual and batched), and Liquidation Snapshots.
 
 ### Design Patterns
-- **Monorepo Structure**: Client (`client/`), server (`server/`), and shared code (`shared/`) in one repository
-- **Path Aliases**: `@/` for client source, `@shared/` for shared code
-- **Component Composition**: UI built from composable shadcn/ui primitives
-- **Collapsible Sidebar Navigation**: Fixed left sidebar with icon-only collapsed state
+The project employs a monorepo structure with client, server, and shared code. UI is built from composable components, and navigation features a collapsible sidebar.
 
 ### Workstation Features
-- **Click-to-Call**: Phone contacts are clickable, opening a Call Outcome dialog with options: Connected, No Answer, Voicemail, Busy, Wrong Number, Promise
-- **Auto-Save Notes**: Notes auto-save after 3 seconds of inactivity with visual indicator
-- **Payment Calculator**: Shows settlement options (50%, 40%, 25%) and monthly payment calculations
-- **Work By Status Filter**: Filter accounts by collection status (newbiz, 1st message, final, promise, etc.)
-- **Payment Recording**: Supports card selection from saved cards and payment frequency (one-time, weekly, bi-weekly, monthly, specific dates)
-- **Inline Editing**: Edit icons for address, email, and contacts with dedicated edit dialogs
-- **Bulk Add Features**: Bulk add contacts (phone/email) and bulk add notes with multi-line text input
-- **Work Queue Logic**: Collectors only see their assigned accounts filtered by status
-- **Comprehensive Search**: Search across all debtor data (name, account, phone, email, SSN, address, employer, references)
+Key features include click-to-call functionality, auto-saving notes, a payment calculator, filtering by collection status, flexible payment recording (card/frequency), inline editing, and bulk actions. A comprehensive search covers all debtor data.
 
 ### Collector Management
-- **Hourly Wage Tracking**: Required field for profitability analysis (replaces optional email)
-- **Role-Based Permissions**: Checkboxes for Dashboard Access, Email/SMS Access, Payment Runner Access
-- **Profitability Reports**: Collector reporting with wage cost vs. collections ROI analysis
+The system supports hourly wage tracking for profitability analysis, role-based permissions (e.g., Dashboard Access, Payment Runner Access), and generates profitability reports comparing wage cost to collections ROI.
 
 ### PWA Support
-- **Desktop Installation**: Installable as PWA on Windows, Mac, and iOS
-- **Manifest**: Located at `client/public/manifest.json`
-- **Service Worker**: Located at `client/public/sw.js`
+The application is installable as a Progressive Web App (PWA) on desktop and iOS, utilizing a manifest and service worker.
+
+### Public Signup Flow
+New organizations receive a 14-day free trial without requiring a credit card. A multi-step signup process collects company information and allows plan selection. Subscription status is enforced server-side, redirecting users to a subscription page upon trial expiration.
+
+### Payment Runner Features (Debt Collection)
+The payment runner facilitates batch processing of pending debtor payments through the organization's own merchant accounts. It supports re-running failed payments, processing single payments, reversing completed payments (with gateway void and future payment cancellation), and automatically adding decline notes.
+
+### Organization Merchant Configuration
+Each organization configures its own merchant account credentials (e.g., Authorize.net, NMI, USAePay) for processing debtor payments, with support for test mode.
+
+### Import/Export Features
+The system allows flexible partial imports for accounts, contacts, and payments. It features upsert logic for managing existing records, cross-portfolio linking via SSN, and schema mapping. Comprehensive account data, including multiple phones, emails, employment, and references, can be imported.
+
+### Card Validation
+Client-side card validation uses BIN lookup, issuer detection, and Luhn algorithm validation, providing real-time feedback during payment recording.
+
+### Remittance Reports
+Reports can be filtered by client, portfolio, or date range, showing per-payment breakdowns and allowing CSV export.
+
+### Recall Management
+Supports "Recall" and "Monthly Payors" categorization, flexible filtering, and batch export of recall lists with full account details.
+
+### External API v2
+A comprehensive external API is provided for integration with SMS platforms, soft phones, and dialers. It uses Bearer Token authentication with organization-scoped tokens. 
+
+**Multi-Tenant Security**: All API endpoints enforce organization isolation:
+- API tokens include the organizationId of the authenticated collector
+- Tokens without organizationId are rejected with 403 (legacy tokens must re-authenticate)
+- All endpoints validate organization ownership before returning or modifying data
+- Defense-in-depth: Auth layer + endpoint-level validation
+
+**Endpoints include**:
+- Account management (get accounts by SSN, file number, portfolio)
+- SMS/Email integration (send_text, send_email_c2c, record communication attempts)
+- Data modification (adding notes, updating debtor fields, inserting payments)
+- Softphone/Dialer functionalities:
+  - GET /api/v2/softphone/queue - Call queue/worklist
+  - POST /api/v2/softphone/initiate - Log outbound call
+  - POST /api/v2/softphone/result - Log call outcome
+  - POST /api/v2/softphone/disposition - Set disposition with status mapping
+  - GET /api/v2/softphone/dispositions - Available disposition codes
+  - GET /api/v2/softphone/account/:filenumber - Screen pop data
+  - POST /api/v2/softphone/inbound - Inbound caller lookup
+  - PUT /api/v2/softphone/markphone - Mark phone bad/wrong
 
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Primary data store (connection via `DATABASE_URL` environment variable)
-- **Drizzle Kit**: Database migrations and schema push (`npm run db:push`)
+- **PostgreSQL**: Primary data store.
+- **Drizzle Kit**: For database migrations.
 
 ### UI Framework Dependencies
-- **Radix UI**: Accessible component primitives (dialogs, dropdowns, tooltips, etc.)
-- **Lucide React**: Icon library
-- **Embla Carousel**: Carousel component
-- **cmdk**: Command palette component
-- **Vaul**: Drawer component
-- **react-day-picker**: Calendar/date picker
+- **Radix UI**: Accessible component primitives.
+- **Lucide React**: Icon library.
+- **Embla Carousel**: Carousel component.
+- **cmdk**: Command palette component.
+- **Vaul**: Drawer component.
+- **react-day-picker**: Calendar/date picker.
 
 ### Session Management
-- **connect-pg-simple**: PostgreSQL session store for Express sessions
-- **express-session**: Session middleware
+- **connect-pg-simple**: PostgreSQL session store.
+- **express-session**: Session middleware.
 
 ### Build & Development
-- **Vite**: Frontend dev server and bundler with HMR
-- **esbuild**: Fast server-side TypeScript bundling
-- **Replit plugins**: Development banner and cartographer for Replit environment
+- **Vite**: Frontend dev server and bundler.
+- **esbuild**: Server-side TypeScript bundling.
 
-### Public Signup Flow
-- **2-Week Free Trial**: New organizations get 14-day free trial with full feature access
-- **No Credit Card Required**: Payment not required during signup, only after trial expires
-- **Multi-Step Signup**: Step 1 (company info + admin account) → Step 2 (plan selection)
-- **Trial Expiration**: After trial ends, users are redirected to /subscribe to select a plan
-- **Subscription Status**: Organizations have subscriptionStatus (trial/active) and trialEndDate fields
-- **Server-Side Enforcement**: checkSubscriptionActive function validates trial/subscription on API routes
-- **Pages**: `/signup` (public signup), `/subscribe` (payment after trial)
+### Organization Subscription Billing
+- **Authorize.net**: Used *only* for billing organizations for their Debt Manager Pro subscription. Not used for debtor payments. Supports subscription plans and uses sandbox/production endpoints.
 
-### Organization Subscription Billing (Authorize.net)
-- **Purpose**: Authorize.net is used ONLY for billing organizations for their Debt Manager Pro subscription
-- **NOT for Debt Collection**: Authorize.net is NOT used for processing debtor payments - that would be handled by each organization's own merchant account
-- **Subscription Plans**: Starter ($200/mo, 4 seats), Growth ($400/mo, 15 seats), Agency ($750/mo, 40 seats)
-- **Environment Support**: Uses sandbox endpoint in development, production endpoint in production
-- **Credentials**: AUTHORIZENET_API_LOGIN_ID and AUTHORIZENET_TRANSACTION_KEY stored in secrets
-- **Fallback Mode**: Demo simulation when Authorize.net credentials not configured
-- **Server Module**: `server/authorizenet.ts` contains chargeSubscription for organization billing
-- **Billing Endpoints**: `/api/billing/plans`, `/api/billing/subscribe`, `/api/billing/status`, `/api/billing/subscription`
-
-### Payment Runner Features (Debt Collection)
-- **Batch Processing**: Process pending debtor payments in batches through organization's own merchant
-- **Re-run Failed**: Re-run individual failed/declined payments with updated info
-- **Run Single Payment**: Process individual payments outside of batch runs
-- **Reverse Payments**: Reverse completed payments with automatic gateway void and auto-cancel future scheduled payments
-- **Decline Notes**: Auto-add decline reasons to account notes when payments fail
-- **Transaction Tracking**: Transaction IDs stored in payment notes for audit trail
-
-### Organization Merchant Configuration
-- **Merchant Table**: Each organization stores their own merchant account credentials
-- **Authorize.net Fields**: `authorizeNetApiLoginId` and `authorizeNetTransactionKey` stored in merchants table
-- **Test Mode**: Organizations can enable test mode for sandbox transactions
-- **Processor Types**: Supports authorize_net, nmi, usaepay processor types
-- **Gateway Functions**: `processDebtorCardPayment`, `processDebtorAchPayment`, `voidDebtorTransaction`
-- **Fallback**: If no merchant configured, payments use demo simulation mode
-
-### Import/Export Features
-- **Flexible Partial Imports**: Import accounts, contacts, payments, notes independently
-- **Upsert Logic**: Same portfolio/account updates existing; different portfolio/same SSN creates linked account
-- **Cross-Portfolio Linking**: linkedAccountId field enables person linking via SSN across portfolios
-- **Schema Mapping**: Save and reuse column mappings; clientId and portfolioId are mappable fields
-- **Client/Portfolio Selection**: Required for accounts and contacts imports
-- **Comprehensive Account Data**: Import includes multiple phones (1-5), emails (1-3), employment info, and up to 3 references with full address
-- **Reference Support**: Personal/professional references with name, relationship, phone, address, and notes
-- **Employment Import**: Employer name, phone, address, position, and salary
-- **Legacy Compatibility**: Supports legacy phone/email fields for backward compatibility with old import formats
-
-### Card Validation
-- **BIN Lookup**: Client-side card validation using BIN database (no gateway authorization)
-- **Issuer Detection**: Identifies card brand (Visa, Mastercard, Amex, Discover)
-- **Luhn Validation**: Validates card number checksum
-- **Real-time Feedback**: Visual indicators in workstation payment recording
-
-### Remittance Reports
-- **Portfolio/Client Filters**: Filter by specific client, portfolio, or date range
-- **Payment Status**: Includes both "completed" and "processed" payment statuses
-- **Per-Payment Breakdown**: Shows debtor details, account numbers, client/portfolio info
-- **CSV Export**: Export filtered payment data for external reporting
-
-### Recall Management
-- **Recall Reasons**: "Recall" and "Monthly Payors" categorization
-- **Flexible Filtering**: Filter by client only, portfolio only, or both combined
-- **Batch Export**: Export recall lists with full account details
+### Debt Collection Merchant Gateways (Configured per organization)
+- **Authorize.net**: Supported processor type for debtor payments.
+- **NMI**: Supported processor type for debtor payments.
+- **USAePay**: Supported processor type for debtor payments.

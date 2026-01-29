@@ -530,6 +530,7 @@ export async function runMigrations() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "api_tokens" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar,
         "name" text NOT NULL,
         "token" text NOT NULL UNIQUE,
         "is_active" boolean DEFAULT true,
@@ -689,6 +690,9 @@ export async function runMigrations() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'seat_limit') THEN
           ALTER TABLE organizations ADD COLUMN seat_limit integer DEFAULT 4;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_tokens' AND column_name = 'organization_id') THEN
+          ALTER TABLE api_tokens ADD COLUMN organization_id varchar;
         END IF;
       END $$;
     `);

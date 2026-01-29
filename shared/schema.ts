@@ -684,6 +684,7 @@ export type RemittanceItem = typeof remittanceItems.$inferSelect;
 // API Tokens (for external integrations like SMS/TXT software)
 export const apiTokens = pgTable("api_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"), // organization scope for multi-tenant isolation
   name: text("name").notNull(), // descriptive name for the token
   token: text("token").notNull().unique(), // bearer token
   isActive: boolean("is_active").default(true),
