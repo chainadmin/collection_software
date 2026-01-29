@@ -215,7 +215,7 @@ export default function Signup() {
           </ul>
         </div>
         <div className="text-sm text-primary-foreground/70">
-          Trusted by 500+ collection agencies nationwide
+          Start collecting more today
         </div>
       </div>
       <div className="flex-1 flex items-center justify-center p-4 overflow-auto">

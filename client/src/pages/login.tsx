@@ -26,6 +26,8 @@ export default function Login() {
           title: "Welcome back!",
           description: "You have been logged in successfully.",
         });
+        // Small delay to allow React state to update before navigation
+        await new Promise(resolve => setTimeout(resolve, 100));
         setLocation("/app");
       } else {
         toast({

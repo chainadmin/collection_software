@@ -73,28 +73,6 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-16 bg-muted/30">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <div className="text-4xl font-bold text-primary">500+</div>
-              <div className="text-sm text-muted-foreground mt-1">Collection Agencies</div>
-            </div>
-            <div>
-              <div className="text-4xl font-bold text-primary">$2B+</div>
-              <div className="text-sm text-muted-foreground mt-1">Debt Collected</div>
-            </div>
-            <div>
-              <div className="text-4xl font-bold text-primary">99.9%</div>
-              <div className="text-sm text-muted-foreground mt-1">Uptime</div>
-            </div>
-            <div>
-              <div className="text-4xl font-bold text-primary">35%</div>
-              <div className="text-sm text-muted-foreground mt-1">Avg. Collection Increase</div>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section id="features" className="py-20">
         <div className="container mx-auto px-4">
@@ -326,7 +304,7 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">Ready to Collect More?</h2>
           <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
-            Join hundreds of collection agencies already using Debt Manager Pro to increase recoveries and streamline operations.
+            Start your 14-day free trial and experience the difference professional debt collection software can make.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/signup">
@@ -358,6 +336,24 @@ export default function Landing() {
                 <li><a href="#features" className="hover:text-foreground">Features</a></li>
                 <li><a href="#pricing" className="hover:text-foreground">Pricing</a></li>
                 <li><Link href="/demo" className="hover:text-foreground">Demo</Link></li>
+                <li>
+                  <button 
+                    onClick={() => {
+                      const deferredPrompt = (window as any).__pwaInstallPrompt;
+                      if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                      } else if (window.matchMedia('(display-mode: standalone)').matches) {
+                        alert('App is already installed!');
+                      } else {
+                        alert('To install: Click the install icon in your browser address bar, or use your browser menu to "Install App".');
+                      }
+                    }}
+                    className="hover:text-foreground cursor-pointer"
+                    data-testid="button-download-app"
+                  >
+                    Download App
+                  </button>
+                </li>
               </ul>
             </div>
             <div>

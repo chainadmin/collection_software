@@ -126,7 +126,7 @@ export default function Settings() {
                   <Label htmlFor="orgName">Organization Name</Label>
                   <Input
                     id="orgName"
-                    defaultValue="ABC Collections LLC"
+                    placeholder="Enter organization name"
                     data-testid="input-org-name"
                   />
                 </div>
@@ -134,7 +134,7 @@ export default function Settings() {
                   <Label htmlFor="orgPhone">Primary Phone</Label>
                   <Input
                     id="orgPhone"
-                    defaultValue="(555) 123-4567"
+                    placeholder="Enter phone number"
                     data-testid="input-org-phone"
                   />
                 </div>
@@ -143,20 +143,20 @@ export default function Settings() {
                 <Label htmlFor="orgAddress">Address</Label>
                 <Input
                   id="orgAddress"
-                  defaultValue="123 Collection Ave, Suite 100"
+                  placeholder="Enter street address"
                   data-testid="input-org-address"
                 />
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <Label htmlFor="orgCity">City</Label>
-                  <Input id="orgCity" defaultValue="New York" />
+                  <Input id="orgCity" placeholder="City" />
                 </div>
                 <div>
                   <Label htmlFor="orgState">State</Label>
-                  <Select defaultValue="NY">
+                  <Select>
                     <SelectTrigger id="orgState">
-                      <SelectValue />
+                      <SelectValue placeholder="Select state" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="NY">New York</SelectItem>
@@ -168,7 +168,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <Label htmlFor="orgZip">ZIP Code</Label>
-                  <Input id="orgZip" defaultValue="10001" />
+                  <Input id="orgZip" placeholder="ZIP" />
                 </div>
               </div>
               <div className="pt-2">

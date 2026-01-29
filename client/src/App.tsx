@@ -234,6 +234,16 @@ function AppContent() {
 }
 
 function App() {
+  // Capture PWA install prompt globally
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      (window as any).__pwaInstallPrompt = e;
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
   return (
     <ThemeProvider defaultTheme="light" storageKey="debtflow-theme">
       <QueryClientProvider client={queryClient}>
