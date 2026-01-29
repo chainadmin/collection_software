@@ -3,9 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, Download, CreditCard, Building2, Users, ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
+import { CheckCircle, Download, Building2, Users, ArrowLeft, ArrowRight, Check, Loader2, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 
@@ -41,6 +41,7 @@ const PLANS = [
 
 export default function Signup() {
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(1);
@@ -53,12 +54,13 @@ export default function Signup() {
     phone: "",
     password: "",
   });
-  const [selectedPlan, setSelectedPlan] = useState("growth");
-  const [paymentData, setPaymentData] = useState({
-    cardNumber: "",
-    expirationDate: "",
-    cardCode: "",
-  });
+  
+  // Get plan from URL query param or default to growth
+  const urlParams = new URLSearchParams(searchString);
+  const initialPlan = urlParams.get("plan") || "growth";
+  const [selectedPlan, setSelectedPlan] = useState(
+    PLANS.some(p => p.id === initialPlan) ? initialPlan : "growth"
+  );
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -71,25 +73,6 @@ export default function Signup() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handlePaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value;
-    const name = e.target.name;
-
-    if (name === "cardNumber") {
-      value = value.replace(/\D/g, "").slice(0, 16);
-      value = value.replace(/(.{4})/g, "$1 ").trim();
-    } else if (name === "expirationDate") {
-      value = value.replace(/\D/g, "").slice(0, 4);
-      if (value.length >= 2) {
-        value = value.slice(0, 2) + "/" + value.slice(2);
-      }
-    } else if (name === "cardCode") {
-      value = value.replace(/\D/g, "").slice(0, 4);
-    }
-
-    setPaymentData({ ...paymentData, [name]: value });
   };
 
   const handleInstallPwa = async () => {
@@ -119,21 +102,9 @@ export default function Signup() {
       toast({ title: "Password too short", description: "Password must be at least 8 characters", variant: "destructive" });
       return false;
     }
-    return true;
-  };
-
-  const validateStep3 = () => {
-    const cardNum = paymentData.cardNumber.replace(/\s/g, "");
-    if (cardNum.length < 13 || cardNum.length > 16) {
-      toast({ title: "Invalid card number", description: "Please enter a valid card number", variant: "destructive" });
-      return false;
-    }
-    if (paymentData.expirationDate.length !== 5) {
-      toast({ title: "Invalid expiration", description: "Please enter expiration as MM/YY", variant: "destructive" });
-      return false;
-    }
-    if (paymentData.cardCode.length < 3) {
-      toast({ title: "Invalid CVV", description: "Please enter a valid security code", variant: "destructive" });
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      toast({ title: "Invalid email", description: "Please enter a valid email address", variant: "destructive" });
       return false;
     }
     return true;
@@ -142,8 +113,6 @@ export default function Signup() {
   const handleNext = () => {
     if (step === 1 && validateStep1()) {
       setStep(2);
-    } else if (step === 2) {
-      setStep(3);
     }
   };
 
@@ -153,7 +122,6 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateStep3()) return;
 
     setIsLoading(true);
 
@@ -161,7 +129,10 @@ export default function Signup() {
       const signupResponse = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          plan: selectedPlan,
+        }),
       });
 
       const signupData = await signupResponse.json();
@@ -170,31 +141,6 @@ export default function Signup() {
         toast({
           title: "Signup failed",
           description: signupData.error || "Failed to create account",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      const billingResponse = await fetch("/api/billing/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organizationId: signupData.organizationId,
-          plan: selectedPlan,
-          cardNumber: paymentData.cardNumber.replace(/\s/g, ""),
-          expirationDate: paymentData.expirationDate.replace("/", ""),
-          cardCode: paymentData.cardCode,
-          email: formData.email,
-        }),
-      });
-
-      const billingData = await billingResponse.json();
-
-      if (!billingResponse.ok) {
-        toast({
-          title: "Payment failed",
-          description: billingData.error || "Failed to process payment. Please check your card details.",
           variant: "destructive",
         });
         setIsLoading(false);
@@ -211,8 +157,8 @@ export default function Signup() {
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
 
       toast({
-        title: "Account created!",
-        description: `Welcome to Debt Manager Pro. Your ${selectedPlan} subscription is now active.`,
+        title: "Welcome to Debt Manager Pro!",
+        description: `Your 14-day free trial has started. Enjoy full access to the ${selectedPlan} plan features.`,
       });
 
       if (deferredPrompt) {
@@ -242,11 +188,15 @@ export default function Signup() {
           </Link>
         </div>
         <div>
-          <h2 className="text-3xl font-bold mb-6">Start collecting more today</h2>
+          <h2 className="text-3xl font-bold mb-6">Start your 14-day free trial</h2>
           <ul className="space-y-4">
             <li className="flex gap-3">
               <CheckCircle className="h-6 w-6 shrink-0" />
-              <span>Professional debt collection software</span>
+              <span>Full access to all features</span>
+            </li>
+            <li className="flex gap-3">
+              <CheckCircle className="h-6 w-6 shrink-0" />
+              <span>No credit card required</span>
             </li>
             <li className="flex gap-3">
               <CheckCircle className="h-6 w-6 shrink-0" />
@@ -258,11 +208,7 @@ export default function Signup() {
             </li>
             <li className="flex gap-3">
               <CheckCircle className="h-6 w-6 shrink-0" />
-              <span>Secure payment processing</span>
-            </li>
-            <li className="flex gap-3">
-              <CheckCircle className="h-6 w-6 shrink-0" />
-              <span>Cancel anytime, no questions asked</span>
+              <span>Cancel anytime during trial</span>
             </li>
           </ul>
         </div>
@@ -279,7 +225,7 @@ export default function Signup() {
           </div>
 
           <div className="flex justify-center mb-6 gap-2">
-            {[1, 2, 3].map((s) => (
+            {[1, 2].map((s) => (
               <div
                 key={s}
                 className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
@@ -300,12 +246,10 @@ export default function Signup() {
               <CardTitle>
                 {step === 1 && "Create Your Account"}
                 {step === 2 && "Choose Your Plan"}
-                {step === 3 && "Payment Details"}
               </CardTitle>
               <CardDescription>
-                {step === 1 && "Enter your company information"}
-                {step === 2 && "Select the plan that fits your team"}
-                {step === 3 && "Secure payment to activate your subscription"}
+                {step === 1 && "Enter your company information to get started"}
+                {step === 2 && "Select the plan you'll use after your trial"}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -384,7 +328,15 @@ export default function Signup() {
               )}
 
               {step === 2 && (
-                <div className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="bg-primary/10 border border-primary/20 rounded-lg p-3 mb-4 flex items-center gap-3">
+                    <Sparkles className="h-5 w-5 text-primary shrink-0" />
+                    <p className="text-sm">
+                      <span className="font-medium">14-day free trial</span> - no credit card required. 
+                      You can change your plan anytime.
+                    </p>
+                  </div>
+                  
                   <div className="grid gap-4">
                     {PLANS.map((plan) => (
                       <div
@@ -416,7 +368,7 @@ export default function Signup() {
                           </div>
                           <div className="text-right">
                             <div className="text-2xl font-bold">${plan.price}</div>
-                            <div className="text-xs text-muted-foreground">/month</div>
+                            <div className="text-xs text-muted-foreground">/month after trial</div>
                           </div>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -437,95 +389,20 @@ export default function Signup() {
                     ))}
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <Button type="button" variant="outline" onClick={handleBack} data-testid="button-back">
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Back
-                    </Button>
-                    <Button type="button" className="flex-1" onClick={handleNext} data-testid="button-next-step">
-                      Continue to Payment
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {step === 3 && (
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="bg-muted/50 p-4 rounded-lg mb-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{selectedPlanDetails?.name} Plan</p>
-                        <p className="text-sm text-muted-foreground">{selectedPlanDetails?.seats} collector seats</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold">${selectedPlanDetails?.price}</p>
-                        <p className="text-xs text-muted-foreground">/month</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="cardNumber">Card Number</Label>
-                    <div className="relative">
-                      <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="cardNumber"
-                        name="cardNumber"
-                        placeholder="4111 1111 1111 1111"
-                        value={paymentData.cardNumber}
-                        onChange={handlePaymentChange}
-                        className="pl-10"
-                        required
-                        data-testid="input-card-number"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="expirationDate">Expiration</Label>
-                      <Input
-                        id="expirationDate"
-                        name="expirationDate"
-                        placeholder="MM/YY"
-                        value={paymentData.expirationDate}
-                        onChange={handlePaymentChange}
-                        required
-                        data-testid="input-expiration"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cardCode">CVV</Label>
-                      <Input
-                        id="cardCode"
-                        name="cardCode"
-                        placeholder="123"
-                        value={paymentData.cardCode}
-                        onChange={handlePaymentChange}
-                        required
-                        data-testid="input-cvv"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-muted-foreground text-center pt-2">
-                    <CreditCard className="inline h-3 w-3 mr-1" />
-                    Payments are securely processed via Authorize.net
-                  </div>
-
-                  <div className="flex gap-3 pt-2">
                     <Button type="button" variant="outline" onClick={handleBack} disabled={isLoading} data-testid="button-back">
                       <ArrowLeft className="mr-2 h-4 w-4" />
                       Back
                     </Button>
-                    <Button type="submit" className="flex-1" disabled={isLoading} data-testid="button-subscribe">
+                    <Button type="submit" className="flex-1" disabled={isLoading} data-testid="button-start-trial">
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
+                          Creating account...
                         </>
                       ) : (
                         <>
-                          Subscribe for ${selectedPlanDetails?.price}/mo
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Start Free Trial
                         </>
                       )}
                     </Button>
@@ -587,10 +464,10 @@ export default function Signup() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={handleSkipInstall} data-testid="button-skip-install">
-              Maybe Later
+              Skip for now
             </Button>
             <Button onClick={handleInstallPwa} data-testid="button-install-pwa">
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="mr-2 h-4 w-4" />
               Install App
             </Button>
           </DialogFooter>

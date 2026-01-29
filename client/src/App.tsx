@@ -45,6 +45,7 @@ import ServerAccess from "@/pages/admin/settings/server-access";
 import Clients from "@/pages/admin/clients";
 import SuperAdmin from "@/pages/super-admin";
 import SuperAdminLogin from "@/pages/super-admin-login";
+import Subscribe from "@/pages/subscribe";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 import { OrganizationProvider } from "@/lib/organization-context";
@@ -93,8 +94,24 @@ function AppLayout() {
     queryKey: ["/api/collectors"],
   });
 
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<{
+    status: string;
+    isTrialExpired: boolean;
+    daysRemaining: number;
+  }>({
+    queryKey: ["/api/billing/subscription"],
+    retry: false,
+  });
+
   const currentCollector = collectors[0];
   const isCollectorRole = currentCollector?.role === "collector";
+
+  // Redirect to subscribe page if trial expired and not active
+  useEffect(() => {
+    if (!subscriptionLoading && subscription?.isTrialExpired && subscription?.status !== "active") {
+      setLocation("/subscribe");
+    }
+  }, [subscription, subscriptionLoading, setLocation]);
   
   const isCollectorRoute =
     location.startsWith("/app/workstation") ||
@@ -176,6 +193,7 @@ function AppContent() {
     location === "/" || 
     location === "/login" || 
     location === "/signup" ||
+    location === "/subscribe" ||
     location === "/demo" ||
     location === "/contact" ||
     location === "/super-admin-login" ||
@@ -198,6 +216,7 @@ function AppContent() {
         <Route path="/" component={Landing} />
         <Route path="/login" component={Login} />
         <Route path="/signup" component={Signup} />
+        <Route path="/subscribe" component={Subscribe} />
         <Route path="/demo" component={Landing} />
         <Route path="/contact" component={Landing} />
         <Route path="/super-admin-login" component={SuperAdminLogin} />

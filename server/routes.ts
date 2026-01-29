@@ -42,6 +42,38 @@ function getOrgId(req: { headers: Record<string, string | string[] | undefined> 
   return DEFAULT_ORG_ID;
 }
 
+// Check if organization has active subscription or is in trial period
+async function checkSubscriptionActive(orgId: string): Promise<{ active: boolean; reason?: string }> {
+  const org = await storage.getOrganization(orgId);
+  if (!org) {
+    return { active: false, reason: "Organization not found" };
+  }
+  
+  // If organization is not active, block access
+  if (!org.isActive) {
+    return { active: false, reason: "Organization is inactive" };
+  }
+  
+  // If subscription is active, allow access
+  if (org.subscriptionStatus === "active") {
+    return { active: true };
+  }
+  
+  // If in trial, check if trial has expired
+  if (org.subscriptionStatus === "trial" && org.trialEndDate) {
+    const today = new Date();
+    const trialEnd = new Date(org.trialEndDate);
+    if (today <= trialEnd) {
+      return { active: true };
+    } else {
+      return { active: false, reason: "Trial has expired. Please subscribe to continue." };
+    }
+  }
+  
+  // Default: allow access for legacy orgs without subscription status
+  return { active: true };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -130,7 +162,7 @@ export async function registerRoutes(
   // Authentication routes
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const { companyName, name, email, password, phone } = req.body;
+      const { companyName, name, email, password, phone, plan } = req.body;
       
       if (!companyName || !name || !email || !password) {
         return res.status(400).json({ error: "All fields are required" });
@@ -142,15 +174,28 @@ export async function registerRoutes(
         return res.status(400).json({ error: "An account with this email already exists" });
       }
 
-      // Create organization with isActive=false until payment is processed
+      // Validate plan
+      const validPlans = ["starter", "growth", "agency"];
+      const selectedPlan = validPlans.includes(plan) ? plan : "starter";
+      const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
+
+      // Calculate trial end date (2 weeks from now)
+      const trialEndDate = new Date();
+      trialEndDate.setDate(trialEndDate.getDate() + 14);
+
+      // Create organization with 2-week trial (active immediately)
       const slug = generateSlug(companyName) + "-" + Date.now().toString(36);
       const organization = await storage.createOrganization({
         name: companyName,
         slug,
         phone: phone || null,
         email: email,
-        isActive: false, // Inactive until subscription payment is processed
+        isActive: true, // Active during trial period
         createdDate: new Date().toISOString().split("T")[0],
+        subscriptionPlan: selectedPlan,
+        subscriptionStatus: "trial",
+        trialEndDate: trialEndDate.toISOString().split("T")[0],
+        seatLimit: seatLimits[selectedPlan],
       });
 
       // Create admin collector for this organization
@@ -484,9 +529,18 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Organization not found" });
       }
 
+      // Calculate seat limit based on plan
+      const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
+
       if (!isAuthNetConfigured()) {
         // Demo mode - simulate successful subscription and activate organization
-        await storage.updateOrganization(organizationId, { isActive: true });
+        await storage.updateOrganization(organizationId, { 
+          isActive: true,
+          subscriptionPlan: plan,
+          subscriptionStatus: "active",
+          billingStartDate: new Date().toISOString().split("T")[0],
+          seatLimit: seatLimits[plan] || 4,
+        });
         return res.json({
           success: true,
           message: "Subscription activated (demo mode)",
@@ -507,7 +561,13 @@ export async function registerRoutes(
 
       if (result.success) {
         // Activate organization after successful payment
-        await storage.updateOrganization(organizationId, { isActive: true });
+        await storage.updateOrganization(organizationId, { 
+          isActive: true,
+          subscriptionPlan: plan,
+          subscriptionStatus: "active",
+          billingStartDate: new Date().toISOString().split("T")[0],
+          seatLimit: seatLimits[plan] || 4,
+        });
         
         res.json({
           success: true,
@@ -536,6 +596,39 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch billing status" });
+    }
+  });
+
+  // Get organization subscription status
+  app.get("/api/billing/subscription", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const org = await storage.getOrganization(orgId);
+      
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+
+      const today = new Date();
+      const trialEndDate = org.trialEndDate ? new Date(org.trialEndDate) : null;
+      const isTrialExpired = trialEndDate ? today > trialEndDate : false;
+      const daysRemaining = trialEndDate 
+        ? Math.max(0, Math.ceil((trialEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+      res.json({
+        plan: org.subscriptionPlan || "starter",
+        status: org.subscriptionStatus || "trial",
+        trialEndDate: org.trialEndDate,
+        billingStartDate: org.billingStartDate,
+        isTrialExpired,
+        daysRemaining,
+        seatLimit: org.seatLimit || 4,
+        firstMonthFree: org.firstMonthFree || false,
+        isActive: org.isActive,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch subscription status" });
     }
   });
 
