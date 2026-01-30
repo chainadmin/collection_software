@@ -125,6 +125,7 @@ const adminSections: NavSection[] = [
     title: "Global Settings",
     icon: Settings,
     items: [
+      { title: "App Settings", url: "/app/admin/settings", icon: Settings },
       { title: "Collector Options", url: "/app/collectors", icon: UserCog },
       { title: "Fee Schedule", url: "/app/admin/settings/fees", icon: DollarSign },
       { title: "Server Access", url: "/app/admin/settings/server-access", icon: Server },

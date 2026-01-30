@@ -81,6 +81,7 @@ function AppRouter() {
       <Route path="/app/admin/reporting/time-clock" component={TimeClock} />
       <Route path="/app/admin/settings/fees" component={FeeSchedules} />
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
+      <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />
       <Route component={NotFound} />
     </Switch>
