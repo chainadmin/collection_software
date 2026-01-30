@@ -170,8 +170,8 @@ export default function Workstation() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : collectors?.[0];
-  const isReady = !collectorsLoading && !authLoading && currentCollector && authUser;
+  const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : null;
+  const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
 
   const { data: activeTimeEntry } = useQuery<TimeClockEntry | null>({
@@ -269,7 +269,7 @@ export default function Workstation() {
     ? (debtors
         ?.filter((d) => {
           const isWorkable = workableStatuses.includes(d.status);
-          const isAssigned = d.assignedCollectorId === currentCollector.id;
+          const isAssigned = d.assignedCollectorId === authUser?.id;
           const matchesFilter = statusFilter === "all" || d.status === statusFilter;
           return isWorkable && isAssigned && matchesFilter;
         })
@@ -999,12 +999,12 @@ export default function Workstation() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold">Work Queue</h2>
             <div className="flex items-center gap-2">
-              {currentCollector && (
+              {authUser && (
                 <Badge variant="secondary" className="text-xs">
-                  @{currentCollector.username}
+                  @{authUser.name}
                 </Badge>
               )}
-              {currentCollector && (currentCollector.role === "admin" || currentCollector.role === "manager") && (
+              {authUser && (authUser.role === "admin" || authUser.role === "manager") && (
                 <Link to="/app">
                   <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
                     <LayoutDashboard className="h-4 w-4 mr-1" />

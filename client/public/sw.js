@@ -1,4 +1,4 @@
-const CACHE_NAME = 'collectmax-v1';
+const CACHE_NAME = 'debtmanagerpro-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

@@ -58,7 +58,7 @@ function LogoutButton() {
 
   const handleLogout = () => {
     logout();
-    setLocation("/");
+    setLocation("/login");
   };
 
   return (
