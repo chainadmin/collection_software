@@ -58,6 +58,16 @@ Reports can be filtered by client, portfolio, or date range, showing per-payment
 ### Recall Management
 Supports "Recall" and "Monthly Payors" categorization, flexible filtering, and batch export of recall lists with full account details.
 
+### IP Whitelist Feature
+Organizations can restrict collector login access by IP address:
+- **Organization Setting**: `ipRestrictionEnabled` flag toggles enforcement
+- **Whitelist Management**: CRUD operations via `/api/ip-whitelist` endpoints
+- **CIDR Support**: Supports both exact IP matching (e.g., `192.168.1.100`) and CIDR notation (e.g., `192.168.1.0/24`)
+- **IPv6 Normalization**: Automatically strips `::ffff:` prefix for IPv6-mapped IPv4 addresses
+- **Empty Whitelist**: When restriction is enabled but whitelist is empty, all IPs are allowed
+- **Multi-Tenant Isolation**: Each organization has its own isolated whitelist; cross-tenant access is prevented via organizationId validation on all CRUD operations
+- **Frontend**: Managed via Admin Settings > Server Access page
+
 ### External API v2
 A comprehensive external API is provided for integration with SMS platforms, soft phones, and dialers. It uses Bearer Token authentication with organization-scoped tokens. 
 
