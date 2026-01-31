@@ -35,6 +35,7 @@ import {
   apiTokens,
   communicationAttempts,
   adminNotifications,
+  ipWhitelist,
   type Organization,
   type InsertOrganization,
   type User,
@@ -104,6 +105,8 @@ import {
   type InsertCommunicationAttempt,
   type AdminNotification,
   type InsertAdminNotification,
+  type IpWhitelist,
+  type InsertIpWhitelist,
 } from "@shared/schema";
 import type { IStorage } from "./storage";
 import { randomUUID } from "crypto";
@@ -1053,5 +1056,61 @@ export class DatabaseStorage implements IStorage {
 
   async markAllAdminNotificationsRead(): Promise<void> {
     await db.update(adminNotifications).set({ isRead: true });
+  }
+
+  // IP Whitelist methods
+  async getIpWhitelist(organizationId: string): Promise<IpWhitelist[]> {
+    return await db.select().from(ipWhitelist).where(eq(ipWhitelist.organizationId, organizationId));
+  }
+
+  async getIpWhitelistEntry(id: string): Promise<IpWhitelist | undefined> {
+    const [entry] = await db.select().from(ipWhitelist).where(eq(ipWhitelist.id, id));
+    return entry;
+  }
+
+  async createIpWhitelistEntry(entry: InsertIpWhitelist): Promise<IpWhitelist> {
+    const id = randomUUID();
+    const [created] = await db.insert(ipWhitelist).values({ ...entry, id }).returning();
+    return created;
+  }
+
+  async updateIpWhitelistEntry(id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined> {
+    const [updated] = await db.update(ipWhitelist).set(entry).where(eq(ipWhitelist.id, id)).returning();
+    return updated;
+  }
+
+  async deleteIpWhitelistEntry(id: string): Promise<boolean> {
+    const result = await db.delete(ipWhitelist).where(eq(ipWhitelist.id, id));
+    return true;
+  }
+
+  async isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean> {
+    const whitelist = await this.getIpWhitelist(organizationId);
+    const activeEntries = whitelist.filter(entry => entry.isActive);
+    if (activeEntries.length === 0) return true; // No whitelist means allow all
+    
+    // Check for exact IP match or CIDR range match
+    for (const entry of activeEntries) {
+      if (entry.ipAddress === ipAddress) return true;
+      
+      // Handle CIDR notation (e.g., 192.168.1.0/24)
+      if (entry.ipAddress.includes('/')) {
+        if (this.ipInCidr(ipAddress, entry.ipAddress)) return true;
+      }
+    }
+    return false;
+  }
+
+  private ipInCidr(ip: string, cidr: string): boolean {
+    const [range, bits] = cidr.split('/');
+    const mask = ~(2 ** (32 - parseInt(bits)) - 1);
+    const ipNum = this.ipToNumber(ip);
+    const rangeNum = this.ipToNumber(range);
+    return (ipNum & mask) === (rangeNum & mask);
+  }
+
+  private ipToNumber(ip: string): number {
+    const parts = ip.split('.').map(Number);
+    return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
   }
 }

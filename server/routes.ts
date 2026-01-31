@@ -272,6 +272,26 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Your organization is not active" });
       }
 
+      // Check IP whitelist if enabled for this organization
+      if (organization.ipRestrictionEnabled) {
+        let clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 
+                       req.socket.remoteAddress || 
+                       '127.0.0.1';
+        
+        // Normalize IPv6-mapped IPv4 addresses (::ffff:192.168.1.1 -> 192.168.1.1)
+        if (clientIp.startsWith('::ffff:')) {
+          clientIp = clientIp.substring(7);
+        }
+        
+        const isWhitelisted = await storage.isIpWhitelisted(organization.id, clientIp);
+        if (!isWhitelisted) {
+          console.log(`IP ${clientIp} blocked for org ${organization.id}`);
+          return res.status(403).json({ 
+            error: "Access denied. Your IP address is not authorized to login to this organization." 
+          });
+        }
+      }
+
       res.json({
         message: "Login successful",
         collector: {
@@ -1463,6 +1483,115 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete merchant" });
+    }
+  });
+
+  // IP Whitelist API (organization-scoped)
+  app.get("/api/ip-whitelist", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const whitelist = await storage.getIpWhitelist(orgId);
+      res.json(whitelist);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch IP whitelist" });
+    }
+  });
+
+  app.post("/api/ip-whitelist", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ipAddress, description, isActive } = req.body;
+      
+      if (!ipAddress) {
+        return res.status(400).json({ error: "IP address is required" });
+      }
+      
+      const entry = await storage.createIpWhitelistEntry({
+        organizationId: orgId,
+        ipAddress,
+        description: description || null,
+        isActive: isActive !== undefined ? isActive : true,
+        createdDate: new Date().toISOString(),
+        createdBy: null,
+      });
+      
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Failed to add IP to whitelist:", error);
+      res.status(500).json({ error: "Failed to add IP to whitelist" });
+    }
+  });
+
+  app.patch("/api/ip-whitelist/:id", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { id } = req.params;
+      const { isActive, description } = req.body;
+      
+      // Verify entry belongs to this organization
+      const existing = await storage.getIpWhitelistEntry(id);
+      if (!existing || existing.organizationId !== orgId) {
+        return res.status(404).json({ error: "IP whitelist entry not found" });
+      }
+      
+      const entry = await storage.updateIpWhitelistEntry(id, { isActive, description });
+      res.json(entry);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update IP whitelist entry" });
+    }
+  });
+
+  app.delete("/api/ip-whitelist/:id", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { id } = req.params;
+      
+      // Verify entry belongs to this organization
+      const existing = await storage.getIpWhitelistEntry(id);
+      if (!existing || existing.organizationId !== orgId) {
+        return res.status(404).json({ error: "IP whitelist entry not found" });
+      }
+      
+      await storage.deleteIpWhitelistEntry(id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete IP whitelist entry" });
+    }
+  });
+
+  // Update organization IP restriction setting
+  app.patch("/api/organization/ip-restriction", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { enabled } = req.body;
+      
+      const org = await storage.updateOrganization(orgId, { 
+        ipRestrictionEnabled: enabled 
+      });
+      
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      
+      res.json({ ipRestrictionEnabled: org.ipRestrictionEnabled });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update IP restriction setting" });
+    }
+  });
+
+  // Get organization IP restriction status
+  app.get("/api/organization/ip-restriction", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const org = await storage.getOrganization(orgId);
+      
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      
+      res.json({ ipRestrictionEnabled: org.ipRestrictionEnabled ?? false });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get IP restriction status" });
     }
   });
 

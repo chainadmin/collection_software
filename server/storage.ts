@@ -68,6 +68,8 @@ import {
   type InsertCommunicationAttempt,
   type AdminNotification,
   type InsertAdminNotification,
+  type IpWhitelist,
+  type InsertIpWhitelist,
 } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
 
@@ -295,6 +297,14 @@ export interface IStorage {
   createAdminNotification(notification: InsertAdminNotification): Promise<AdminNotification>;
   markAdminNotificationRead(id: string): Promise<AdminNotification | undefined>;
   markAllAdminNotificationsRead(): Promise<void>;
+
+  // IP Whitelist (organization-scoped)
+  getIpWhitelist(organizationId: string): Promise<IpWhitelist[]>;
+  getIpWhitelistEntry(id: string): Promise<IpWhitelist | undefined>;
+  createIpWhitelistEntry(entry: InsertIpWhitelist): Promise<IpWhitelist>;
+  updateIpWhitelistEntry(id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined>;
+  deleteIpWhitelistEntry(id: string): Promise<boolean>;
+  isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -332,6 +342,7 @@ export class MemStorage implements IStorage {
   private communicationAttempts: Map<string, CommunicationAttempt>;
   private globalAdmins: Map<string, GlobalAdmin>;
   private adminNotifications: Map<string, AdminNotification>;
+  private ipWhitelistEntries: Map<string, IpWhitelist>;
 
   constructor() {
     this.organizations = new Map();
@@ -368,6 +379,7 @@ export class MemStorage implements IStorage {
     this.communicationAttempts = new Map();
     this.globalAdmins = new Map();
     this.adminNotifications = new Map();
+    this.ipWhitelistEntries = new Map();
     
     // Only seed demo data in development mode - production starts with empty database
     if (process.env.NODE_ENV !== 'production') {
@@ -392,6 +404,13 @@ export class MemStorage implements IStorage {
       isActive: true,
       createdDate: new Date().toISOString(),
       settings: null,
+      subscriptionPlan: "starter",
+      subscriptionStatus: "trial",
+      trialEndDate: null,
+      billingStartDate: null,
+      firstMonthFree: false,
+      seatLimit: 4,
+      ipRestrictionEnabled: false,
     });
 
     // Create global super admin
@@ -950,6 +969,13 @@ export class MemStorage implements IStorage {
       isActive: org.isActive ?? true,
       createdDate: org.createdDate,
       settings: org.settings ?? null,
+      subscriptionPlan: org.subscriptionPlan ?? "starter",
+      subscriptionStatus: org.subscriptionStatus ?? "trial",
+      trialEndDate: org.trialEndDate ?? null,
+      billingStartDate: org.billingStartDate ?? null,
+      firstMonthFree: org.firstMonthFree ?? false,
+      seatLimit: org.seatLimit ?? 4,
+      ipRestrictionEnabled: org.ipRestrictionEnabled ?? false,
     };
     this.organizations.set(id, newOrg);
     return newOrg;
@@ -2366,6 +2392,72 @@ export class MemStorage implements IStorage {
     Array.from(this.adminNotifications.entries()).forEach(([id, notification]) => {
       this.adminNotifications.set(id, { ...notification, isRead: true });
     });
+  }
+
+  // IP Whitelist methods
+  async getIpWhitelist(organizationId: string): Promise<IpWhitelist[]> {
+    return Array.from(this.ipWhitelistEntries.values()).filter(entry => entry.organizationId === organizationId);
+  }
+
+  async getIpWhitelistEntry(id: string): Promise<IpWhitelist | undefined> {
+    return this.ipWhitelistEntries.get(id);
+  }
+
+  async createIpWhitelistEntry(entry: InsertIpWhitelist): Promise<IpWhitelist> {
+    const id = randomUUID();
+    const newEntry: IpWhitelist = {
+      id,
+      organizationId: entry.organizationId,
+      ipAddress: entry.ipAddress,
+      description: entry.description ?? null,
+      isActive: entry.isActive ?? true,
+      createdDate: entry.createdDate,
+      createdBy: entry.createdBy ?? null,
+    };
+    this.ipWhitelistEntries.set(id, newEntry);
+    return newEntry;
+  }
+
+  async updateIpWhitelistEntry(id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined> {
+    const existing = this.ipWhitelistEntries.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...entry };
+    this.ipWhitelistEntries.set(id, updated);
+    return updated;
+  }
+
+  async deleteIpWhitelistEntry(id: string): Promise<boolean> {
+    return this.ipWhitelistEntries.delete(id);
+  }
+
+  async isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean> {
+    const whitelist = await this.getIpWhitelist(organizationId);
+    const activeEntries = whitelist.filter(entry => entry.isActive);
+    if (activeEntries.length === 0) return true; // No whitelist means allow all
+    
+    // Check for exact IP match or CIDR range match
+    for (const entry of activeEntries) {
+      if (entry.ipAddress === ipAddress) return true;
+      
+      // Handle CIDR notation (e.g., 192.168.1.0/24)
+      if (entry.ipAddress.includes('/')) {
+        if (this.ipInCidr(ipAddress, entry.ipAddress)) return true;
+      }
+    }
+    return false;
+  }
+
+  private ipInCidr(ip: string, cidr: string): boolean {
+    const [range, bits] = cidr.split('/');
+    const mask = ~(2 ** (32 - parseInt(bits)) - 1);
+    const ipNum = this.ipToNumber(ip);
+    const rangeNum = this.ipToNumber(range);
+    return (ipNum & mask) === (rangeNum & mask);
+  }
+
+  private ipToNumber(ip: string): number {
+    const parts = ip.split('.').map(Number);
+    return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
   }
 }
 

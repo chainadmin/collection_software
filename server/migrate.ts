@@ -691,6 +691,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'seat_limit') THEN
           ALTER TABLE organizations ADD COLUMN seat_limit integer DEFAULT 4;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'ip_restriction_enabled') THEN
+          ALTER TABLE organizations ADD COLUMN ip_restriction_enabled boolean DEFAULT false;
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_tokens' AND column_name = 'organization_id') THEN
           ALTER TABLE api_tokens ADD COLUMN organization_id varchar;
         END IF;
