@@ -1,4 +1,4 @@
-const CACHE_NAME = 'debtmanagerpro-v3';
+const CACHE_NAME = 'debtmanagerpro-v4';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

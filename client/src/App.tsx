@@ -90,6 +90,7 @@ function AppRouter() {
 
 function AppLayout() {
   const [location, setLocation] = useLocation();
+  const { user: authUser } = useAuth();
   
   const { data: collectors = [] } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
@@ -170,12 +171,19 @@ function AppLayout() {
           />
         )}
         <SidebarInset className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex h-12 items-center justify-between gap-4 border-b px-4 shrink-0">
+          <header className="flex h-12 items-center justify-between gap-4 px-4 shrink-0 bg-green-600 dark:bg-green-700 text-white dark:text-white">
             <div className="flex items-center gap-2">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white dark:text-white" />
               <AccountSearch onSelect={handleAccountSelect} />
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-4">
+              {authUser && (
+                <span className="text-sm font-medium" data-testid="text-logged-in-user">
+                  {authUser.name}
+                </span>
+              )}
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-auto bg-background">
             <AppRouter />
