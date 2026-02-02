@@ -174,6 +174,7 @@ export const debtors = pgTable("debtors", {
   status: text("status").notNull().default("newbiz"), // newbiz, 1st_message, final, promise, payments_pending, decline, open, in_payment, settled, closed, disputed
   lastContactDate: text("last_contact_date"),
   nextFollowUpDate: text("next_follow_up_date"),
+  chargeOffDate: text("charge_off_date"), // date account was charged off
   customFields: text("custom_fields"), // JSON bucket for additional imported data
 });
 

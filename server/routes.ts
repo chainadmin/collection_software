@@ -2231,7 +2231,7 @@ export async function registerRoutes(
           const knownFields = new Set([
             'accountNumber', 'firstName', 'lastName', 'email', 'address', 'city', 'state', 'zipCode',
             'dateOfBirth', 'ssn', 'ssnLast4', 'originalBalance', 'currentBalance', 'originalCreditor',
-            'clientName', 'fileNumber', 'status', 'lastContactDate', 'nextFollowUpDate',
+            'clientName', 'fileNumber', 'status', 'lastContactDate', 'nextFollowUpDate', 'chargeOffDate',
             'phone', 'phone1', 'phone2', 'phone3', 'phone4', 'phone5', 
             'phone1Label', 'phone2Label', 'phone3Label', 'phone4Label', 'phone5Label',
             'email1', 'email2', 'email3', 'email1Label', 'email2Label', 'email3Label',
@@ -2270,6 +2270,7 @@ export async function registerRoutes(
             status: mappedData.status || "open",
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
+            chargeOffDate: mappedData.chargeOffDate || null,
             customFields: Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null,
             organizationId: DEFAULT_ORG_ID,
           });

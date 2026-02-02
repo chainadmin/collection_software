@@ -697,6 +697,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_tokens' AND column_name = 'organization_id') THEN
           ALTER TABLE api_tokens ADD COLUMN organization_id varchar;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'debtors' AND column_name = 'charge_off_date') THEN
+          ALTER TABLE debtors ADD COLUMN charge_off_date text;
+        END IF;
       END $$;
     `);
 

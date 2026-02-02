@@ -1209,6 +1209,10 @@ export default function Workstation() {
                       <span className="text-muted-foreground">Original Creditor: </span>
                       <span>{selectedDebtor.originalCreditor || "N/A"}</span>
                     </div>
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Charge Off Date: </span>
+                      <span>{selectedDebtor.chargeOffDate ? formatDate(selectedDebtor.chargeOffDate) : "N/A"}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="text-right shrink-0">

@@ -67,6 +67,7 @@ export default function ImportExport() {
     { value: "status", label: "Status" },
     { value: "lastContactDate", label: "Last Contact Date" },
     { value: "nextFollowUpDate", label: "Next Follow Up Date" },
+    { value: "chargeOffDate", label: "Charge Off Date" },
     { value: "clientId", label: "Client ID" },
     { value: "portfolioId", label: "Portfolio ID" },
     // Phone Numbers (up to 5)
