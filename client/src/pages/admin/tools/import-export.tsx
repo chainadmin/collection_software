@@ -143,6 +143,16 @@ export default function ImportExport() {
     queryKey: ["/api/clients"],
   });
 
+  const { data: nextFileNumberData } = useQuery<{ nextFileNumber: number }>({
+    queryKey: ["/api/import/next-file-number"],
+  });
+
+  useEffect(() => {
+    if (nextFileNumberData?.nextFileNumber) {
+      setFileNumberStart(nextFileNumberData.nextFileNumber.toString());
+    }
+  }, [nextFileNumberData]);
+
   const filteredPortfolios = importClientId 
     ? portfolios.filter(p => p.clientId === importClientId)
     : [];

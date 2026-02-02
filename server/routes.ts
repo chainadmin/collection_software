@@ -2135,6 +2135,29 @@ export async function registerRoutes(
     }
   });
 
+  // Get next available file number for imports
+  app.get("/api/import/next-file-number", async (req, res) => {
+    try {
+      const allDebtors = await storage.getDebtors();
+      const year = new Date().getFullYear();
+      const prefix = `FN-${year}-`;
+      
+      let maxNumber = 0;
+      for (const debtor of allDebtors) {
+        if (debtor.fileNumber && debtor.fileNumber.startsWith(prefix)) {
+          const numPart = parseInt(debtor.fileNumber.substring(prefix.length), 10);
+          if (!isNaN(numPart) && numPart > maxNumber) {
+            maxNumber = numPart;
+          }
+        }
+      }
+      
+      res.json({ nextFileNumber: maxNumber + 1 });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get next file number" });
+    }
+  });
+
   // Import Data API - handles partial imports, upserts, and SSN-based linking
   app.post("/api/import/debtors", async (req, res) => {
     try {
