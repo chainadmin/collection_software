@@ -30,6 +30,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   LayoutDashboard,
+  Trash2,
+  Check,
+  X,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { Link } from "wouter";
@@ -95,6 +98,10 @@ export default function Workstation() {
   const [bankOpen, setBankOpen] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
+  const [newCustomFieldName, setNewCustomFieldName] = useState("");
+  const [newCustomFieldValue, setNewCustomFieldValue] = useState("");
+  const [editingCustomField, setEditingCustomField] = useState<string | null>(null);
+  const [editingCustomFieldValue, setEditingCustomFieldValue] = useState("");
   
   // Additional info dialogs
   const [showAdditionalInfoDialog, setShowAdditionalInfoDialog] = useState(false);
@@ -1004,14 +1011,12 @@ export default function Workstation() {
                   @{authUser.name}
                 </Badge>
               )}
-              {authUser && (authUser.role === "admin" || authUser.role === "manager") && (
-                <Link to="/app">
-                  <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
-                    <LayoutDashboard className="h-4 w-4 mr-1" />
-                    Dashboard
-                  </Button>
-                </Link>
-              )}
+              <Link to="/app">
+                <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
+                  <LayoutDashboard className="h-4 w-4 mr-1" />
+                  Admin
+                </Button>
+              </Link>
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 mb-2">
@@ -1702,50 +1707,137 @@ export default function Workstation() {
                   </Card>
                 </Collapsible>
 
-                {/* Custom Fields Section - displays imported custom/extra data */}
-                {selectedDebtor?.customFields && (() => {
+                {/* Custom Fields Section - editable custom data */}
+                {selectedDebtor && (() => {
+                  let customData: Record<string, any> = {};
                   try {
-                    const customData = JSON.parse(selectedDebtor.customFields);
-                    if (Object.keys(customData).length > 0) {
-                      return (
-                        <Collapsible open={customFieldsOpen} onOpenChange={setCustomFieldsOpen}>
-                          <Card>
-                            <CollapsibleTrigger asChild>
-                              <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
-                                <CardTitle className="text-sm font-medium flex items-center justify-between">
-                                  <span className="flex items-center gap-2">
-                                    <LayoutDashboard className="h-4 w-4" />
-                                    Custom Fields
-                                    <Badge variant="secondary" className="text-xs">{Object.keys(customData).length}</Badge>
-                                  </span>
-                                  <ChevronRight
-                                    className={`h-4 w-4 transition-transform ${customFieldsOpen ? "rotate-90" : ""}`}
-                                  />
-                                </CardTitle>
-                              </CardHeader>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <CardContent>
-                                <div className="space-y-2">
-                                  {Object.entries(customData).map(([key, value]) => (
-                                    <div key={key} className="flex justify-between items-start p-2 rounded-md bg-muted/50">
-                                      <span className="text-sm font-medium text-muted-foreground capitalize">
-                                        {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
-                                      </span>
-                                      <span className="text-sm text-right max-w-[60%] break-words">{String(value)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </CardContent>
-                            </CollapsibleContent>
-                          </Card>
-                        </Collapsible>
-                      );
+                    if (selectedDebtor.customFields) {
+                      customData = JSON.parse(selectedDebtor.customFields);
                     }
-                    return null;
-                  } catch {
-                    return null;
-                  }
+                  } catch {}
+                  const fieldCount = Object.keys(customData).length;
+                  
+                  const handleAddCustomField = () => {
+                    if (!newCustomFieldName.trim() || !selectedDebtorId) return;
+                    const updatedFields = { ...customData, [newCustomFieldName.trim()]: newCustomFieldValue };
+                    updateDebtorMutation.mutate({
+                      id: selectedDebtorId,
+                      updates: { customFields: JSON.stringify(updatedFields) }
+                    });
+                    setNewCustomFieldName("");
+                    setNewCustomFieldValue("");
+                  };
+                  
+                  const handleEditCustomField = (key: string) => {
+                    if (!selectedDebtorId) return;
+                    const updatedFields = { ...customData, [key]: editingCustomFieldValue };
+                    updateDebtorMutation.mutate({
+                      id: selectedDebtorId,
+                      updates: { customFields: JSON.stringify(updatedFields) }
+                    });
+                    setEditingCustomField(null);
+                    setEditingCustomFieldValue("");
+                  };
+                  
+                  const handleDeleteCustomField = (key: string) => {
+                    if (!selectedDebtorId) return;
+                    const updatedFields = { ...customData };
+                    delete updatedFields[key];
+                    updateDebtorMutation.mutate({
+                      id: selectedDebtorId,
+                      updates: { customFields: Object.keys(updatedFields).length > 0 ? JSON.stringify(updatedFields) : null }
+                    });
+                  };
+                  
+                  return (
+                    <Collapsible open={customFieldsOpen} onOpenChange={setCustomFieldsOpen}>
+                      <Card>
+                        <CollapsibleTrigger asChild>
+                          <CardHeader className="pb-2 cursor-pointer hover-elevate rounded-t-lg">
+                            <CardTitle className="text-sm font-medium flex items-center justify-between">
+                              <span className="flex items-center gap-2">
+                                <LayoutDashboard className="h-4 w-4" />
+                                Custom Fields
+                                {fieldCount > 0 && <Badge variant="secondary" className="text-xs">{fieldCount}</Badge>}
+                              </span>
+                              <ChevronRight
+                                className={`h-4 w-4 transition-transform ${customFieldsOpen ? "rotate-90" : ""}`}
+                              />
+                            </CardTitle>
+                          </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <CardContent className="space-y-3">
+                            {/* Existing custom fields */}
+                            {Object.entries(customData).map(([key, value]) => (
+                              <div key={key} className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
+                                <span className="text-sm font-medium text-muted-foreground min-w-[100px] capitalize">
+                                  {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
+                                </span>
+                                {editingCustomField === key ? (
+                                  <>
+                                    <Input
+                                      value={editingCustomFieldValue}
+                                      onChange={(e) => setEditingCustomFieldValue(e.target.value)}
+                                      className="flex-1"
+                                      data-testid={`input-custom-field-edit-${key}`}
+                                    />
+                                    <Button size="icon" variant="ghost" onClick={() => handleEditCustomField(key)} data-testid={`button-save-custom-field-${key}`}>
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" onClick={() => setEditingCustomField(null)} data-testid={`button-cancel-custom-field-${key}`}>
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-sm flex-1 break-words">{String(value)}</span>
+                                    <Button 
+                                      size="icon" 
+                                      variant="ghost" 
+                                      onClick={() => { setEditingCustomField(key); setEditingCustomFieldValue(String(value)); }}
+                                      data-testid={`button-edit-custom-field-${key}`}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" onClick={() => handleDeleteCustomField(key)} data-testid={`button-delete-custom-field-${key}`}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                            
+                            {/* Add new custom field */}
+                            <div className="flex items-center gap-2 pt-2 border-t">
+                              <Input
+                                placeholder="Field name"
+                                value={newCustomFieldName}
+                                onChange={(e) => setNewCustomFieldName(e.target.value)}
+                                className="min-w-[100px] max-w-[140px]"
+                                data-testid="input-new-custom-field-name"
+                              />
+                              <Input
+                                placeholder="Value"
+                                value={newCustomFieldValue}
+                                onChange={(e) => setNewCustomFieldValue(e.target.value)}
+                                className="flex-1"
+                                data-testid="input-new-custom-field-value"
+                              />
+                              <Button 
+                                size="sm" 
+                                onClick={handleAddCustomField}
+                                disabled={!newCustomFieldName.trim()}
+                                data-testid="button-add-custom-field"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Card>
+                    </Collapsible>
+                  );
                 })()}
               </div>
             </ScrollArea>

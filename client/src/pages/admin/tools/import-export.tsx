@@ -124,6 +124,17 @@ export default function ImportExport() {
     // Legacy fields for backward compatibility
     { value: "phone", label: "Phone (Legacy)" },
     { value: "email", label: "Email (Legacy)" },
+    // Custom Fields - store in customFields JSON using original column name
+    { value: "custom1", label: "→ Custom Field (uses column name)" },
+    { value: "custom2", label: "→ Custom Field 2" },
+    { value: "custom3", label: "→ Custom Field 3" },
+    { value: "custom4", label: "→ Custom Field 4" },
+    { value: "custom5", label: "→ Custom Field 5" },
+    { value: "custom6", label: "→ Custom Field 6" },
+    { value: "custom7", label: "→ Custom Field 7" },
+    { value: "custom8", label: "→ Custom Field 8" },
+    { value: "custom9", label: "→ Custom Field 9" },
+    { value: "custom10", label: "→ Custom Field 10" },
   ];
 
   const contactFields = [

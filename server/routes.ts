@@ -2191,7 +2191,13 @@ export async function registerRoutes(
                 value = Math.round(parseFloat(value.replace(/[$,]/g, '')) * 100) || 0;
               }
               
-              mappedData[systemField] = value;
+              // For custom field slots, use the original CSV column name as the key
+              if (systemField.startsWith("custom") && /^custom\d+$/.test(systemField)) {
+                // Store with original column name as key (will go into customFields)
+                mappedData[csvColumn] = value;
+              } else {
+                mappedData[systemField] = value;
+              }
             }
           }
 
