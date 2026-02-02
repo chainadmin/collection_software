@@ -103,7 +103,7 @@ export default function Dashboard() {
               title="Collections Today"
               value={formatCurrencyCompact(stats?.collectionsToday || 0)}
               icon={DollarSign}
-              trend={{ value: 12.5, isPositive: true }}
+              subtitle="Posted payments today"
             />
             <StatCard
               title="Active Accounts"
@@ -113,14 +113,15 @@ export default function Dashboard() {
             />
             <StatCard
               title="Recovery Rate"
-              value={`${stats?.recoveryRate || 0}%`}
+              value={`${((stats?.recoveryRate || 0)).toFixed(1)}%`}
               icon={TrendingUp}
-              trend={{ value: 2.3, isPositive: true }}
+              subtitle="Overall collection rate"
             />
             <StatCard
               title="Avg Collection"
               value={formatCurrency(stats?.avgCollectionAmount || 0)}
               icon={CreditCard}
+              subtitle="Per payment average"
             />
           </>
         )}
