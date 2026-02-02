@@ -2197,13 +2197,10 @@ export async function registerRoutes(
             }
           }
 
-          // Auto-generate file number if not provided: FN-{YYYY}-{sequential}
-          let autoFileNumber = mappedData.fileNumber;
-          if (!autoFileNumber) {
-            const year = new Date().getFullYear();
-            const seq = (results.created + existingDebtors.length + 1).toString().padStart(6, '0');
-            autoFileNumber = `FN-${year}-${seq}`;
-          }
+          // Always auto-generate file number: FN-{YYYY}-{sequential}
+          const year = new Date().getFullYear();
+          const seq = (results.created + existingDebtors.length + 1).toString().padStart(6, '0');
+          const autoFileNumber = `FN-${year}-${seq}`;
 
           // Collect unmapped columns as custom fields
           const knownFields = new Set([
