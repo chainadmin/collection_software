@@ -2138,11 +2138,13 @@ export async function registerRoutes(
   // Import Data API - handles partial imports, upserts, and SSN-based linking
   app.post("/api/import/debtors", async (req, res) => {
     try {
-      const { portfolioId, clientId, records, mappings } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string> };
+      const { portfolioId, clientId, records, mappings, fileNumberStart } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string>; fileNumberStart?: number };
       
       if (!portfolioId || !clientId || !records || !mappings) {
         return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
       }
+      
+      const startingFileNumber = fileNumberStart || 1;
 
       const results = {
         created: 0,
@@ -2199,7 +2201,7 @@ export async function registerRoutes(
 
           // Always auto-generate file number: FN-{YYYY}-{sequential}
           const year = new Date().getFullYear();
-          const seq = (results.created + existingDebtors.length + 1).toString().padStart(6, '0');
+          const seq = (startingFileNumber + results.created).toString().padStart(6, '0');
           const autoFileNumber = `FN-${year}-${seq}`;
 
           // Collect unmapped columns as custom fields

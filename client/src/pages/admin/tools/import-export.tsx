@@ -20,6 +20,7 @@ export default function ImportExport() {
   const [importPortfolioId, setImportPortfolioId] = useState("");
   const [createNewPortfolio, setCreateNewPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState("");
+  const [fileNumberStart, setFileNumberStart] = useState("1");
   const [exportType, setExportType] = useState("accounts");
   const [exportPortfolio, setExportPortfolio] = useState("");
   const [exportFormat, setExportFormat] = useState("csv");
@@ -276,13 +277,14 @@ export default function ImportExport() {
   };
 
   const importMutation = useMutation({
-    mutationFn: async (data: { records: any[]; mappings: Record<string, string>; portfolioId: string; clientId: string; importType: string }) => {
+    mutationFn: async (data: { records: any[]; mappings: Record<string, string>; portfolioId: string; clientId: string; importType: string; fileNumberStart?: number }) => {
       const endpoint = data.importType === "contacts" ? "/api/import/contacts" : "/api/import/debtors";
       const res = await apiRequest("POST", endpoint, {
         portfolioId: data.portfolioId,
         clientId: data.clientId,
         records: data.records,
         mappings: data.mappings,
+        fileNumberStart: data.fileNumberStart,
       });
       return res.json();
     },
@@ -322,6 +324,7 @@ export default function ImportExport() {
       portfolioId: importPortfolioId,
       clientId: importClientId,
       importType,
+      fileNumberStart: parseInt(fileNumberStart) || 1,
     });
   };
 
@@ -461,6 +464,23 @@ export default function ImportExport() {
                         </div>
                       )}
                     </>
+                  )}
+
+                  {importType === "accounts" && (
+                    <div className="space-y-2">
+                      <Label>File Number Starting At</Label>
+                      <Input 
+                        type="number"
+                        min="1"
+                        value={fileNumberStart}
+                        onChange={(e) => setFileNumberStart(e.target.value)}
+                        placeholder="1"
+                        data-testid="input-file-number-start"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        File numbers will be generated as FN-{new Date().getFullYear()}-{fileNumberStart.padStart(6, '0')}, FN-{new Date().getFullYear()}-{(parseInt(fileNumberStart) + 1 || 2).toString().padStart(6, '0')}, etc.
+                      </p>
+                    </div>
                   )}
 
                   <div className="space-y-2">
