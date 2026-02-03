@@ -39,15 +39,54 @@ function generateSlug(name: string): string {
     .substring(0, 50);
 }
 
-// Organization ID is extracted from X-Organization-Id header or defaults to default-org
+// Default organization ID for unauthenticated requests (public pages only)
 const DEFAULT_ORG_ID = "default-org";
 
-function getOrgId(req: { headers: Record<string, string | string[] | undefined> }): string {
-  const headerValue = req.headers["x-organization-id"];
-  if (typeof headerValue === "string" && headerValue.length > 0) {
-    return headerValue;
+// Get organization ID from authenticated session
+// For authenticated routes, always use session data for security
+function getOrgId(req: any): string {
+  // Session-based authentication - primary and most secure method
+  if (req.session?.collector?.organizationId) {
+    return req.session.collector.organizationId;
   }
+  // Fallback for public routes or unauthenticated contexts
   return DEFAULT_ORG_ID;
+}
+
+// Check if user is authenticated
+function isAuthenticated(req: any): boolean {
+  return !!(req.session?.collector || req.session?.globalAdmin);
+}
+
+// Authentication middleware - requires valid session
+function requireAuth(req: any, res: any, next: any) {
+  if (!isAuthenticated(req)) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  next();
+}
+
+// Require collector role authentication
+function requireCollectorAuth(req: any, res: any, next: any) {
+  if (!req.session?.collector) {
+    return res.status(401).json({ error: "Collector authentication required" });
+  }
+  next();
+}
+
+// Require global admin authentication
+function requireGlobalAdminAuth(req: any, res: any, next: any) {
+  if (!req.session?.globalAdmin) {
+    return res.status(401).json({ error: "Super admin authentication required" });
+  }
+  next();
+}
+
+// Validate that a resource belongs to the authenticated user's organization
+// Returns true if valid, false if the resource doesn't belong to the org
+function validateOrgOwnership(resourceOrgId: string | null | undefined, sessionOrgId: string): boolean {
+  if (!resourceOrgId) return false;
+  return resourceOrgId === sessionOrgId;
 }
 
 // Check if organization has active subscription or is in trial period
@@ -87,6 +126,55 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Public routes that don't require authentication (paths relative to /api)
+  // Note: These should be minimal - only what's needed before login
+  const publicPaths = [
+    "/auth/login",
+    "/auth/logout",
+    "/auth/session",
+    "/auth/signup",
+    "/super-admin/login",
+    "/billing/status",
+    "/billing/prices",
+    "/v2/", // External API uses bearer token auth
+  ];
+  
+  // Semi-public routes that allow read-only access but should be limited
+  // These are needed for initial page load before user completes login
+  const semiPublicPaths = [
+    "/organizations/", // Allow org lookup by ID/slug for initial page load
+  ];
+
+  // Global authentication middleware for /api routes (except public paths)
+  app.use("/api", (req: any, res: any, next: any) => {
+    const path = req.path;
+    
+    // Skip auth for public paths
+    if (publicPaths.some(p => path === p || path.startsWith(p))) {
+      return next();
+    }
+    
+    // Allow semi-public paths (read-only, for initial page load)
+    if (semiPublicPaths.some(p => path.startsWith(p)) && req.method === "GET") {
+      return next();
+    }
+    
+    // For super-admin routes, require global admin auth
+    if (path.startsWith("/super-admin/")) {
+      if (!req.session?.globalAdmin) {
+        return res.status(401).json({ error: "Super admin authentication required" });
+      }
+      return next();
+    }
+    
+    // For all other /api routes, require collector auth (session-based)
+    if (req.session?.collector) {
+      return next();
+    }
+    
+    return res.status(401).json({ error: "Authentication required" });
+  });
+  
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
       const dateRange = (req.query.dateRange as string) || "this_month";
@@ -98,7 +186,9 @@ export async function registerRoutes(
   });
 
   // Organization routes
-  app.get("/api/organizations", async (req, res) => {
+  // Note: Getting all organizations is restricted to super admin only
+  // Regular collectors can only access their own organization via /api/organizations/:id
+  app.get("/api/organizations", requireGlobalAdminAuth, async (req, res) => {
     try {
       const organizations = await storage.getOrganizations();
       res.json(organizations);
@@ -107,24 +197,61 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/organizations/:id", async (req, res) => {
+  // Organization lookup - returns limited public info for login page, full info for authenticated users
+  app.get("/api/organizations/:id", async (req: any, res) => {
     try {
       const organization = await storage.getOrganization(req.params.id);
       if (!organization) {
         return res.status(404).json({ error: "Organization not found" });
       }
+      
+      // For authenticated users, verify they're accessing their own org or are global admin
+      if (req.session?.collector) {
+        if (!validateOrgOwnership(organization.id, req.session.collector.organizationId) && !req.session?.globalAdmin) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+      
+      // For unauthenticated requests (login page), return limited info
+      if (!req.session?.collector && !req.session?.globalAdmin) {
+        return res.json({
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          isActive: organization.isActive,
+        });
+      }
+      
       res.json(organization);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch organization" });
     }
   });
 
-  app.get("/api/organizations/slug/:slug", async (req, res) => {
+  app.get("/api/organizations/slug/:slug", async (req: any, res) => {
     try {
       const organization = await storage.getOrganizationBySlug(req.params.slug);
       if (!organization) {
         return res.status(404).json({ error: "Organization not found" });
       }
+      
+      // For authenticated users, verify they're accessing their own org or are global admin
+      if (req.session?.collector) {
+        if (!validateOrgOwnership(organization.id, req.session.collector.organizationId) && !req.session?.globalAdmin) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+      
+      // For unauthenticated requests (login page), return limited info
+      if (!req.session?.collector && !req.session?.globalAdmin) {
+        return res.json({
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          isActive: organization.isActive,
+        });
+      }
+      
       res.json(organization);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch organization" });
@@ -143,8 +270,17 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/organizations/:id", async (req, res) => {
+  // Organization update - only allowed for own org or by global admin
+  app.patch("/api/organizations/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const isGlobalAdmin = !!req.session?.globalAdmin;
+      
+      // Only allow updating own organization or if global admin
+      if (!isGlobalAdmin && req.params.id !== orgId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
       const organization = await storage.updateOrganization(req.params.id, req.body);
       if (!organization) {
         return res.status(404).json({ error: "Organization not found" });
@@ -155,7 +291,8 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/organizations/:id", async (req, res) => {
+  // Organization delete - restricted to global admin only
+  app.delete("/api/organizations/:id", requireGlobalAdminAuth, async (req, res) => {
     try {
       const deleted = await storage.deleteOrganization(req.params.id);
       if (!deleted) {
@@ -300,6 +437,15 @@ export async function registerRoutes(
         }
       }
 
+      // Store collector info in session
+      req.session.collector = {
+        id: collector.id,
+        organizationId: organization.id,
+        role: collector.role,
+        name: collector.name,
+        email: collector.email || "",
+      };
+
       res.json({
         message: "Login successful",
         collector: {
@@ -339,6 +485,13 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Your admin account is not active" });
       }
 
+      // Store global admin info in session
+      req.session.globalAdmin = {
+        id: admin.id,
+        username: admin.username,
+        name: admin.name,
+      };
+
       res.json({
         message: "Super admin login successful",
         admin: {
@@ -351,6 +504,34 @@ export async function registerRoutes(
       console.error("Super admin login error:", error);
       res.status(500).json({ error: "Login failed" });
     }
+  });
+
+  // Logout - destroy session
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Logout failed" });
+      }
+      res.clearCookie("connect.sid");
+      res.json({ message: "Logged out successfully" });
+    });
+  });
+
+  // Get current session info
+  app.get("/api/auth/session", (req, res) => {
+    if (req.session?.collector) {
+      return res.json({ 
+        type: "collector", 
+        collector: req.session.collector 
+      });
+    }
+    if (req.session?.globalAdmin) {
+      return res.json({ 
+        type: "globalAdmin", 
+        admin: req.session.globalAdmin 
+      });
+    }
+    return res.json({ type: null });
   });
 
   // Super Admin - Get all organizations
@@ -671,11 +852,16 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clients/:id", async (req, res) => {
+  app.get("/api/clients/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const client = await storage.getClient(req.params.id);
       if (!client) {
         return res.status(404).json({ error: "Client not found" });
+      }
+      // Validate org ownership
+      if (!validateOrgOwnership(client.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(client);
     } catch (error) {
@@ -697,24 +883,34 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/clients/:id", async (req, res) => {
+  app.patch("/api/clients/:id", async (req: any, res) => {
     try {
-      const client = await storage.updateClient(req.params.id, req.body);
-      if (!client) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getClient(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Client not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const client = await storage.updateClient(req.params.id, req.body);
       res.json(client);
     } catch (error) {
       res.status(500).json({ error: "Failed to update client" });
     }
   });
 
-  app.delete("/api/clients/:id", async (req, res) => {
+  app.delete("/api/clients/:id", async (req: any, res) => {
     try {
-      const deleted = await storage.deleteClient(req.params.id);
-      if (!deleted) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getClient(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Client not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteClient(req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete client" });
@@ -781,10 +977,13 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/collectors", async (req, res) => {
+  app.get("/api/collectors", async (req: any, res) => {
     try {
-      const collectors = await storage.getCollectors();
-      res.json(collectors);
+      const orgId = getOrgId(req);
+      const allCollectors = await storage.getCollectors();
+      // Filter to only return collectors from the authenticated user's organization
+      const orgCollectors = allCollectors.filter(c => c.organizationId === orgId);
+      res.json(orgCollectors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collectors" });
     }
@@ -934,20 +1133,27 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/portfolios", async (req, res) => {
+  app.get("/api/portfolios", async (req: any, res) => {
     try {
-      const portfolios = await storage.getPortfolios();
-      res.json(portfolios);
+      const orgId = getOrgId(req);
+      const allPortfolios = await storage.getPortfolios();
+      // Filter to only return portfolios from the authenticated user's organization
+      const orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
+      res.json(orgPortfolios);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch portfolios" });
     }
   });
 
-  app.get("/api/portfolios/:id", async (req, res) => {
+  app.get("/api/portfolios/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const portfolio = await storage.getPortfolio(req.params.id);
       if (!portfolio) {
         return res.status(404).json({ error: "Portfolio not found" });
+      }
+      if (!validateOrgOwnership(portfolio.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(portfolio);
     } catch (error) {
@@ -980,26 +1186,34 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/portfolios/:id", async (req, res) => {
+  app.delete("/api/portfolios/:id", async (req: any, res) => {
     try {
-      const deleted = await storage.deletePortfolio(req.params.id);
-      if (!deleted) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getPortfolio(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Portfolio not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deletePortfolio(req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete portfolio" });
     }
   });
 
-  app.get("/api/debtors", async (req, res) => {
+  app.get("/api/debtors", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { portfolioId, collectorId } = req.query;
-      const debtors = await storage.getDebtors(
+      const allDebtors = await storage.getDebtors(
         portfolioId as string | undefined,
         collectorId as string | undefined
       );
-      res.json(debtors);
+      // Filter to only return debtors from the authenticated user's organization
+      const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+      res.json(orgDebtors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch debtors" });
     }
@@ -1028,11 +1242,15 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/debtors/:id", async (req, res) => {
+  app.get("/api/debtors/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const debtor = await storage.getDebtor(req.params.id);
       if (!debtor) {
         return res.status(404).json({ error: "Debtor not found" });
+      }
+      if (!validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(debtor);
     } catch (error) {
@@ -1053,24 +1271,34 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/debtors/:id", async (req, res) => {
+  app.patch("/api/debtors/:id", async (req: any, res) => {
     try {
-      const debtor = await storage.updateDebtor(req.params.id, req.body);
-      if (!debtor) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtor(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const debtor = await storage.updateDebtor(req.params.id, req.body);
       res.json(debtor);
     } catch (error) {
       res.status(500).json({ error: "Failed to update debtor" });
     }
   });
 
-  app.delete("/api/debtors/:id", async (req, res) => {
+  app.delete("/api/debtors/:id", async (req: any, res) => {
     try {
-      const deleted = await storage.deleteDebtor(req.params.id);
-      if (!deleted) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtor(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteDebtor(req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete debtor" });
@@ -1680,10 +1908,13 @@ export async function registerRoutes(
   });
 
   // Get all payments
-  app.get("/api/payments", async (req, res) => {
+  app.get("/api/payments", async (req: any, res) => {
     try {
-      const payments = await storage.getAllPayments();
-      res.json(payments);
+      const orgId = getOrgId(req);
+      const allPayments = await storage.getAllPayments();
+      // Filter to only return payments from the authenticated user's organization
+      const orgPayments = allPayments.filter(p => p.organizationId === orgId);
+      res.json(orgPayments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments" });
     }

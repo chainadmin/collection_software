@@ -1,10 +1,56 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import pg from "pg";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Set up session store with PostgreSQL
+const PgSession = connectPgSimple(session);
+const sessionPool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+// Declare session data types
+declare module "express-session" {
+  interface SessionData {
+    collector?: {
+      id: string;
+      organizationId: string;
+      role: string;
+      name: string;
+      email: string;
+    };
+    globalAdmin?: {
+      id: string;
+      username: string;
+      name: string;
+    };
+  }
+}
+
+app.use(
+  session({
+    store: new PgSession({
+      pool: sessionPool,
+      tableName: "user_sessions",
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: "lax",
+    },
+  })
+);
 
 declare module "http" {
   interface IncomingMessage {
