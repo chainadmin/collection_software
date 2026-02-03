@@ -1012,9 +1012,9 @@ export default function Workstation() {
                 </Badge>
               )}
               <Link to="/app">
-                <Button size="sm" variant="outline" data-testid="button-back-to-dashboard">
+                <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
                   <LayoutDashboard className="h-4 w-4 mr-1" />
-                  Admin
+                  Back to Admin
                 </Button>
               </Link>
             </div>
