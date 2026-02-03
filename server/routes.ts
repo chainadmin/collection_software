@@ -133,6 +133,7 @@ export async function registerRoutes(
     "/auth/logout",
     "/auth/session",
     "/auth/signup",
+    "/auth/status",
     "/super-admin/login",
     "/billing/status",
     "/billing/prices",
