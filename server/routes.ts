@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
 import { 
   chargeSubscription, 
   isConfigured as isAuthNetConfigured, 
@@ -13,13 +14,20 @@ import {
   type MerchantCredentials
 } from "./authorizenet";
 
-// Simple password hashing (for production, use bcrypt)
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
+const BCRYPT_ROUNDS = 12;
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
-function verifyPassword(password: string, hash: string): boolean {
-  return hashPassword(password) === hash;
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  // Support both bcrypt hashes (start with $2) and legacy SHA-256 hashes (64 hex chars)
+  if (hash.startsWith("$2")) {
+    return bcrypt.compare(password, hash);
+  }
+  // Legacy SHA-256 fallback for existing passwords
+  const sha256Hash = crypto.createHash("sha256").update(password).digest("hex");
+  return sha256Hash === hash;
 }
 
 // Generate URL-friendly slug from company name
@@ -204,7 +212,7 @@ export async function registerRoutes(
         name,
         email,
         username: email.split("@")[0],
-        password: hashPassword(password),
+        password: await hashPassword(password),
         role: "admin",
         status: "active",
         avatarInitials: name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2),
@@ -257,7 +265,7 @@ export async function registerRoutes(
       }
 
       // Verify password
-      if (!verifyPassword(password, collector.password)) {
+      if (!await verifyPassword(password, collector.password)) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
@@ -323,7 +331,7 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
-      if (!verifyPassword(password, admin.password)) {
+      if (!await verifyPassword(password, admin.password)) {
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
@@ -424,7 +432,7 @@ export async function registerRoutes(
         name: adminName,
         email: adminEmail,
         username: adminEmail,
-        password: hashPassword(adminPassword),
+        password: await hashPassword(adminPassword),
         role: "admin",
         status: "active",
         avatarInitials: adminName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
@@ -459,7 +467,7 @@ export async function registerRoutes(
       const admin = await storage.createGlobalAdmin({
         username,
         email: email || null,
-        password: hashPassword(password),
+        password: await hashPassword(password),
         name,
         createdDate: new Date().toISOString().split("T")[0],
         isActive: true,

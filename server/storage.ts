@@ -73,8 +73,10 @@ import {
 } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
 
-// Hash password using SHA256 (must match routes.ts hashPassword)
-function hashPassword(password: string): string {
+// Legacy SHA-256 hash for MemStorage seed data only
+// New passwords in production use bcrypt via routes.ts
+// The verifyPassword function supports both formats for backward compatibility
+function hashPasswordLegacy(password: string): string {
   return createHash("sha256").update(password).digest("hex");
 }
 
@@ -419,7 +421,7 @@ export class MemStorage implements IStorage {
       id: superAdminId,
       username: "chainadmin",
       email: null,
-      password: hashPassword("VV3$0vvlif3"),
+      password: hashPasswordLegacy("VV3$0vvlif3"),
       name: "Chain Admin",
       createdDate: new Date().toISOString(),
       isActive: true,
@@ -557,6 +559,7 @@ export class MemStorage implements IStorage {
       status: "open",
       lastContactDate: "2024-12-10",
       nextFollowUpDate: "2024-12-20",
+      chargeOffDate: null,
       customFields: null,
     });
     this.debtors.set(debtor2Id, {
@@ -585,6 +588,7 @@ export class MemStorage implements IStorage {
       status: "in_payment",
       lastContactDate: "2024-12-15",
       nextFollowUpDate: "2025-01-15",
+      chargeOffDate: null,
       customFields: null,
     });
     this.debtors.set(debtor3Id, {
@@ -613,6 +617,7 @@ export class MemStorage implements IStorage {
       status: "disputed",
       lastContactDate: "2024-11-28",
       nextFollowUpDate: null,
+      chargeOffDate: null,
       customFields: null,
     });
     this.debtors.set(debtor4Id, {
@@ -641,6 +646,7 @@ export class MemStorage implements IStorage {
       status: "open",
       lastContactDate: "2024-12-12",
       nextFollowUpDate: "2024-12-18",
+      chargeOffDate: null,
       customFields: null,
     });
     this.debtors.set(debtor5Id, {
@@ -669,6 +675,7 @@ export class MemStorage implements IStorage {
       status: "settled",
       lastContactDate: "2024-12-01",
       nextFollowUpDate: null,
+      chargeOffDate: null,
       customFields: null,
     });
 
@@ -1309,6 +1316,7 @@ export class MemStorage implements IStorage {
       status: debtor.status ?? "open",
       lastContactDate: debtor.lastContactDate ?? null,
       nextFollowUpDate: debtor.nextFollowUpDate ?? null,
+      chargeOffDate: debtor.chargeOffDate ?? null,
       customFields: debtor.customFields ?? null,
     };
     this.debtors.set(id, newDebtor);
