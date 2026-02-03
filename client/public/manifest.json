@@ -2,7 +2,7 @@
   "name": "Debt Manager Pro",
   "short_name": "DebtManager",
   "description": "Professional debt collection management software",
-  "start_url": "/",
+  "start_url": "/login",
   "display": "standalone",
   "background_color": "#09090b",
   "theme_color": "#16a34a",
