@@ -26,8 +26,8 @@ function LogoutButton() {
   const { logout } = useAuth();
   const [, setLocation] = useLocation();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     setLocation("/login");
   };
 
