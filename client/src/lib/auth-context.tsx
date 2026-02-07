@@ -13,7 +13,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setAuthUser: (user: AuthUser) => void;
 }
 
@@ -26,16 +26,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (stored) {
+    const validateSession = async () => {
+      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!stored) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const parsed = JSON.parse(stored);
-        setUser(parsed);
+        const response = await fetch("/api/auth/session");
+        const data = await response.json();
+
+        if (data.type === "collector" && data.collector) {
+          const authUser: AuthUser = {
+            id: data.collector.id,
+            email: data.collector.email,
+            name: data.collector.name,
+            role: data.collector.role,
+            organizationId: data.collector.organizationId,
+          };
+          setUser(authUser);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+        } else if (data.type === "globalAdmin" && data.admin) {
+          const parsed = JSON.parse(stored);
+          setUser(parsed);
+        } else {
+          localStorage.removeItem(AUTH_STORAGE_KEY);
+          setUser(null);
+        }
       } catch (e) {
         localStorage.removeItem(AUTH_STORAGE_KEY);
+        setUser(null);
       }
-    }
-    setIsLoading(false);
+
+      setIsLoading(false);
+    };
+
+    validateSession();
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -67,7 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (e) {
+    }
     setUser(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
   };
