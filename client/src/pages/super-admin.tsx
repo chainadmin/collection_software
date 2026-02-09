@@ -51,6 +51,11 @@ export default function SuperAdmin() {
 
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
+        if (!res.ok) {
+          localStorage.removeItem("superAdminSession");
+          setLocation("/super-admin-login");
+          return;
+        }
         const data = await res.json();
 
         if (data.type === "globalAdmin" && data.admin) {
@@ -70,16 +75,35 @@ export default function SuperAdmin() {
     validateSession();
   }, [setLocation]);
 
+  const handleSessionExpired = () => {
+    localStorage.removeItem("superAdminSession");
+    setSessionValid(false);
+    setAdmin(null);
+    setLocation("/super-admin-login");
+  };
+
   const { data: organizations = [], isLoading, refetch } = useQuery<Organization[]>({
     queryKey: ["/api/super-admin/organizations"],
     enabled: sessionValid,
+    retry: false,
   });
 
   const { data: notifications = [], refetch: refetchNotifications } = useQuery<AdminNotification[]>({
     queryKey: ["/api/super-admin/notifications"],
     enabled: sessionValid,
     refetchInterval: 30000,
+    retry: false,
   });
+
+  useEffect(() => {
+    const interceptor = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes("401")) {
+        handleSessionExpired();
+      }
+    };
+    window.addEventListener("unhandledrejection", interceptor);
+    return () => window.removeEventListener("unhandledrejection", interceptor);
+  }, []);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
