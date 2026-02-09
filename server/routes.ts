@@ -13,6 +13,10 @@ import {
   voidDebtorTransaction,
   type MerchantCredentials
 } from "./authorizenet";
+import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
+import { db } from "./db";
+import { emailSettings } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -370,6 +374,11 @@ export async function registerRoutes(
         createdDate: new Date().toISOString(),
       });
 
+      // Send email notification to super admin
+      sendNewOrgNotificationEmail(companyName, name, email, phone || "").catch((err) => {
+        console.error("Failed to send new org email notification:", err);
+      });
+
       // Return success with user info for auto-login
       res.status(201).json({
         message: "Account created successfully",
@@ -702,6 +711,88 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // Super Admin Email Settings API
+  const SUPER_ADMIN_ORG_ID = "system-super-admin";
+
+  app.get("/api/super-admin/email-settings", async (_req, res) => {
+    try {
+      const settings = await getSuperAdminEmailSettings();
+      if (settings) {
+        const { smtpPassword, ...safeSettings } = settings;
+        res.json({ ...safeSettings, hasPassword: !!smtpPassword });
+      } else {
+        res.json(null);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch email settings" });
+    }
+  });
+
+  app.post("/api/super-admin/email-settings", async (req, res) => {
+    try {
+      const { smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, fromEmail, fromName, notificationEmail, isActive } = req.body;
+
+      const existing = await getSuperAdminEmailSettings();
+
+      if (existing) {
+        const updateData: any = {
+          smtpHost,
+          smtpPort: smtpPort ? parseInt(smtpPort) : 587,
+          smtpUser,
+          smtpSecure: smtpSecure ?? false,
+          fromEmail,
+          fromName,
+          notificationEmail,
+          isActive: isActive ?? false,
+        };
+        if (smtpPassword) {
+          updateData.smtpPassword = smtpPassword;
+        }
+
+        await db.update(emailSettings)
+          .set(updateData)
+          .where(eq(emailSettings.organizationId, SUPER_ADMIN_ORG_ID));
+      } else {
+        await db.insert(emailSettings).values({
+          organizationId: SUPER_ADMIN_ORG_ID,
+          smtpHost,
+          smtpPort: smtpPort ? parseInt(smtpPort) : 587,
+          smtpUser,
+          smtpPassword: smtpPassword || "",
+          smtpSecure: smtpSecure ?? false,
+          fromEmail,
+          fromName,
+          notificationEmail,
+          isActive: isActive ?? false,
+        });
+      }
+
+      res.json({ success: true, message: "Email settings saved" });
+    } catch (error) {
+      console.error("Failed to save email settings:", error);
+      res.status(500).json({ error: "Failed to save email settings" });
+    }
+  });
+
+  app.post("/api/super-admin/email-settings/test", async (req, res) => {
+    try {
+      const { sendNewOrgNotificationEmail } = await import("./email");
+      const result = await sendNewOrgNotificationEmail(
+        "Test Company",
+        "Test User",
+        "test@example.com",
+        "(555) 000-0000"
+      );
+      if (result.success) {
+        res.json({ success: true, message: "Test email sent successfully" });
+      } else {
+        res.json({ success: false, error: result.error });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

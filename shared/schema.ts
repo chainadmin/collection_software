@@ -467,9 +467,11 @@ export const emailSettings = pgTable("email_settings", {
   smtpHost: text("smtp_host"),
   smtpPort: integer("smtp_port"),
   smtpUser: text("smtp_user"),
+  smtpPassword: text("smtp_password"),
   smtpSecure: boolean("smtp_secure").default(true),
   fromEmail: text("from_email"),
   fromName: text("from_name"),
+  notificationEmail: text("notification_email"),
   isActive: boolean("is_active").default(false),
 });
 

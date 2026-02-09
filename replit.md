@@ -116,6 +116,13 @@ A comprehensive external API is provided for integration with SMS platforms, sof
 ### Organization Subscription Billing
 - **Authorize.net**: Used *only* for billing organizations for their Debt Manager Pro subscription. Not used for debtor payments. Supports subscription plans and uses sandbox/production endpoints.
 
+### Email Notifications (Super Admin)
+- **Nodemailer**: Used to send SMTP-based email notifications from the super admin system account.
+- Super admin configures SMTP settings (host, port, user, password, from email) via the Email Settings tab in the super admin dashboard.
+- Settings are stored in the `email_settings` table with `organizationId = "system-super-admin"`.
+- When a new organization signs up, an email notification is automatically sent to the configured notification email (default: support@chainsoftwaregroup.com).
+- The password is never returned in API GET responses (only `hasPassword: boolean`).
+
 ### Debt Collection Merchant Gateways (Configured per organization)
 - **Authorize.net**: Supported processor type for debtor payments.
 - **NMI**: Supported processor type for debtor payments.

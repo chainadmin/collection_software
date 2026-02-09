@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShieldCheck, Building2, Power, PowerOff, Search, LogOut, RefreshCw, Plus, Bell, CheckCheck, Clock } from "lucide-react";
+import { ShieldCheck, Building2, Power, PowerOff, Search, LogOut, RefreshCw, Plus, Bell, CheckCheck, Clock, Mail, Send, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Organization, AdminNotification } from "@shared/schema";
@@ -169,6 +170,82 @@ export default function SuperAdmin() {
     },
   });
 
+  const [emailForm, setEmailForm] = useState({
+    smtpHost: "",
+    smtpPort: "587",
+    smtpUser: "",
+    smtpPassword: "",
+    smtpSecure: false,
+    fromEmail: "",
+    fromName: "Debt Manager Pro",
+    notificationEmail: "support@chainsoftwaregroup.com",
+    isActive: false,
+  });
+  const [showPassword, setShowPassword] = useState(false);
+
+  const { data: emailSettingsData, isLoading: emailSettingsLoading } = useQuery<{
+    smtpHost: string | null;
+    smtpPort: number | null;
+    smtpUser: string | null;
+    smtpSecure: boolean | null;
+    fromEmail: string | null;
+    fromName: string | null;
+    notificationEmail: string | null;
+    isActive: boolean | null;
+    hasPassword: boolean;
+  } | null>({
+    queryKey: ["/api/super-admin/email-settings"],
+    enabled: sessionValid,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (emailSettingsData) {
+      setEmailForm({
+        smtpHost: emailSettingsData.smtpHost || "",
+        smtpPort: String(emailSettingsData.smtpPort || 587),
+        smtpUser: emailSettingsData.smtpUser || "",
+        smtpPassword: "",
+        smtpSecure: emailSettingsData.smtpSecure ?? false,
+        fromEmail: emailSettingsData.fromEmail || "",
+        fromName: emailSettingsData.fromName || "Debt Manager Pro",
+        notificationEmail: emailSettingsData.notificationEmail || "support@chainsoftwaregroup.com",
+        isActive: emailSettingsData.isActive ?? false,
+      });
+    }
+  }, [emailSettingsData]);
+
+  const saveEmailMutation = useMutation({
+    mutationFn: async (data: typeof emailForm) => {
+      const res = await apiRequest("POST", "/api/super-admin/email-settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/email-settings"] });
+      toast({ title: "Saved", description: "Email settings saved successfully." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to save email settings.", variant: "destructive" });
+    },
+  });
+
+  const testEmailMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/super-admin/email-settings/test");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast({ title: "Test Email Sent", description: "Check your inbox for the test notification." });
+      } else {
+        toast({ title: "Test Failed", description: data.error || "Failed to send test email.", variant: "destructive" });
+      }
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to send test email.", variant: "destructive" });
+    },
+  });
+
   const handleCreateOrg = () => {
     if (!newOrg.name || !newOrg.slug || !newOrg.adminName || !newOrg.adminEmail || !newOrg.adminPassword) {
       toast({ title: "Validation Error", description: "Please fill in all required fields.", variant: "destructive" });
@@ -289,6 +366,10 @@ export default function SuperAdmin() {
                   {unreadCount}
                 </Badge>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="email-settings" data-testid="tab-email-settings">
+              <Mail className="h-4 w-4 mr-2" />
+              Email Settings
             </TabsTrigger>
           </TabsList>
 
@@ -624,6 +705,165 @@ export default function SuperAdmin() {
                       </div>
                     ))}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="email-settings">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <CardTitle data-testid="text-email-settings-title">Email Notification Settings</CardTitle>
+                    <CardDescription>Configure SMTP settings to send email notifications when new companies register.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="email-active">Email Notifications Active</Label>
+                    <Switch
+                      id="email-active"
+                      data-testid="switch-email-active"
+                      checked={emailForm.isActive}
+                      onCheckedChange={(checked) => setEmailForm({ ...emailForm, isActive: checked })}
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {emailSettingsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading email settings...</span>
+                  </div>
+                ) : (
+                <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-host">SMTP Host</Label>
+                    <Input
+                      id="smtp-host"
+                      data-testid="input-smtp-host"
+                      placeholder="smtp.office365.com"
+                      value={emailForm.smtpHost}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpHost: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-port">SMTP Port</Label>
+                    <Input
+                      id="smtp-port"
+                      data-testid="input-smtp-port"
+                      placeholder="587"
+                      value={emailForm.smtpPort}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpPort: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-user">SMTP Username / Email</Label>
+                    <Input
+                      id="smtp-user"
+                      data-testid="input-smtp-user"
+                      placeholder="notifications@yourdomain.com"
+                      value={emailForm.smtpUser}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpUser: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp-password">SMTP Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="smtp-password"
+                        data-testid="input-smtp-password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder={emailSettingsData?.hasPassword ? "Leave blank to keep existing" : "Enter password"}
+                        value={emailForm.smtpPassword}
+                        onChange={(e) => setEmailForm({ ...emailForm, smtpPassword: e.target.value })}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0"
+                        onClick={() => setShowPassword(!showPassword)}
+                        data-testid="button-toggle-password"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="smtp-secure"
+                    data-testid="checkbox-smtp-secure"
+                    checked={emailForm.smtpSecure}
+                    onCheckedChange={(checked) => setEmailForm({ ...emailForm, smtpSecure: !!checked })}
+                  />
+                  <Label htmlFor="smtp-secure">Use SSL/TLS (port 465). Leave unchecked for STARTTLS (port 587).</Label>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium mb-3">Sender Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="from-email">From Email Address</Label>
+                      <Input
+                        id="from-email"
+                        data-testid="input-from-email"
+                        placeholder="notifications@yourdomain.com"
+                        value={emailForm.fromEmail}
+                        onChange={(e) => setEmailForm({ ...emailForm, fromEmail: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="from-name">From Display Name</Label>
+                      <Input
+                        id="from-name"
+                        data-testid="input-from-name"
+                        placeholder="Debt Manager Pro"
+                        value={emailForm.fromName}
+                        onChange={(e) => setEmailForm({ ...emailForm, fromName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium mb-3">Notification Recipient</h4>
+                  <div className="space-y-2">
+                    <Label htmlFor="notification-email">Send Notifications To</Label>
+                    <Input
+                      id="notification-email"
+                      data-testid="input-notification-email"
+                      placeholder="support@chainsoftwaregroup.com"
+                      value={emailForm.notificationEmail}
+                      onChange={(e) => setEmailForm({ ...emailForm, notificationEmail: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Email address that will receive new company registration notifications.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2 flex-wrap">
+                  <Button
+                    data-testid="button-save-email-settings"
+                    onClick={() => saveEmailMutation.mutate(emailForm)}
+                    disabled={saveEmailMutation.isPending}
+                  >
+                    {saveEmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                    Save Settings
+                  </Button>
+                  <Button
+                    variant="outline"
+                    data-testid="button-test-email"
+                    onClick={() => testEmailMutation.mutate()}
+                    disabled={testEmailMutation.isPending || !emailForm.isActive}
+                  >
+                    {testEmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                    Send Test Email
+                  </Button>
+                </div>
+                </div>
                 )}
               </CardContent>
             </Card>
