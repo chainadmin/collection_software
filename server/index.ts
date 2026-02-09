@@ -9,6 +9,10 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 // Set up session store with PostgreSQL
 const PgSession = connectPgSimple(session);
 const sessionPool = new pg.Pool({

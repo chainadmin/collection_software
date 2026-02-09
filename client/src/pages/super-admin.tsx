@@ -83,17 +83,19 @@ export default function SuperAdmin() {
     setLocation("/super-admin-login");
   };
 
-  const { data: organizations = [], isLoading, refetch } = useQuery<Organization[]>({
+  const { data: organizations = [], isLoading, isError: orgsError, error: orgsErrorDetail, refetch } = useQuery<Organization[]>({
     queryKey: ["/api/super-admin/organizations"],
     enabled: sessionValid,
-    retry: false,
+    retry: 1,
+    staleTime: 0,
   });
 
   const { data: notifications = [], refetch: refetchNotifications } = useQuery<AdminNotification[]>({
     queryKey: ["/api/super-admin/notifications"],
     enabled: sessionValid,
     refetchInterval: 30000,
-    retry: false,
+    retry: 1,
+    staleTime: 0,
   });
 
   useEffect(() => {
@@ -533,7 +535,20 @@ export default function SuperAdmin() {
                 </div>
 
                 {isLoading ? (
-                  <div className="text-center py-8 text-muted-foreground">Loading organizations...</div>
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Loader2 className="h-8 w-8 mx-auto mb-3 animate-spin" />
+                    <p>Loading organizations...</p>
+                  </div>
+                ) : orgsError ? (
+                  <div className="text-center py-8">
+                    <Building2 className="h-12 w-12 mx-auto mb-3 opacity-50 text-destructive" />
+                    <p className="text-destructive font-medium">Failed to load organizations</p>
+                    <p className="text-sm text-muted-foreground mt-1">{orgsErrorDetail?.message || "Unknown error"}</p>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()} data-testid="button-retry-orgs">
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
+                  </div>
                 ) : filteredOrgs.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Building2 className="h-12 w-12 mx-auto mb-3 opacity-50" />

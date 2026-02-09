@@ -547,9 +547,12 @@ export async function registerRoutes(
   // Super Admin - Get all organizations
   app.get("/api/super-admin/organizations", async (req, res) => {
     try {
+      console.log("[Super Admin] Fetching organizations...");
       const organizations = await storage.getOrganizations();
+      console.log(`[Super Admin] Found ${organizations.length} organizations`);
       res.json(organizations);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("[Super Admin] Failed to fetch organizations:", error?.message || error);
       res.status(500).json({ error: "Failed to fetch organizations" });
     }
   });
