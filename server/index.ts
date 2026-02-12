@@ -30,6 +30,13 @@ sessionPool.query(`
   CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
 `).catch(err => console.error("Failed to create session table:", err));
 
+// Prune expired sessions ourselves since connect-pg-simple's built-in pruning
+// tries to read a table.sql file that doesn't exist in bundled production builds
+setInterval(() => {
+  sessionPool.query(`DELETE FROM "user_sessions" WHERE "expire" < NOW()`)
+    .catch(err => console.error("Session prune error:", err));
+}, 15 * 60 * 1000);
+
 // Declare session data types
 declare module "express-session" {
   interface SessionData {
@@ -53,7 +60,7 @@ app.use(
     store: new PgSession({
       pool: sessionPool,
       tableName: "user_sessions",
-      pruneSessionInterval: 60 * 15,
+      pruneSessionInterval: false,
     }),
     secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
     resave: false,
