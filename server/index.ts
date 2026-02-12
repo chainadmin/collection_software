@@ -15,6 +15,9 @@ if (process.env.NODE_ENV === "production") {
 
 const sessionPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('railway') || process.env.DATABASE_URL?.includes('neon')
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 // Declare session data types

@@ -1,0 +1,21 @@
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.051258065Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053391164Z"}
+{"message":"      address: '10.204.200.107',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053396360Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053402288Z"}
+{"message":"    }","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053407663Z"}
+{"message":"  ]","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053412042Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T03:14:57.053416795Z"}
+{"message":"3:14:56 AM [express] serving on port 8080","attributes":{"level":"info"},"timestamp":"2026-02-12T03:14:57.053421161Z"}
+{"message":"Starting Container","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:02.000000000Z"}
+{"message":"npm warn config production Use `--omit=dev` instead.","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:03.400237061Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:03.400250409Z"}
+{"message":"> rest-express@1.0.0 start","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:03.400262820Z"}
+{"message":"> NODE_ENV=production node dist/index.cjs","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:03.400271056Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:03.400277583Z"}
+{"message":"Running database migrations...","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:03.400284663Z"}
+{"message":"Stopping Container","attributes":{"level":"info"},"timestamp":"2026-02-12T03:18:07.000000000Z"}
+{"message":"npm error path /app","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:15.145378251Z"}
+{"message":"npm error command failed","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:15.145384626Z"}
+{"message":"npm error signal SIGTERM","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:15.145389770Z"}
+{"message":"npm error command sh -c NODE_ENV=production node dist/index.cjs","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:15.145395230Z"}
+{"message":"npm error A complete log of this run can be found in: /root/.npm/_logs/2026-02-12T03_12_40_771Z-debug-0.log","attributes":{"level":"error"},"timestamp":"2026-02-12T03:18:15.145400558Z"}
