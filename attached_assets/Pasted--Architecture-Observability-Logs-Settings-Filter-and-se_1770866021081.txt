@@ -1,0 +1,133 @@
+
+Architecture
+Observability
+Logs
+Settings
+
+
+
+
+Filter and search logs
+
+Last hour
+
+
+You reached the start of the range
+Feb 11, 2026, 9:13 PM
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427436238Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427448725Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427457036Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427464084Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427470866Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427478020Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427484604Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427491332Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427498870Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427507127Z"}
+{"message":"2:25:16 AM [express] POST /api 401 in 0ms :: {\"error\":\"Authentication required\"}","attributes":{"level":"info"},"timestamp":"2026-02-12T02:25:19.641952544Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702545027Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702553342Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702558318Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702562828Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702566885Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702571760Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702576528Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702582594Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702586825Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702591290Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256397013Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256407977Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256414140Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256421002Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256427227Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256433481Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256439628Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256445582Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256451595Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256457561Z"}
+{"message":"2:51:04 AM [express] POST /api 401 in 1ms :: {\"error\":\"Authentication required\"}","attributes":{"level":"info"},"timestamp":"2026-02-12T02:51:13.824335982Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954325360Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954334848Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954340491Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954345697Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954355405Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954360214Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954365019Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954401197Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954408133Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954415723Z"}
+{"message":"Super admin login error: AggregateError [ETIMEDOUT]: ","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046736163Z"}
+{"message":"        at afterConnectMultiple (node:net:1708:16) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046740643Z"}
+{"message":"    at /app/dist/index.cjs:70:13326","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046743471Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046751997Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046758808Z"}
+{"message":"    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046787854Z"}
+{"message":"    at async /app/dist/index.cjs:76:37966","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046793334Z"}
+{"message":"    at async fp.getGlobalAdminByUsername (/app/dist/index.cjs:749:16354)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046797933Z"}
+{"message":"    at async /app/dist/index.cjs:749:56862 {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046802588Z"}
+{"message":"  code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046807550Z"}
+{"message":"  [errors]: [","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046812293Z"}
+{"message":"    Error: connect ETIMEDOUT fd12:f2f5:3eff:1:a000:81:88cc:c86b:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046816789Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046821903Z"}
+{"message":"        at Timeout.internalConnectMultipleTimeout (node:net:1737:38)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046826078Z"}
+{"message":"        at listOnTimeout (node:internal/timers:590:11)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046830223Z"}
+{"message":"        at process.processTimers (node:internal/timers:523:7) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046835103Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046839271Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046843195Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046847924Z"}
+{"message":"      address: 'fd12:f2f5:3eff:1:a000:81:88cc:c86b',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046853694Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046858638Z"}
+{"message":"    },","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046862593Z"}
+{"message":"    Error: connect ETIMEDOUT 10.204.200.107:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046866923Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.046871108Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047140740Z"}
+{"message":"      address: '10.204.200.107',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047151686Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047172460Z"}
+{"message":"    }","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047181276Z"}
+{"message":"  ]","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047188189Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T03:05:16.047196573Z"}
+{"message":"Starting Container","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.000000000Z"}
+{"message":"npm warn config production Use `--omit=dev` instead.","attributes":{"level":"error"},"timestamp":"2026-02-12T03:08:56.901257698Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.901264801Z"}
+{"message":"> rest-express@1.0.0 start","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.901272882Z"}
+{"message":"> NODE_ENV=production node dist/index.cjs","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.901280680Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.901292531Z"}
+{"message":"Running database migrations...","attributes":{"level":"info"},"timestamp":"2026-02-12T03:08:56.901298769Z"}
+{"message":"Stopping Container","attributes":{"level":"info"},"timestamp":"2026-02-12T03:09:00.000000000Z"}
+{"message":"npm error path /app","attributes":{"level":"error"},"timestamp":"2026-02-12T03:09:06.653718263Z"}
+{"message":"npm error command failed","attributes":{"level":"error"},"timestamp":"2026-02-12T03:09:06.653725872Z"}
+{"message":"npm error signal SIGTERM","attributes":{"level":"error"},"timestamp":"2026-02-12T03:09:06.653733184Z"}
+{"message":"npm error command sh -c NODE_ENV=production node dist/index.cjs","attributes":{"level":"error"},"timestamp":"2026-02-12T03:09:06.653742853Z"}
+{"message":"npm error A complete log of this run can be found in: /root/.npm/_logs/2026-02-09T18_46_08_211Z-debug-0.log","attributes":{"level":"error"},"timestamp":"2026-02-12T03:09:06.653750075Z"}
+{"message":"Failed to create session table: AggregateError [ETIMEDOUT]: ","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082532555Z"}
+{"message":"    at /app/dist/index.cjs:70:13326","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082538229Z"}
+{"message":"    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082544022Z"}
+{"message":"  code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082556026Z"}
+{"message":"  [errors]: [","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082562271Z"}
+{"message":"    Error: connect ETIMEDOUT fd12:f2f5:3eff:1:a000:81:88cc:c86b:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082567760Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082573595Z"}
+{"message":"        at Timeout.internalConnectMultipleTimeout (node:net:1737:38)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082579454Z"}
+{"message":"        at listOnTimeout (node:internal/timers:590:11)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082584896Z"}
+{"message":"        at process.processTimers (node:internal/timers:523:7) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082590562Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082595921Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082602129Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082607816Z"}
+{"message":"      address: 'fd12:f2f5:3eff:1:a000:81:88cc:c86b',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082615214Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082621211Z"}
+{"message":"    },","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082627877Z"}
+{"message":"    Error: connect ETIMEDOUT 10.204.200.107:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082633327Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082639978Z"}
+{"message":"        at afterConnectMultiple (node:net:1708:16) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082645439Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082650816Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082656362Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082662222Z"}
+{"message":"      address: '10.204.200.107',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082668007Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082675240Z"}
+{"message":"    }","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.082681181Z"}
+{"message":"  ]","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214113154Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214117074Z"}
+{"message":"Migration error: AggregateError [ETIMEDOUT]: ","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214121946Z"}
+{"message":"    at /app/dist/index.cjs:70:13326","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214126083Z"}
+{"message":"    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214130218Z"}
+{"message":"    at async E7 (/app/dist/index.cjs:162:333)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214133862Z"}
+{"message":"    at async /app/dist/index.cjs:757:978 {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:11:18.214137632Z"}

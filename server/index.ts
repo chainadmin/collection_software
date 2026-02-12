@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
+import { PgSessionStore } from "./pg-session-store";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -13,29 +13,9 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-// Set up session store with PostgreSQL
-const PgSession = connectPgSimple(session);
 const sessionPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
-
-// Pre-create the session table so connect-pg-simple doesn't need table.sql file
-sessionPool.query(`
-  CREATE TABLE IF NOT EXISTS "user_sessions" (
-    "sid" varchar NOT NULL COLLATE "default",
-    "sess" json NOT NULL,
-    "expire" timestamp(6) NOT NULL,
-    CONSTRAINT "user_sessions_pkey" PRIMARY KEY ("sid")
-  ) WITH (OIDS=FALSE);
-  CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
-`).catch(err => console.error("Failed to create session table:", err));
-
-// Prune expired sessions ourselves since connect-pg-simple's built-in pruning
-// tries to read a table.sql file that doesn't exist in bundled production builds
-setInterval(() => {
-  sessionPool.query(`DELETE FROM "user_sessions" WHERE "expire" < NOW()`)
-    .catch(err => console.error("Session prune error:", err));
-}, 15 * 60 * 1000);
 
 // Declare session data types
 declare module "express-session" {
@@ -57,10 +37,10 @@ declare module "express-session" {
 
 app.use(
   session({
-    store: new PgSession({
+    store: new PgSessionStore({
       pool: sessionPool,
       tableName: "user_sessions",
-      pruneSessionInterval: false,
+      pruneInterval: 900,
     }),
     secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
     resave: false,
