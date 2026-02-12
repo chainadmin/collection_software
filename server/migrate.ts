@@ -4,8 +4,8 @@ import { sql } from "drizzle-orm";
 export async function runMigrations() {
   console.log("Running database migrations...");
   
-  if (!process.env.DATABASE_URL) {
-    console.log("DATABASE_URL not set, skipping migrations");
+  if (!process.env.DATABASE_URL && !process.env.DATABASE_PUBLIC_URL) {
+    console.log("DATABASE_URL/DATABASE_PUBLIC_URL not set, skipping migrations");
     return;
   }
 
