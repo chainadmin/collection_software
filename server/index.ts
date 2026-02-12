@@ -1,10 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import pg from "pg";
 import { PgSessionStore } from "./pg-session-store";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { createPgPool } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -13,11 +13,8 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-const sessionPool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') || process.env.DATABASE_URL?.includes('neon')
-    ? { rejectUnauthorized: false }
-    : false,
+const sessionPool = createPgPool({
+  max: Number(process.env.PG_SESSION_POOL_MAX || 10),
 });
 
 // Declare session data types
