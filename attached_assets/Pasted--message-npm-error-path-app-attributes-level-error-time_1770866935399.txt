@@ -1,0 +1,63 @@
+{"message":"npm error path /app","attributes":{"level":"error"},"timestamp":"2026-02-12T03:22:03.842415720Z"}
+{"message":"npm error command failed","attributes":{"level":"error"},"timestamp":"2026-02-12T03:22:03.842423095Z"}
+{"message":"npm error signal SIGTERM","attributes":{"level":"error"},"timestamp":"2026-02-12T03:22:03.842430155Z"}
+{"message":"npm error command sh -c NODE_ENV=production node dist/index.cjs","attributes":{"level":"error"},"timestamp":"2026-02-12T03:22:03.842439095Z"}
+{"message":"npm error A complete log of this run can be found in: /root/.npm/_logs/2026-02-12T03_18_03_021Z-debug-0.log","attributes":{"level":"error"},"timestamp":"2026-02-12T03:22:03.842447599Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380860390Z"}
+{"message":"      address: '10.204.200.107',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380867659Z"}
+{"message":"Migration error: AggregateError [ETIMEDOUT]: ","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380882123Z"}
+{"message":"    at /app/dist/index.cjs:70:13326","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380886487Z"}
+{"message":"    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380891791Z"}
+{"message":"    at async x7 (/app/dist/index.cjs:162:333)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380899343Z"}
+{"message":"    at async /app/dist/index.cjs:759:108443 {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380903889Z"}
+{"message":"  code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380908504Z"}
+{"message":"  [errors]: [","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380912571Z"}
+{"message":"    Error: connect ETIMEDOUT fd12:f2f5:3eff:1:a000:81:88cc:c86b:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380916680Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380920754Z"}
+{"message":"        at Timeout.internalConnectMultipleTimeout (node:net:1737:38)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380925063Z"}
+{"message":"        at listOnTimeout (node:internal/timers:590:11)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380932715Z"}
+{"message":"        at process.processTimers (node:internal/timers:523:7) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380937065Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380941465Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380945379Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380949957Z"}
+{"message":"      address: 'fd12:f2f5:3eff:1:a000:81:88cc:c86b',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380954304Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380959468Z"}
+{"message":"    },","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380963740Z"}
+{"message":"    Error: connect ETIMEDOUT 10.204.200.107:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380968792Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380973367Z"}
+{"message":"        at afterConnectMultiple (node:net:1708:16) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380977569Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380981606Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.380985621Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385839244Z"}
+{"message":"    }","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385843866Z"}
+{"message":"  ]","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385848271Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385852444Z"}
+{"message":"3:24:07 AM [express] serving on port 8080","attributes":{"level":"info"},"timestamp":"2026-02-12T03:24:14.385856787Z"}
+{"message":"Failed to create session table: AggregateError [ETIMEDOUT]: ","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385861628Z"}
+{"message":"    at /app/dist/index.cjs:70:13326","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385866312Z"}
+{"message":"    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385872134Z"}
+{"message":"    at async xl.createTable (/app/dist/index.cjs:749:840) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385878147Z"}
+{"message":"  code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385883441Z"}
+{"message":"  [errors]: [","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385888216Z"}
+{"message":"    Error: connect ETIMEDOUT fd12:f2f5:3eff:1:a000:81:88cc:c86b:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385893321Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385900711Z"}
+{"message":"        at Timeout.internalConnectMultipleTimeout (node:net:1737:38)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385906032Z"}
+{"message":"        at listOnTimeout (node:internal/timers:590:11)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385911407Z"}
+{"message":"        at process.processTimers (node:internal/timers:523:7) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385916908Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385922114Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385927545Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385934195Z"}
+{"message":"      address: 'fd12:f2f5:3eff:1:a000:81:88cc:c86b',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385939844Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385944784Z"}
+{"message":"    },","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385948914Z"}
+{"message":"    Error: connect ETIMEDOUT 10.204.200.107:5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385953753Z"}
+{"message":"        at createConnectionError (node:net:1678:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385959300Z"}
+{"message":"        at afterConnectMultiple (node:net:1708:16) {","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.385963974Z"}
+{"message":"      errno: -110,","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387722828Z"}
+{"message":"      code: 'ETIMEDOUT',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387728659Z"}
+{"message":"      syscall: 'connect',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387734445Z"}
+{"message":"      address: '10.204.200.107',","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387740585Z"}
+{"message":"      port: 5432","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387745146Z"}
+{"message":"    }","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387749557Z"}
+{"message":"  ]","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387754334Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T03:24:14.387759305Z"}

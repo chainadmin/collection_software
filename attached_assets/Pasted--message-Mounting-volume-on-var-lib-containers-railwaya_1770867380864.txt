@@ -1,0 +1,34 @@
+"message":"Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/8564c6b3-d268-4dae-bfab-c6341dc9ab67/vol_5cwqpz5vv45lpkfa","attributes":{"level":"info"},"timestamp":"2026-02-11T15:26:33.000000000Z"}
+{"message":"Certificate will not expire","attributes":{"level":"info"},"timestamp":"2026-02-11T15:27:12.768514732Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-11T15:27:12.768517972Z"}
+{"message":"PostgreSQL Database directory appears to contain a database; Skipping initialization","attributes":{"level":"info"},"timestamp":"2026-02-11T15:27:12.768521212Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-11T15:27:12.768524192Z"}
+{"message":"2026-02-11 15:27:04.112 UTC [6] LOG:  starting PostgreSQL 17.7 (Debian 17.7-3.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768527652Z"}
+{"message":"2026-02-11 15:27:04.158 UTC [6] LOG:  listening on IPv4 address \"0.0.0.0\", port 5432","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768530602Z"}
+{"message":"2026-02-11 15:27:04.159 UTC [6] LOG:  listening on IPv6 address \"::\", port 5432","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768533822Z"}
+{"message":"2026-02-11 15:27:04.165 UTC [6] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768537542Z"}
+{"message":"2026-02-11 15:27:04.173 UTC [29] LOG:  database system was interrupted; last known up at 2026-02-11 15:22:17 UTC","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768541882Z"}
+{"message":"2026-02-11 15:27:04.193 UTC [29] LOG:  database system was not properly shut down; automatic recovery in progress","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768545412Z"}
+{"message":"2026-02-11 15:27:04.196 UTC [29] LOG:  redo starts at 0/1B30718","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768548632Z"}
+{"message":"2026-02-11 15:27:04.196 UTC [29] LOG:  invalid record length at 0/1B30750: expected at least 24, got 0","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768551472Z"}
+{"message":"2026-02-11 15:27:04.196 UTC [29] LOG:  redo done at 0/1B30718 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768554412Z"}
+{"message":"2026-02-11 15:27:04.206 UTC [27] LOG:  checkpoint starting: end-of-recovery immediate wait","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768557542Z"}
+{"message":"2026-02-11 15:27:04.223 UTC [27] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.001 s, total=0.020 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/1B30750, redo lsn=0/1B30750","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.768560592Z"}
+{"message":"2026-02-11 15:27:04.228 UTC [6] LOG:  database system is ready to accept connections","attributes":{"level":"error"},"timestamp":"2026-02-11T15:27:12.778154379Z"}
+{"message":"Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/8564c6b3-d268-4dae-bfab-c6341dc9ab67/vol_5cwqpz5vv45lpkfa","attributes":{"level":"info"},"timestamp":"2026-02-11T15:31:34.000000000Z"}
+{"message":"Certificate will not expire","attributes":{"level":"info"},"timestamp":"2026-02-11T15:32:16.036261647Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-11T15:32:16.036265997Z"}
+{"message":"PostgreSQL Database directory appears to contain a database; Skipping initialization","attributes":{"level":"info"},"timestamp":"2026-02-11T15:32:16.036271217Z"}
+{"message":"","attributes":{"level":"info"},"timestamp":"2026-02-11T15:32:16.036275497Z"}
+{"message":"2026-02-11 15:32:09.564 UTC [6] LOG:  starting PostgreSQL 17.7 (Debian 17.7-3.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036280767Z"}
+{"message":"2026-02-11 15:32:09.564 UTC [6] LOG:  listening on IPv4 address \"0.0.0.0\", port 5432","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036284697Z"}
+{"message":"2026-02-11 15:32:09.564 UTC [6] LOG:  listening on IPv6 address \"::\", port 5432","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036290617Z"}
+{"message":"2026-02-11 15:32:09.571 UTC [6] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036294497Z"}
+{"message":"2026-02-11 15:32:09.590 UTC [28] LOG:  database system was interrupted; last known up at 2026-02-11 15:27:04 UTC","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036298047Z"}
+{"message":"2026-02-11 15:32:09.629 UTC [28] LOG:  database system was not properly shut down; automatic recovery in progress","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036302186Z"}
+{"message":"2026-02-11 15:32:09.634 UTC [28] LOG:  redo starts at 0/1B307C8","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036306696Z"}
+{"message":"2026-02-11 15:32:09.634 UTC [28] LOG:  invalid record length at 0/1B30800: expected at least 24, got 0","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036310466Z"}
+{"message":"2026-02-11 15:32:09.634 UTC [28] LOG:  redo done at 0/1B307C8 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036314176Z"}
+{"message":"2026-02-11 15:32:09.641 UTC [26] LOG:  checkpoint starting: end-of-recovery immediate wait","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036317816Z"}
+{"message":"2026-02-11 15:32:09.663 UTC [26] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.006 s, sync=0.001 s, total=0.026 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/1B30800, redo lsn=0/1B30800","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.036321806Z"}
+{"message":"2026-02-11 15:32:09.669 UTC [6] LOG:  database system is ready to accept connections","attributes":{"level":"error"},"timestamp":"2026-02-11T15:32:16.042962420Z"}
