@@ -19,6 +19,17 @@ const sessionPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+// Pre-create the session table so connect-pg-simple doesn't need table.sql file
+sessionPool.query(`
+  CREATE TABLE IF NOT EXISTS "user_sessions" (
+    "sid" varchar NOT NULL COLLATE "default",
+    "sess" json NOT NULL,
+    "expire" timestamp(6) NOT NULL,
+    CONSTRAINT "user_sessions_pkey" PRIMARY KEY ("sid")
+  ) WITH (OIDS=FALSE);
+  CREATE INDEX IF NOT EXISTS "IDX_user_sessions_expire" ON "user_sessions" ("expire");
+`).catch(err => console.error("Failed to create session table:", err));
+
 // Declare session data types
 declare module "express-session" {
   interface SessionData {
@@ -42,7 +53,7 @@ app.use(
     store: new PgSession({
       pool: sessionPool,
       tableName: "user_sessions",
-      createTableIfMissing: true,
+      pruneSessionInterval: 60 * 15,
     }),
     secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
     resave: false,
