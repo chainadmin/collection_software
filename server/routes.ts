@@ -456,16 +456,22 @@ export async function registerRoutes(
         email: collector.email || "",
       };
 
-      res.json({
-        message: "Login successful",
-        collector: {
-          id: collector.id,
-          name: collector.name,
-          email: collector.email,
-          role: collector.role,
-        },
-        organizationId: organization.id,
-        organizationName: organization.name,
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Failed to establish session" });
+        }
+        res.json({
+          message: "Login successful",
+          collector: {
+            id: collector.id,
+            name: collector.name,
+            email: collector.email,
+            role: collector.role,
+          },
+          organizationId: organization.id,
+          organizationName: organization.name,
+        });
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -495,20 +501,25 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Your admin account is not active" });
       }
 
-      // Store global admin info in session
       req.session.globalAdmin = {
         id: admin.id,
         username: admin.username,
         name: admin.name,
       };
 
-      res.json({
-        message: "Super admin login successful",
-        admin: {
-          id: admin.id,
-          username: admin.username,
-          name: admin.name,
-        },
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Failed to establish session" });
+        }
+        res.json({
+          message: "Super admin login successful",
+          admin: {
+            id: admin.id,
+            username: admin.username,
+            name: admin.name,
+          },
+        });
       });
     } catch (error) {
       console.error("Super admin login error:", error);

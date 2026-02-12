@@ -1,0 +1,59 @@
+
+
+Last hour
+
+
+You reached the start of the range
+Feb 11, 2026, 9:04 PM
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157865329Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157875545Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157884196Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157891150Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157898107Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157906770Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157913295Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157920289Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157926897Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:05:17.157934099Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427436238Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427448725Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427457036Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427464084Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427470866Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427478020Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427484604Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427491332Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427498870Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:17:58.427507127Z"}
+{"message":"2:25:16 AM [express] POST /api 401 in 0ms :: {\"error\":\"Authentication required\"}","attributes":{"level":"info"},"timestamp":"2026-02-12T02:25:19.641952544Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702545027Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702553342Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702558318Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702562828Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702566885Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702571760Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702576528Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702582594Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702586825Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:27:49.702591290Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256397013Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256407977Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256414140Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256421002Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256427227Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256433481Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256439628Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256445582Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256451595Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:38:01.256457561Z"}
+{"message":"2:51:04 AM [express] POST /api 401 in 1ms :: {\"error\":\"Authentication required\"}","attributes":{"level":"info"},"timestamp":"2026-02-12T02:51:13.824335982Z"}
+{"message":"Failed to prune sessions: Error: ENOENT: no such file or directory, open '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954325360Z"}
+{"message":"    at async open (node:internal/fs/promises:636:25)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954334848Z"}
+{"message":"    at async Object.readFile (node:internal/fs/promises:1235:14)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954340491Z"}
+{"message":"    at async n._rawEnsureSessionStoreTable (/app/dist/index.cjs:70:28756)","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954345697Z"}
+{"message":"    at async n._asyncQuery (/app/dist/index.cjs:70:29841) {","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954355405Z"}
+{"message":"  errno: -2,","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954360214Z"}
+{"message":"  code: 'ENOENT',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954365019Z"}
+{"message":"  syscall: 'open',","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954401197Z"}
+{"message":"  path: '/app/dist/table.sql'","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954408133Z"}
+{"message":"}","attributes":{"level":"error"},"timestamp":"2026-02-12T02:59:04.954415723Z"}
