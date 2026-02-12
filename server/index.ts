@@ -1,6 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import pg from "pg";
+import { pool } from "./db";
 import { PgSessionStore } from "./pg-session-store";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -12,13 +12,6 @@ const httpServer = createServer(app);
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
-
-const sessionPool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') || process.env.DATABASE_URL?.includes('neon')
-    ? { rejectUnauthorized: false }
-    : false,
-});
 
 // Declare session data types
 declare module "express-session" {
@@ -41,7 +34,7 @@ declare module "express-session" {
 app.use(
   session({
     store: new PgSessionStore({
-      pool: sessionPool,
+      pool: pool,
       tableName: "user_sessions",
       pruneInterval: 900,
     }),
