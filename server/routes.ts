@@ -111,10 +111,22 @@ async function checkSubscriptionActive(orgId: string): Promise<{ active: boolean
   }
   
   // If in trial, check if trial has expired
-  if (org.subscriptionStatus === "trial" && org.trialEndDate) {
+  if (org.subscriptionStatus === "trial") {
     const today = new Date();
-    const trialEnd = new Date(org.trialEndDate);
-    if (today <= trialEnd) {
+    const trialEnd = org.trialEndDate ? new Date(org.trialEndDate) : null;
+    const billingStart = org.billingStartDate ? new Date(org.billingStartDate) : null;
+
+    // Some organizations have a free month configured after creation.
+    // In that case, keep trial access until the later of trial end or billing start date.
+    const accessEndDate = trialEnd && billingStart
+      ? (trialEnd > billingStart ? trialEnd : billingStart)
+      : (billingStart || trialEnd);
+
+    if (!accessEndDate) {
+      return { active: true };
+    }
+
+    if (today <= accessEndDate) {
       return { active: true };
     } else {
       return { active: false, reason: "Trial has expired. Please subscribe to continue." };
@@ -582,6 +594,34 @@ export async function registerRoutes(
     }
   });
 
+  // Super Admin - Grant one free month and ensure the organization remains connected
+  app.patch("/api/super-admin/organizations/:id/grant-free-month", async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+
+      const today = new Date();
+      const extensionBase = org.billingStartDate ? new Date(org.billingStartDate) : today;
+      const extensionStart = extensionBase > today ? extensionBase : today;
+      const nextBillingStart = new Date(extensionStart);
+      nextBillingStart.setMonth(nextBillingStart.getMonth() + 1);
+
+      const updated = await storage.updateOrganization(req.params.id, {
+        isActive: true,
+        firstMonthFree: true,
+        subscriptionStatus: "trial",
+        trialEndDate: nextBillingStart.toISOString().split("T")[0],
+        billingStartDate: nextBillingStart.toISOString().split("T")[0],
+      });
+
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to grant free month" });
+    }
+  });
+
   // Super Admin - Create new organization with admin
   app.post("/api/super-admin/organizations", async (req, res) => {
     try {
@@ -926,9 +966,13 @@ export async function registerRoutes(
 
       const today = new Date();
       const trialEndDate = org.trialEndDate ? new Date(org.trialEndDate) : null;
-      const isTrialExpired = trialEndDate ? today > trialEndDate : false;
-      const daysRemaining = trialEndDate 
-        ? Math.max(0, Math.ceil((trialEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+      const billingStartDate = org.billingStartDate ? new Date(org.billingStartDate) : null;
+      const accessEndDate = trialEndDate && billingStartDate
+        ? (trialEndDate > billingStartDate ? trialEndDate : billingStartDate)
+        : (billingStartDate || trialEndDate);
+      const isTrialExpired = org.subscriptionStatus === "trial" && accessEndDate ? today > accessEndDate : false;
+      const daysRemaining = accessEndDate
+        ? Math.max(0, Math.ceil((accessEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
         : 0;
 
       res.json({

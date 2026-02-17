@@ -204,6 +204,11 @@ function AppContent() {
     location === "/signup" ||
     location === "/demo" ||
     location === "/contact";
+
+  const isStandaloneDesktop =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(display-mode: standalone)").matches;
     
   const isPublicRoute = 
     isPublicOnlyRoute ||
@@ -230,7 +235,9 @@ function AppContent() {
   if (isPublicRoute) {
     return (
       <Switch>
-        <Route path="/" component={Landing} />
+        <Route path="/">
+          {isStandaloneDesktop ? <Redirect to="/login" /> : <Landing />}
+        </Route>
         <Route path="/login" component={Login} />
         <Route path="/signup" component={Signup} />
         <Route path="/subscribe" component={Subscribe} />
