@@ -23,6 +23,12 @@ const PLAN_SEATS = {
   agency: 40,
 };
 
+const PLAN_PRICES: Record<string, number> = {
+  starter: 99,
+  growth: 249,
+  agency: 499,
+};
+
 export default function SuperAdmin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -151,6 +157,20 @@ export default function SuperAdmin() {
     },
   });
 
+  const freeMonthMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PATCH", `/api/super-admin/organizations/${id}/grant-free-month`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/organizations"] });
+      toast({ title: "Free Month Applied", description: "Billing has been extended and the company remains connected." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to apply free month.", variant: "destructive" });
+    },
+  });
+
   const markReadMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("PATCH", `/api/super-admin/notifications/${id}/read`);
@@ -270,6 +290,18 @@ export default function SuperAdmin() {
 
   const activeCount = organizations.filter((o) => o.isActive).length;
   const inactiveCount = organizations.filter((o) => !o.isActive).length;
+
+  const getMonthlyPaymentLabel = (org: Organization) => {
+    const amount = PLAN_PRICES[org.subscriptionPlan || "starter"] ?? PLAN_PRICES.starter;
+    const billingStart = org.billingStartDate ? new Date(org.billingStartDate) : null;
+    const today = new Date();
+
+    if (org.firstMonthFree && billingStart && billingStart > today) {
+      return "$0 (Free month)";
+    }
+
+    return `$${amount}/mo`;
+  };
 
   if (!admin || !sessionValid) {
     return null;
@@ -560,6 +592,7 @@ export default function SuperAdmin() {
                       <TableRow>
                         <TableHead>Organization</TableHead>
                         <TableHead>Plan</TableHead>
+                        <TableHead>Payment</TableHead>
                         <TableHead>Contact</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>Status</TableHead>
@@ -581,6 +614,9 @@ export default function SuperAdmin() {
                             </Badge>
                           </TableCell>
                           <TableCell>
+                            <span className="text-sm font-medium">{getMonthlyPaymentLabel(org)}</span>
+                          </TableCell>
+                          <TableCell>
                             <div className="text-sm">
                               <p>{org.email || "-"}</p>
                               <p className="text-muted-foreground">{org.phone || "-"}</p>
@@ -599,7 +635,7 @@ export default function SuperAdmin() {
                               variant="outline"
                               size="sm"
                               onClick={() => toggleMutation.mutate(org.id)}
-                              disabled={toggleMutation.isPending}
+                              disabled={toggleMutation.isPending || freeMonthMutation.isPending}
                               data-testid={`button-toggle-${org.id}`}
                             >
                               {org.isActive ? (
@@ -613,6 +649,16 @@ export default function SuperAdmin() {
                                   Enable
                                 </>
                               )}
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="ml-2"
+                              onClick={() => freeMonthMutation.mutate(org.id)}
+                              disabled={toggleMutation.isPending || freeMonthMutation.isPending}
+                              data-testid={`button-free-month-${org.id}`}
+                            >
+                              Free Month
                             </Button>
                           </TableCell>
                         </TableRow>
