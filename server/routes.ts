@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 import crypto from "crypto";
+import net from "net";
 import bcrypt from "bcrypt";
 import { 
   chargeSubscription, 
@@ -91,6 +92,40 @@ function requireGlobalAdminAuth(req: any, res: any, next: any) {
 function validateOrgOwnership(resourceOrgId: string | null | undefined, sessionOrgId: string): boolean {
   if (!resourceOrgId) return false;
   return resourceOrgId === sessionOrgId;
+}
+
+function normalizeIpAddress(ip: string): string {
+  if (ip.startsWith("::ffff:")) {
+    return ip.slice(7);
+  }
+  if (ip === "::1") {
+    return "127.0.0.1";
+  }
+  return ip;
+}
+
+function getClientIp(req: any): string {
+  const forwardedFor = (req.headers["x-forwarded-for"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const rawIp = normalizeIpAddress(req.ip || forwardedFor || req.socket.remoteAddress || "127.0.0.1");
+  return rawIp;
+}
+
+function isValidWhitelistEntry(entry: string): boolean {
+  const trimmed = entry.trim();
+  if (!trimmed) return false;
+
+  if (trimmed.includes("/")) {
+    const [ip, prefixLength] = trimmed.split("/");
+    const prefix = Number(prefixLength);
+    const version = net.isIP(ip);
+    if (!version || Number.isNaN(prefix)) return false;
+    const maxPrefix = version === 4 ? 32 : 128;
+    return prefix >= 0 && prefix <= maxPrefix;
+  }
+
+  return net.isIP(trimmed) !== 0;
 }
 
 // Check if organization has active subscription or is in trial period
@@ -441,15 +476,14 @@ export async function registerRoutes(
 
       // Check IP whitelist if enabled for this organization
       if (organization.ipRestrictionEnabled) {
-        let clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 
-                       req.socket.remoteAddress || 
-                       '127.0.0.1';
-        
-        // Normalize IPv6-mapped IPv4 addresses (::ffff:192.168.1.1 -> 192.168.1.1)
-        if (clientIp.startsWith('::ffff:')) {
-          clientIp = clientIp.substring(7);
+        const clientIp = getClientIp(req);
+
+        if (net.isIP(clientIp) === 0) {
+          return res.status(403).json({
+            error: "Access denied. Could not validate your IP address.",
+          });
         }
-        
+
         const isWhitelisted = await storage.isIpWhitelisted(organization.id, clientIp);
         if (!isWhitelisted) {
           console.log(`IP ${clientIp} blocked for org ${organization.id}`);
@@ -1891,10 +1925,14 @@ export async function registerRoutes(
       if (!ipAddress) {
         return res.status(400).json({ error: "IP address is required" });
       }
+
+      if (!isValidWhitelistEntry(ipAddress)) {
+        return res.status(400).json({ error: "Invalid IP address or CIDR range" });
+      }
       
       const entry = await storage.createIpWhitelistEntry({
         organizationId: orgId,
-        ipAddress,
+        ipAddress: ipAddress.trim(),
         description: description || null,
         isActive: isActive !== undefined ? isActive : true,
         createdDate: new Date().toISOString(),
@@ -2442,8 +2480,9 @@ export async function registerRoutes(
   // Import Batches API
   app.get("/api/import-batches", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batches = await storage.getImportBatches();
-      res.json(batches);
+      res.json(batches.filter((batch) => batch.organizationId === orgId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch import batches" });
     }
@@ -2451,9 +2490,13 @@ export async function registerRoutes(
 
   app.get("/api/import-batches/:id", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batch = await storage.getImportBatch(req.params.id);
       if (!batch) {
         return res.status(404).json({ error: "Import batch not found" });
+      }
+      if (!validateOrgOwnership(batch.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(batch);
     } catch (error) {
@@ -2477,10 +2520,16 @@ export async function registerRoutes(
 
   app.patch("/api/import-batches/:id", async (req, res) => {
     try {
-      const batch = await storage.updateImportBatch(req.params.id, req.body);
-      if (!batch) {
+      const orgId = getOrgId(req);
+      const existing = await storage.getImportBatch(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Import batch not found" });
       }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const batch = await storage.updateImportBatch(req.params.id, req.body);
       res.json(batch);
     } catch (error) {
       res.status(500).json({ error: "Failed to update import batch" });
@@ -2490,9 +2539,10 @@ export async function registerRoutes(
   // Import Mappings API
   app.get("/api/import-mappings", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const { importType } = req.query;
       const mappings = await storage.getImportMappings(importType as string | undefined);
-      res.json(mappings);
+      res.json(mappings.filter((mapping) => mapping.organizationId === orgId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch import mappings" });
     }
@@ -2514,6 +2564,15 @@ export async function registerRoutes(
 
   app.delete("/api/import-mappings/:id", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const mapping = await storage.getImportMapping(req.params.id);
+      if (!mapping) {
+        return res.status(404).json({ error: "Import mapping not found" });
+      }
+      if (!validateOrgOwnership(mapping.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const deleted = await storage.deleteImportMapping(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Import mapping not found" });
@@ -2527,12 +2586,14 @@ export async function registerRoutes(
   // Get next available file number for imports
   app.get("/api/import/next-file-number", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const allDebtors = await storage.getDebtors();
+      const orgDebtors = allDebtors.filter((debtor) => debtor.organizationId === orgId);
       const year = new Date().getFullYear();
       const prefix = `FN-${year}-`;
       
       let maxNumber = 0;
-      for (const debtor of allDebtors) {
+      for (const debtor of orgDebtors) {
         if (debtor.fileNumber && debtor.fileNumber.startsWith(prefix)) {
           const numPart = parseInt(debtor.fileNumber.substring(prefix.length), 10);
           if (!isNaN(numPart) && numPart > maxNumber) {
@@ -2550,10 +2611,20 @@ export async function registerRoutes(
   // Import Data API - handles partial imports, upserts, and SSN-based linking
   app.post("/api/import/debtors", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const { portfolioId, clientId, records, mappings, fileNumberStart } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string>; fileNumberStart?: number };
       
       if (!portfolioId || !clientId || !records || !mappings) {
         return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
+      }
+
+      const portfolio = await storage.getPortfolio(portfolioId);
+      const client = await storage.getClient(clientId);
+      if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
+        return res.status(403).json({ error: "Invalid portfolio for organization" });
+      }
+      if (!client || !validateOrgOwnership(client.organizationId, orgId)) {
+        return res.status(403).json({ error: "Invalid client for organization" });
       }
       
       const startingFileNumber = fileNumberStart || 1;
@@ -2566,7 +2637,7 @@ export async function registerRoutes(
       };
 
       const existingDebtors = await storage.getDebtors(portfolioId);
-      const allDebtors = await storage.getDebtors();
+      const allDebtors = (await storage.getDebtors()).filter((debtor) => debtor.organizationId === orgId);
 
       for (const record of records) {
         try {
@@ -2667,7 +2738,7 @@ export async function registerRoutes(
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
             chargeOffDate: mappedData.chargeOffDate || null,
             customFields: Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null,
-            organizationId: DEFAULT_ORG_ID,
+            organizationId: orgId,
           });
 
           // Create phone contacts - handle legacy "phone" field and phone1-5
@@ -2690,7 +2761,7 @@ export async function registerRoutes(
                 label: label || (phoneCount === 0 ? "Primary" : `Phone ${phoneCount + 1}`),
                 isPrimary: phoneCount === 0,
                 isValid: true,
-                organizationId: DEFAULT_ORG_ID,
+                organizationId: orgId,
               });
               phoneCount++;
             }
@@ -2714,7 +2785,7 @@ export async function registerRoutes(
                 label: label || (emailCount === 0 ? "Primary" : `Email ${emailCount + 1}`),
                 isPrimary: emailCount === 0,
                 isValid: true,
-                organizationId: DEFAULT_ORG_ID,
+                organizationId: orgId,
               });
               emailCount++;
             }
@@ -2730,7 +2801,7 @@ export async function registerRoutes(
               position: mappedData.position || null,
               salary: mappedData.salary ? Math.round(parseFloat(mappedData.salary.replace(/[$,]/g, '')) * 100) : null,
               isCurrent: true,
-              organizationId: DEFAULT_ORG_ID,
+              organizationId: orgId,
             });
           }
 
@@ -2754,7 +2825,7 @@ export async function registerRoutes(
                 zipCode: ref.zipCode || null,
                 notes: ref.notes || null,
                 addedDate: new Date().toISOString().split("T")[0],
-                organizationId: DEFAULT_ORG_ID,
+                organizationId: orgId,
               });
             }
           }
@@ -2765,7 +2836,6 @@ export async function registerRoutes(
         }
       }
 
-      const portfolio = await storage.getPortfolio(portfolioId);
       if (portfolio) {
         const updatedDebtors = await storage.getDebtors(portfolioId);
         const totalFaceValue = updatedDebtors.reduce((sum, d) => sum + d.originalBalance, 0);
@@ -2788,10 +2858,16 @@ export async function registerRoutes(
   // Import Contacts API - adds contacts to existing debtors
   app.post("/api/import/contacts", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const { portfolioId, records, mappings } = req.body as { portfolioId: string; records: any[]; mappings: Record<string, string> };
       
       if (!portfolioId || !records || !mappings) {
         return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });
+      }
+
+      const portfolio = await storage.getPortfolio(portfolioId);
+      if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
+        return res.status(403).json({ error: "Invalid portfolio for organization" });
       }
 
       const results = {
@@ -2800,7 +2876,7 @@ export async function registerRoutes(
         errors: [] as string[],
       };
 
-      const debtors = await storage.getDebtors(portfolioId);
+      const debtors = (await storage.getDebtors(portfolioId)).filter((debtor) => debtor.organizationId === orgId);
 
       for (const record of records) {
         try {
@@ -2834,7 +2910,7 @@ export async function registerRoutes(
               label: mappedData.phoneLabel || null,
               isPrimary: false,
               isValid: true,
-              organizationId: DEFAULT_ORG_ID,
+              organizationId: orgId,
             });
             results.added++;
           }
@@ -2847,7 +2923,7 @@ export async function registerRoutes(
               label: mappedData.emailLabel || null,
               isPrimary: false,
               isValid: true,
-              organizationId: DEFAULT_ORG_ID,
+              organizationId: orgId,
             });
             results.added++;
           }
