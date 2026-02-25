@@ -1,0 +1,709 @@
+diff --git a/server/routes.ts b/server/routes.ts
+index 5f32ba36e10cfc2194cd4a21a06d65e52479f97e..8ed66186d24450588172a2a47b542aeab07ab2d3 100644
+--- a/server/routes.ts
++++ b/server/routes.ts
+@@ -1,30 +1,31 @@
+ import type { Express } from "express";
+ import { createServer, type Server } from "http";
+ import { storage } from "./storage";
+ import { registerExternalApiRoutes } from "./external-api";
+ import crypto from "crypto";
++import net from "net";
+ import bcrypt from "bcrypt";
+ import { 
+   chargeSubscription, 
+   isConfigured as isAuthNetConfigured, 
+   getSubscriptionPrices,
+   processDebtorCardPayment,
+   processDebtorAchPayment,
+   voidDebtorTransaction,
+   type MerchantCredentials
+ } from "./authorizenet";
+ import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
+ import { db } from "./db";
+ import { emailSettings } from "@shared/schema";
+ import { eq } from "drizzle-orm";
+ 
+ const BCRYPT_ROUNDS = 12;
+ 
+ async function hashPassword(password: string): Promise<string> {
+   return bcrypt.hash(password, BCRYPT_ROUNDS);
+ }
+ 
+ async function verifyPassword(password: string, hash: string): Promise<boolean> {
+   // Support both bcrypt hashes (start with $2) and legacy SHA-256 hashes (64 hex chars)
+   if (hash.startsWith("$2")) {
+     return bcrypt.compare(password, hash);
+@@ -71,50 +72,84 @@ function requireAuth(req: any, res: any, next: any) {
+ }
+ 
+ // Require collector role authentication
+ function requireCollectorAuth(req: any, res: any, next: any) {
+   if (!req.session?.collector) {
+     return res.status(401).json({ error: "Collector authentication required" });
+   }
+   next();
+ }
+ 
+ // Require global admin authentication
+ function requireGlobalAdminAuth(req: any, res: any, next: any) {
+   if (!req.session?.globalAdmin) {
+     return res.status(401).json({ error: "Super admin authentication required" });
+   }
+   next();
+ }
+ 
+ // Validate that a resource belongs to the authenticated user's organization
+ // Returns true if valid, false if the resource doesn't belong to the org
+ function validateOrgOwnership(resourceOrgId: string | null | undefined, sessionOrgId: string): boolean {
+   if (!resourceOrgId) return false;
+   return resourceOrgId === sessionOrgId;
+ }
+ 
++function normalizeIpAddress(ip: string): string {
++  if (ip.startsWith("::ffff:")) {
++    return ip.slice(7);
++  }
++  if (ip === "::1") {
++    return "127.0.0.1";
++  }
++  return ip;
++}
++
++function getClientIp(req: any): string {
++  const forwardedFor = (req.headers["x-forwarded-for"] as string | undefined)
++    ?.split(",")[0]
++    ?.trim();
++  const rawIp = normalizeIpAddress(req.ip || forwardedFor || req.socket.remoteAddress || "127.0.0.1");
++  return rawIp;
++}
++
++function isValidWhitelistEntry(entry: string): boolean {
++  const trimmed = entry.trim();
++  if (!trimmed) return false;
++
++  if (trimmed.includes("/")) {
++    const [ip, prefixLength] = trimmed.split("/");
++    const prefix = Number(prefixLength);
++    const version = net.isIP(ip);
++    if (!version || Number.isNaN(prefix)) return false;
++    const maxPrefix = version === 4 ? 32 : 128;
++    return prefix >= 0 && prefix <= maxPrefix;
++  }
++
++  return net.isIP(trimmed) !== 0;
++}
++
+ // Check if organization has active subscription or is in trial period
+ async function checkSubscriptionActive(orgId: string): Promise<{ active: boolean; reason?: string }> {
+   const org = await storage.getOrganization(orgId);
+   if (!org) {
+     return { active: false, reason: "Organization not found" };
+   }
+   
+   // If organization is not active, block access
+   if (!org.isActive) {
+     return { active: false, reason: "Organization is inactive" };
+   }
+   
+   // If subscription is active, allow access
+   if (org.subscriptionStatus === "active") {
+     return { active: true };
+   }
+   
+   // If in trial, check if trial has expired
+   if (org.subscriptionStatus === "trial") {
+     const today = new Date();
+     const trialEnd = org.trialEndDate ? new Date(org.trialEndDate) : null;
+     const billingStart = org.billingStartDate ? new Date(org.billingStartDate) : null;
+ 
+     // Some organizations have a free month configured after creation.
+     // In that case, keep trial access until the later of trial end or billing start date.
+@@ -419,59 +454,58 @@ export async function registerRoutes(
+ 
+       // Find collector by email
+       const collector = await storage.getCollectorByEmail(email);
+       if (!collector) {
+         return res.status(401).json({ error: "Invalid email or password" });
+       }
+ 
+       // Verify password
+       if (!await verifyPassword(password, collector.password)) {
+         return res.status(401).json({ error: "Invalid email or password" });
+       }
+ 
+       // Check if collector is active
+       if (collector.status !== "active") {
+         return res.status(403).json({ error: "Your account is not active" });
+       }
+ 
+       // Get organization
+       const organization = await storage.getOrganization(collector.organizationId);
+       if (!organization || !organization.isActive) {
+         return res.status(403).json({ error: "Your organization is not active" });
+       }
+ 
+       // Check IP whitelist if enabled for this organization
+       if (organization.ipRestrictionEnabled) {
+-        let clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 
+-                       req.socket.remoteAddress || 
+-                       '127.0.0.1';
+-        
+-        // Normalize IPv6-mapped IPv4 addresses (::ffff:192.168.1.1 -> 192.168.1.1)
+-        if (clientIp.startsWith('::ffff:')) {
+-          clientIp = clientIp.substring(7);
++        const clientIp = getClientIp(req);
++
++        if (net.isIP(clientIp) === 0) {
++          return res.status(403).json({
++            error: "Access denied. Could not validate your IP address.",
++          });
+         }
+-        
++
+         const isWhitelisted = await storage.isIpWhitelisted(organization.id, clientIp);
+         if (!isWhitelisted) {
+           console.log(`IP ${clientIp} blocked for org ${organization.id}`);
+           return res.status(403).json({ 
+             error: "Access denied. Your IP address is not authorized to login to this organization." 
+           });
+         }
+       }
+ 
+       // Store collector info in session
+       req.session.collector = {
+         id: collector.id,
+         organizationId: organization.id,
+         role: collector.role,
+         name: collector.name,
+         email: collector.email || "",
+       };
+ 
+       req.session.save((err) => {
+         if (err) {
+           console.error("Session save error:", err);
+           return res.status(500).json({ error: "Failed to establish session" });
+         }
+         res.json({
+           message: "Login successful",
+@@ -1869,54 +1903,58 @@ export async function registerRoutes(
+       res.status(204).send();
+     } catch (error) {
+       res.status(500).json({ error: "Failed to delete merchant" });
+     }
+   });
+ 
+   // IP Whitelist API (organization-scoped)
+   app.get("/api/ip-whitelist", async (req, res) => {
+     try {
+       const orgId = getOrgId(req);
+       const whitelist = await storage.getIpWhitelist(orgId);
+       res.json(whitelist);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch IP whitelist" });
+     }
+   });
+ 
+   app.post("/api/ip-whitelist", async (req, res) => {
+     try {
+       const orgId = getOrgId(req);
+       const { ipAddress, description, isActive } = req.body;
+       
+       if (!ipAddress) {
+         return res.status(400).json({ error: "IP address is required" });
+       }
++
++      if (!isValidWhitelistEntry(ipAddress)) {
++        return res.status(400).json({ error: "Invalid IP address or CIDR range" });
++      }
+       
+       const entry = await storage.createIpWhitelistEntry({
+         organizationId: orgId,
+-        ipAddress,
++        ipAddress: ipAddress.trim(),
+         description: description || null,
+         isActive: isActive !== undefined ? isActive : true,
+         createdDate: new Date().toISOString(),
+         createdBy: null,
+       });
+       
+       res.status(201).json(entry);
+     } catch (error) {
+       console.error("Failed to add IP to whitelist:", error);
+       res.status(500).json({ error: "Failed to add IP to whitelist" });
+     }
+   });
+ 
+   app.patch("/api/ip-whitelist/:id", async (req, res) => {
+     try {
+       const orgId = getOrgId(req);
+       const { id } = req.params;
+       const { isActive, description } = req.body;
+       
+       // Verify entry belongs to this organization
+       const existing = await storage.getIpWhitelistEntry(id);
+       if (!existing || existing.organizationId !== orgId) {
+         return res.status(404).json({ error: "IP whitelist entry not found" });
+       }
+       
+@@ -2420,175 +2458,208 @@ export async function registerRoutes(
+         await storage.updatePayment(payment.id, {
+           status: "posted",
+         });
+         
+         // Add note to each debtor account
+         await storage.createNote({
+           debtorId: payment.debtorId,
+           collectorId: payment.processedBy || "system",
+           content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully (bulk post).`,
+           noteType: "payment",
+           createdDate: new Date().toISOString().split("T")[0],
+           organizationId: DEFAULT_ORG_ID,
+         });
+         count++;
+       }
+ 
+       res.json({ count, message: `${count} payments posted successfully` });
+     } catch (error) {
+       res.status(500).json({ error: "Failed to post payments" });
+     }
+   });
+ 
+   // Import Batches API
+   app.get("/api/import-batches", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const batches = await storage.getImportBatches();
+-      res.json(batches);
++      res.json(batches.filter((batch) => batch.organizationId === orgId));
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch import batches" });
+     }
+   });
+ 
+   app.get("/api/import-batches/:id", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const batch = await storage.getImportBatch(req.params.id);
+       if (!batch) {
+         return res.status(404).json({ error: "Import batch not found" });
+       }
++      if (!validateOrgOwnership(batch.organizationId, orgId)) {
++        return res.status(403).json({ error: "Access denied" });
++      }
+       res.json(batch);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch import batch" });
+     }
+   });
+ 
+   app.post("/api/import-batches", async (req, res) => {
+     try {
+       const orgId = getOrgId(req);
+       const batch = await storage.createImportBatch({
+         ...req.body,
+         organizationId: orgId,
+         createdDate: new Date().toISOString().split("T")[0],
+       });
+       res.status(201).json(batch);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to create import batch" });
+     }
+   });
+ 
+   app.patch("/api/import-batches/:id", async (req, res) => {
+     try {
+-      const batch = await storage.updateImportBatch(req.params.id, req.body);
+-      if (!batch) {
++      const orgId = getOrgId(req);
++      const existing = await storage.getImportBatch(req.params.id);
++      if (!existing) {
+         return res.status(404).json({ error: "Import batch not found" });
+       }
++      if (!validateOrgOwnership(existing.organizationId, orgId)) {
++        return res.status(403).json({ error: "Access denied" });
++      }
++
++      const batch = await storage.updateImportBatch(req.params.id, req.body);
+       res.json(batch);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to update import batch" });
+     }
+   });
+ 
+   // Import Mappings API
+   app.get("/api/import-mappings", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const { importType } = req.query;
+       const mappings = await storage.getImportMappings(importType as string | undefined);
+-      res.json(mappings);
++      res.json(mappings.filter((mapping) => mapping.organizationId === orgId));
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch import mappings" });
+     }
+   });
+ 
+   app.post("/api/import-mappings", async (req, res) => {
+     try {
+       const orgId = getOrgId(req);
+       const mapping = await storage.createImportMapping({
+         ...req.body,
+         organizationId: orgId,
+         createdDate: new Date().toISOString().split("T")[0],
+       });
+       res.status(201).json(mapping);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to create import mapping" });
+     }
+   });
+ 
+   app.delete("/api/import-mappings/:id", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
++      const mapping = await storage.getImportMapping(req.params.id);
++      if (!mapping) {
++        return res.status(404).json({ error: "Import mapping not found" });
++      }
++      if (!validateOrgOwnership(mapping.organizationId, orgId)) {
++        return res.status(403).json({ error: "Access denied" });
++      }
++
+       const deleted = await storage.deleteImportMapping(req.params.id);
+       if (!deleted) {
+         return res.status(404).json({ error: "Import mapping not found" });
+       }
+       res.status(204).send();
+     } catch (error) {
+       res.status(500).json({ error: "Failed to delete import mapping" });
+     }
+   });
+ 
+   // Get next available file number for imports
+   app.get("/api/import/next-file-number", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const allDebtors = await storage.getDebtors();
++      const orgDebtors = allDebtors.filter((debtor) => debtor.organizationId === orgId);
+       const year = new Date().getFullYear();
+       const prefix = `FN-${year}-`;
+       
+       let maxNumber = 0;
+-      for (const debtor of allDebtors) {
++      for (const debtor of orgDebtors) {
+         if (debtor.fileNumber && debtor.fileNumber.startsWith(prefix)) {
+           const numPart = parseInt(debtor.fileNumber.substring(prefix.length), 10);
+           if (!isNaN(numPart) && numPart > maxNumber) {
+             maxNumber = numPart;
+           }
+         }
+       }
+       
+       res.json({ nextFileNumber: maxNumber + 1 });
+     } catch (error) {
+       res.status(500).json({ error: "Failed to get next file number" });
+     }
+   });
+ 
+   // Import Data API - handles partial imports, upserts, and SSN-based linking
+   app.post("/api/import/debtors", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const { portfolioId, clientId, records, mappings, fileNumberStart } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string>; fileNumberStart?: number };
+       
+       if (!portfolioId || !clientId || !records || !mappings) {
+         return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
+       }
++
++      const portfolio = await storage.getPortfolio(portfolioId);
++      const client = await storage.getClient(clientId);
++      if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
++        return res.status(403).json({ error: "Invalid portfolio for organization" });
++      }
++      if (!client || !validateOrgOwnership(client.organizationId, orgId)) {
++        return res.status(403).json({ error: "Invalid client for organization" });
++      }
+       
+       const startingFileNumber = fileNumberStart || 1;
+ 
+       const results = {
+         created: 0,
+         updated: 0,
+         linked: 0,
+         errors: [] as string[],
+       };
+ 
+       const existingDebtors = await storage.getDebtors(portfolioId);
+-      const allDebtors = await storage.getDebtors();
++      const allDebtors = (await storage.getDebtors()).filter((debtor) => debtor.organizationId === orgId);
+ 
+       for (const record of records) {
+         try {
+           const mappedData: any = {};
+           
+           for (const [csvColumn, systemField] of Object.entries(mappings)) {
+             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
+               let value = record[csvColumn];
+               
+               if (systemField === "originalBalance" || systemField === "currentBalance") {
+                 value = Math.round(parseFloat(value.replace(/[$,]/g, '')) * 100) || 0;
+               }
+               
+               // For custom field slots, use the original CSV column name as the key
+               if (systemField.startsWith("custom") && /^custom\d+$/.test(systemField)) {
+                 // Store with original column name as key (will go into customFields)
+                 mappedData[csvColumn] = value;
+               } else {
+                 mappedData[systemField] = value;
+               }
+             }
+           }
+ 
+           if (!mappedData.accountNumber && !mappedData.ssn) {
+             results.errors.push(`Row missing account number and SSN - skipped`);
+@@ -2645,231 +2716,236 @@ export async function registerRoutes(
+           const newDebtor = await storage.createDebtor({
+             portfolioId,
+             clientId,
+             linkedAccountId,
+             accountNumber: mappedData.accountNumber || `AUTO-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+             firstName: mappedData.firstName || "Unknown",
+             lastName: mappedData.lastName || "Unknown",
+             email: mappedData.email || null,
+             address: mappedData.address || null,
+             city: mappedData.city || null,
+             state: mappedData.state || null,
+             zipCode: mappedData.zipCode || null,
+             dateOfBirth: mappedData.dateOfBirth || null,
+             ssn: mappedData.ssn || null,
+             ssnLast4: mappedData.ssnLast4 || (mappedData.ssn ? mappedData.ssn.slice(-4) : null),
+             originalBalance: mappedData.originalBalance || 0,
+             currentBalance: mappedData.currentBalance || mappedData.originalBalance || 0,
+             originalCreditor: mappedData.originalCreditor || null,
+             clientName: mappedData.clientName || null,
+             fileNumber: autoFileNumber,
+             status: mappedData.status || "open",
+             lastContactDate: mappedData.lastContactDate || null,
+             nextFollowUpDate: mappedData.nextFollowUpDate || null,
+             chargeOffDate: mappedData.chargeOffDate || null,
+             customFields: Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null,
+-            organizationId: DEFAULT_ORG_ID,
++            organizationId: orgId,
+           });
+ 
+           // Create phone contacts - handle legacy "phone" field and phone1-5
+           const phoneFields = [
+             { phone: mappedData.phone1 || mappedData.phone, label: mappedData.phone1Label },
+             { phone: mappedData.phone2, label: mappedData.phone2Label },
+             { phone: mappedData.phone3, label: mappedData.phone3Label },
+             { phone: mappedData.phone4, label: mappedData.phone4Label },
+             { phone: mappedData.phone5, label: mappedData.phone5Label },
+           ];
+           
+           let phoneCount = 0;
+           for (let i = 0; i < phoneFields.length; i++) {
+             const { phone, label } = phoneFields[i];
+             if (phone && phone.trim()) {
+               await storage.createDebtorContact({
+                 debtorId: newDebtor.id,
+                 type: "phone",
+                 value: phone.trim(),
+                 label: label || (phoneCount === 0 ? "Primary" : `Phone ${phoneCount + 1}`),
+                 isPrimary: phoneCount === 0,
+                 isValid: true,
+-                organizationId: DEFAULT_ORG_ID,
++                organizationId: orgId,
+               });
+               phoneCount++;
+             }
+           }
+ 
+           // Create email contacts - handle legacy "email" field (in debtor record) and email1-3
+           const emailFields = [
+             { email: mappedData.email1, label: mappedData.email1Label },
+             { email: mappedData.email2, label: mappedData.email2Label },
+             { email: mappedData.email3, label: mappedData.email3Label },
+           ];
+           
+           let emailCount = 0;
+           for (let i = 0; i < emailFields.length; i++) {
+             const { email, label } = emailFields[i];
+             if (email && email.trim()) {
+               await storage.createDebtorContact({
+                 debtorId: newDebtor.id,
+                 type: "email",
+                 value: email.trim(),
+                 label: label || (emailCount === 0 ? "Primary" : `Email ${emailCount + 1}`),
+                 isPrimary: emailCount === 0,
+                 isValid: true,
+-                organizationId: DEFAULT_ORG_ID,
++                organizationId: orgId,
+               });
+               emailCount++;
+             }
+           }
+ 
+           // Create employment record if employer info provided
+           if (mappedData.employerName && mappedData.employerName.trim()) {
+             await storage.createEmploymentRecord({
+               debtorId: newDebtor.id,
+               employerName: mappedData.employerName.trim(),
+               employerPhone: mappedData.employerPhone || null,
+               employerAddress: mappedData.employerAddress || null,
+               position: mappedData.position || null,
+               salary: mappedData.salary ? Math.round(parseFloat(mappedData.salary.replace(/[$,]/g, '')) * 100) : null,
+               isCurrent: true,
+-              organizationId: DEFAULT_ORG_ID,
++              organizationId: orgId,
+             });
+           }
+ 
+           // Create references (up to 3)
+           const refFields = [
+             { name: mappedData.ref1Name, relationship: mappedData.ref1Relationship, phone: mappedData.ref1Phone, address: mappedData.ref1Address, city: mappedData.ref1City, state: mappedData.ref1State, zipCode: mappedData.ref1ZipCode, notes: mappedData.ref1Notes },
+             { name: mappedData.ref2Name, relationship: mappedData.ref2Relationship, phone: mappedData.ref2Phone, address: mappedData.ref2Address, city: mappedData.ref2City, state: mappedData.ref2State, zipCode: mappedData.ref2ZipCode, notes: mappedData.ref2Notes },
+             { name: mappedData.ref3Name, relationship: mappedData.ref3Relationship, phone: mappedData.ref3Phone, address: mappedData.ref3Address, city: mappedData.ref3City, state: mappedData.ref3State, zipCode: mappedData.ref3ZipCode, notes: mappedData.ref3Notes },
+           ];
+           
+           for (const ref of refFields) {
+             if (ref.name && ref.name.trim()) {
+               await storage.createDebtorReference({
+                 debtorId: newDebtor.id,
+                 name: ref.name.trim(),
+                 relationship: ref.relationship || null,
+                 phone: ref.phone || null,
+                 address: ref.address || null,
+                 city: ref.city || null,
+                 state: ref.state || null,
+                 zipCode: ref.zipCode || null,
+                 notes: ref.notes || null,
+                 addedDate: new Date().toISOString().split("T")[0],
+-                organizationId: DEFAULT_ORG_ID,
++                organizationId: orgId,
+               });
+             }
+           }
+ 
+           results.created++;
+         } catch (err: any) {
+           results.errors.push(err.message || "Unknown error processing record");
+         }
+       }
+ 
+-      const portfolio = await storage.getPortfolio(portfolioId);
+       if (portfolio) {
+         const updatedDebtors = await storage.getDebtors(portfolioId);
+         const totalFaceValue = updatedDebtors.reduce((sum, d) => sum + d.originalBalance, 0);
+         await storage.updatePortfolio(portfolioId, {
+           totalAccounts: updatedDebtors.length,
+           totalFaceValue,
+         });
+       }
+ 
+       res.json({
+         success: true,
+         results,
+         message: `Import complete: ${results.created} created, ${results.updated} updated, ${results.linked} linked across portfolios`,
+       });
+     } catch (error: any) {
+       res.status(500).json({ error: error.message || "Failed to import debtors" });
+     }
+   });
+ 
+   // Import Contacts API - adds contacts to existing debtors
+   app.post("/api/import/contacts", async (req, res) => {
+     try {
++      const orgId = getOrgId(req);
+       const { portfolioId, records, mappings } = req.body as { portfolioId: string; records: any[]; mappings: Record<string, string> };
+       
+       if (!portfolioId || !records || !mappings) {
+         return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });
+       }
+ 
++      const portfolio = await storage.getPortfolio(portfolioId);
++      if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
++        return res.status(403).json({ error: "Invalid portfolio for organization" });
++      }
++
+       const results = {
+         added: 0,
+         matched: 0,
+         errors: [] as string[],
+       };
+ 
+-      const debtors = await storage.getDebtors(portfolioId);
++      const debtors = (await storage.getDebtors(portfolioId)).filter((debtor) => debtor.organizationId === orgId);
+ 
+       for (const record of records) {
+         try {
+           const mappedData: any = {};
+           
+           for (const [csvColumn, systemField] of Object.entries(mappings)) {
+             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
+               mappedData[systemField] = record[csvColumn];
+             }
+           }
+ 
+           let matchedDebtor = null;
+           if (mappedData.accountNumber) {
+             matchedDebtor = debtors.find((d) => d.accountNumber === mappedData.accountNumber);
+           } else if (mappedData.ssn) {
+             matchedDebtor = debtors.find((d) => d.ssn === mappedData.ssn);
+           }
+ 
+           if (!matchedDebtor) {
+             results.errors.push(`No matching debtor found for record`);
+             continue;
+           }
+ 
+           results.matched++;
+ 
+           if (mappedData.phone) {
+             await storage.createDebtorContact({
+               debtorId: matchedDebtor.id,
+               type: "phone",
+               value: mappedData.phone,
+               label: mappedData.phoneLabel || null,
+               isPrimary: false,
+               isValid: true,
+-              organizationId: DEFAULT_ORG_ID,
++              organizationId: orgId,
+             });
+             results.added++;
+           }
+ 
+           if (mappedData.email) {
+             await storage.createDebtorContact({
+               debtorId: matchedDebtor.id,
+               type: "email",
+               value: mappedData.email,
+               label: mappedData.emailLabel || null,
+               isPrimary: false,
+               isValid: true,
+-              organizationId: DEFAULT_ORG_ID,
++              organizationId: orgId,
+             });
+             results.added++;
+           }
+         } catch (err: any) {
+           results.errors.push(err.message || "Unknown error processing record");
+         }
+       }
+ 
+       res.json({
+         success: true,
+         results,
+         message: `Import complete: ${results.added} contacts added to ${results.matched} debtors`,
+       });
+     } catch (error: any) {
+       res.status(500).json({ error: error.message || "Failed to import contacts" });
+     }
+   });
+ 
+   // Drop Batches API
+   app.get("/api/drop-batches", async (req, res) => {
+     try {
+       const batches = await storage.getDropBatches();
+       res.json(batches);
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch drop batches" });
