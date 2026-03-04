@@ -1425,6 +1425,133 @@ export function registerExternalApiRoutes(app: Express) {
     }
   });
 
+  // GET /api/v2/campaign/accounts - Pull accounts with campaign contacts
+  app.get("/api/v2/campaign/accounts", authenticateToken, async (req: AuthenticatedRequest, res) => {
+    try {
+      const orgId = req.apiToken?.organizationId;
+      const { portfolioId, status, contactType = "both", limit = "100", offset = "0" } = req.query;
+
+      let debtors = await storage.getDebtors();
+      debtors = debtors.filter((d) => d.organizationId === orgId);
+
+      if (portfolioId) {
+        debtors = debtors.filter((d) => d.portfolioId === portfolioId);
+      }
+      if (status) {
+        debtors = debtors.filter((d) => d.status === status);
+      }
+
+      const start = Number(offset) || 0;
+      const max = Number(limit) || 100;
+      const paged = debtors.slice(start, start + max);
+
+      const data = await Promise.all(paged.map(async (debtor) => {
+        const contacts = await storage.getDebtorContacts(debtor.id);
+        const filteredContacts = contacts.filter((contact) => {
+          if (contactType === "both") return contact.type === "phone" || contact.type === "email";
+          return contact.type === contactType;
+        });
+
+        return {
+          fileNumber: debtor.fileNumber,
+          firstName: debtor.firstName,
+          lastName: debtor.lastName,
+          currentBalance: debtor.currentBalance,
+          status: debtor.status,
+          contacts: filteredContacts.map((contact) => ({
+            type: contact.type,
+            value: contact.value,
+            label: contact.label,
+            isPrimary: contact.isPrimary,
+          })),
+        };
+      }));
+
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch campaign accounts" });
+    }
+  });
+
+  // GET /api/v2/campaign/account/:filenumber/contacts - Pull all contacts for account
+  app.get("/api/v2/campaign/account/:filenumber/contacts", authenticateToken, async (req: AuthenticatedRequest, res) => {
+    try {
+      const orgId = req.apiToken?.organizationId;
+      const debtor = await storage.getDebtorByFileNumber(req.params.filenumber);
+
+      if (!debtor || debtor.organizationId !== orgId) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+
+      const contacts = await storage.getDebtorContacts(debtor.id);
+      res.json(contacts.map((contact) => ({
+        type: contact.type,
+        value: contact.value,
+        label: contact.label,
+        isPrimary: contact.isPrimary,
+        isValid: contact.isValid,
+      })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch account contacts" });
+    }
+  });
+
+  // POST /api/v2/campaign/status - campaign delivery webhook
+  app.post("/api/v2/campaign/status", authenticateToken, async (req: AuthenticatedRequest, res) => {
+    try {
+      const orgId = req.apiToken?.organizationId;
+      const { campaignLogId, items } = req.body as { campaignLogId: string; items: Array<{ fileNumber: string; status: string; externalId?: string; responseText?: string }> };
+
+      if (!campaignLogId || !Array.isArray(items)) {
+        return res.status(400).json({ error: "campaignLogId and items are required" });
+      }
+
+      const campaignLog = await storage.getCampaignLog(campaignLogId);
+      if (!campaignLog || campaignLog.organizationId !== orgId) {
+        return res.status(404).json({ error: "Campaign log not found" });
+      }
+
+      const existingItems = await storage.getCampaignLogItems(campaignLogId);
+
+      for (const item of items) {
+        const match = existingItems.find((i) => i.fileNumber === item.fileNumber);
+        if (!match) continue;
+
+        await storage.updateCampaignLogItem(match.id, {
+          status: item.status,
+          externalId: item.externalId ?? null,
+          responseText: item.responseText ?? null,
+        });
+
+        const debtor = await storage.getDebtor(match.debtorId);
+        if (!debtor || debtor.organizationId !== orgId) continue;
+
+        if (item.responseText) {
+          await storage.createNote({
+            organizationId: orgId!,
+            debtorId: debtor.id,
+            collectorId: "system",
+            content: `[Campaign ${campaignLog.campaignName}] ${item.responseText}`,
+            noteType: "campaign_response",
+            createdDate: new Date().toISOString(),
+          });
+        }
+
+        if (item.status === "opted-out") {
+          const contacts = await storage.getDebtorContacts(debtor.id);
+          const optedOutContact = contacts.find((c) => c.value === match.contactValue && c.type === match.contactType);
+          if (optedOutContact) {
+            await storage.updateDebtorContact(optedOutContact.id, { isValid: false });
+          }
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to process campaign status update" });
+    }
+  });
+
   // PUT /api/v2/softphone/markphone - Mark phone as good/bad/primary
   app.put("/api/v2/softphone/markphone", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {

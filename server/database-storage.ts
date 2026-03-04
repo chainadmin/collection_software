@@ -32,6 +32,9 @@ import {
   workQueueItems,
   remittances,
   remittanceItems,
+  campaignIntegrations,
+  campaignLogs,
+  campaignLogItems,
   apiTokens,
   communicationAttempts,
   adminNotifications,
@@ -99,6 +102,12 @@ import {
   type InsertRemittance,
   type RemittanceItem,
   type InsertRemittanceItem,
+  type CampaignIntegration,
+  type InsertCampaignIntegration,
+  type CampaignLog,
+  type InsertCampaignLog,
+  type CampaignLogItem,
+  type InsertCampaignLogItem,
   type ApiToken,
   type InsertApiToken,
   type CommunicationAttempt,
@@ -974,6 +983,69 @@ export class DatabaseStorage implements IStorage {
   async deleteApiToken(id: string): Promise<boolean> {
     await db.delete(apiTokens).where(eq(apiTokens.id, id));
     return true;
+  }
+
+  // Campaign Integrations
+  async getCampaignIntegrations(orgId: string): Promise<CampaignIntegration[]> {
+    return await db.select().from(campaignIntegrations).where(eq(campaignIntegrations.organizationId, orgId));
+  }
+
+  async getCampaignIntegration(id: string): Promise<CampaignIntegration | undefined> {
+    const [integration] = await db.select().from(campaignIntegrations).where(eq(campaignIntegrations.id, id));
+    return integration;
+  }
+
+  async createCampaignIntegration(integration: InsertCampaignIntegration): Promise<CampaignIntegration> {
+    const id = randomUUID();
+    const [created] = await db.insert(campaignIntegrations).values({ ...integration, id }).returning();
+    return created;
+  }
+
+  async updateCampaignIntegration(id: string, integration: Partial<InsertCampaignIntegration>): Promise<CampaignIntegration | undefined> {
+    const [updated] = await db.update(campaignIntegrations).set(integration).where(eq(campaignIntegrations.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCampaignIntegration(id: string): Promise<boolean> {
+    await db.delete(campaignIntegrations).where(eq(campaignIntegrations.id, id));
+    return true;
+  }
+
+  // Campaign Logs
+  async getCampaignLogs(orgId: string): Promise<CampaignLog[]> {
+    return await db.select().from(campaignLogs).where(eq(campaignLogs.organizationId, orgId)).orderBy(desc(campaignLogs.sentDate));
+  }
+
+  async getCampaignLog(id: string): Promise<CampaignLog | undefined> {
+    const [log] = await db.select().from(campaignLogs).where(eq(campaignLogs.id, id));
+    return log;
+  }
+
+  async createCampaignLog(log: InsertCampaignLog): Promise<CampaignLog> {
+    const id = randomUUID();
+    const [created] = await db.insert(campaignLogs).values({ ...log, id }).returning();
+    return created;
+  }
+
+  async updateCampaignLog(id: string, log: Partial<InsertCampaignLog>): Promise<CampaignLog | undefined> {
+    const [updated] = await db.update(campaignLogs).set(log).where(eq(campaignLogs.id, id)).returning();
+    return updated;
+  }
+
+  // Campaign Log Items
+  async getCampaignLogItems(campaignLogId: string): Promise<CampaignLogItem[]> {
+    return await db.select().from(campaignLogItems).where(eq(campaignLogItems.campaignLogId, campaignLogId));
+  }
+
+  async createCampaignLogItem(item: InsertCampaignLogItem): Promise<CampaignLogItem> {
+    const id = randomUUID();
+    const [created] = await db.insert(campaignLogItems).values({ ...item, id }).returning();
+    return created;
+  }
+
+  async updateCampaignLogItem(id: string, item: Partial<InsertCampaignLogItem>): Promise<CampaignLogItem | undefined> {
+    const [updated] = await db.update(campaignLogItems).set(item).where(eq(campaignLogItems.id, id)).returning();
+    return updated;
   }
 
   // Communication Attempts
