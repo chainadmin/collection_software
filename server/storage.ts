@@ -62,6 +62,12 @@ import {
   type InsertRemittanceItem,
   type Remittance,
   type InsertRemittance,
+  type CampaignIntegration,
+  type InsertCampaignIntegration,
+  type CampaignLog,
+  type InsertCampaignLog,
+  type CampaignLogItem,
+  type InsertCampaignLogItem,
   type ApiToken,
   type InsertApiToken,
   type CommunicationAttempt,
@@ -276,6 +282,24 @@ export interface IStorage {
   updateApiTokenLastUsed(id: string): Promise<void>;
   deleteApiToken(id: string): Promise<boolean>;
 
+  // Campaign Integrations
+  getCampaignIntegrations(orgId: string): Promise<CampaignIntegration[]>;
+  getCampaignIntegration(id: string): Promise<CampaignIntegration | undefined>;
+  createCampaignIntegration(integration: InsertCampaignIntegration): Promise<CampaignIntegration>;
+  updateCampaignIntegration(id: string, integration: Partial<InsertCampaignIntegration>): Promise<CampaignIntegration | undefined>;
+  deleteCampaignIntegration(id: string): Promise<boolean>;
+
+  // Campaign Logs
+  getCampaignLogs(orgId: string): Promise<CampaignLog[]>;
+  getCampaignLog(id: string): Promise<CampaignLog | undefined>;
+  createCampaignLog(log: InsertCampaignLog): Promise<CampaignLog>;
+  updateCampaignLog(id: string, log: Partial<InsertCampaignLog>): Promise<CampaignLog | undefined>;
+
+  // Campaign Log Items
+  getCampaignLogItems(campaignLogId: string): Promise<CampaignLogItem[]>;
+  createCampaignLogItem(item: InsertCampaignLogItem): Promise<CampaignLogItem>;
+  updateCampaignLogItem(id: string, item: Partial<InsertCampaignLogItem>): Promise<CampaignLogItem | undefined>;
+
   // Communication Attempts
   getCommunicationAttempts(debtorId: string): Promise<CommunicationAttempt[]>;
   createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt>;
@@ -341,6 +365,9 @@ export class MemStorage implements IStorage {
   private remittances: Map<string, Remittance>;
   private remittanceItems: Map<string, RemittanceItem>;
   private apiTokens: Map<string, ApiToken>;
+  private campaignIntegrations: Map<string, CampaignIntegration>;
+  private campaignLogs: Map<string, CampaignLog>;
+  private campaignLogItems: Map<string, CampaignLogItem>;
   private communicationAttempts: Map<string, CommunicationAttempt>;
   private globalAdmins: Map<string, GlobalAdmin>;
   private adminNotifications: Map<string, AdminNotification>;
@@ -378,6 +405,9 @@ export class MemStorage implements IStorage {
     this.remittances = new Map();
     this.remittanceItems = new Map();
     this.apiTokens = new Map();
+    this.campaignIntegrations = new Map();
+    this.campaignLogs = new Map();
+    this.campaignLogItems = new Map();
     this.communicationAttempts = new Map();
     this.globalAdmins = new Map();
     this.adminNotifications = new Map();
@@ -2276,6 +2306,110 @@ export class MemStorage implements IStorage {
 
   async deleteApiToken(id: string): Promise<boolean> {
     return this.apiTokens.delete(id);
+  }
+
+  // Campaign Integrations
+  async getCampaignIntegrations(orgId: string): Promise<CampaignIntegration[]> {
+    return Array.from(this.campaignIntegrations.values()).filter((i) => i.organizationId === orgId);
+  }
+
+  async getCampaignIntegration(id: string): Promise<CampaignIntegration | undefined> {
+    return this.campaignIntegrations.get(id);
+  }
+
+  async createCampaignIntegration(integration: InsertCampaignIntegration): Promise<CampaignIntegration> {
+    const id = randomUUID();
+    const created: CampaignIntegration = {
+      id,
+      organizationId: integration.organizationId,
+      name: integration.name,
+      type: integration.type,
+      apiBaseUrl: integration.apiBaseUrl,
+      apiKey: integration.apiKey,
+      isActive: integration.isActive ?? true,
+      createdDate: integration.createdDate,
+    };
+    this.campaignIntegrations.set(id, created);
+    return created;
+  }
+
+  async updateCampaignIntegration(id: string, integration: Partial<InsertCampaignIntegration>): Promise<CampaignIntegration | undefined> {
+    const existing = this.campaignIntegrations.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...integration };
+    this.campaignIntegrations.set(id, updated);
+    return updated;
+  }
+
+  async deleteCampaignIntegration(id: string): Promise<boolean> {
+    return this.campaignIntegrations.delete(id);
+  }
+
+  // Campaign Logs
+  async getCampaignLogs(orgId: string): Promise<CampaignLog[]> {
+    return Array.from(this.campaignLogs.values())
+      .filter((log) => log.organizationId === orgId)
+      .sort((a, b) => new Date(b.sentDate).getTime() - new Date(a.sentDate).getTime());
+  }
+
+  async getCampaignLog(id: string): Promise<CampaignLog | undefined> {
+    return this.campaignLogs.get(id);
+  }
+
+  async createCampaignLog(log: InsertCampaignLog): Promise<CampaignLog> {
+    const id = randomUUID();
+    const created: CampaignLog = {
+      id,
+      organizationId: log.organizationId,
+      integrationId: log.integrationId,
+      campaignName: log.campaignName,
+      campaignType: log.campaignType,
+      totalAccounts: log.totalAccounts,
+      status: log.status ?? "pending",
+      sentDate: log.sentDate,
+      sentBy: log.sentBy,
+      errorMessage: log.errorMessage ?? null,
+    };
+    this.campaignLogs.set(id, created);
+    return created;
+  }
+
+  async updateCampaignLog(id: string, log: Partial<InsertCampaignLog>): Promise<CampaignLog | undefined> {
+    const existing = this.campaignLogs.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...log };
+    this.campaignLogs.set(id, updated);
+    return updated;
+  }
+
+  // Campaign Log Items
+  async getCampaignLogItems(campaignLogId: string): Promise<CampaignLogItem[]> {
+    return Array.from(this.campaignLogItems.values()).filter((item) => item.campaignLogId === campaignLogId);
+  }
+
+  async createCampaignLogItem(item: InsertCampaignLogItem): Promise<CampaignLogItem> {
+    const id = randomUUID();
+    const created: CampaignLogItem = {
+      id,
+      campaignLogId: item.campaignLogId,
+      debtorId: item.debtorId,
+      fileNumber: item.fileNumber,
+      contactValue: item.contactValue,
+      contactType: item.contactType,
+      status: item.status ?? "queued",
+      externalId: item.externalId ?? null,
+      responseText: item.responseText ?? null,
+    };
+    this.campaignLogItems.set(id, created);
+    return created;
+  }
+
+  async updateCampaignLogItem(id: string, item: Partial<InsertCampaignLogItem>): Promise<CampaignLogItem | undefined> {
+    const existing = this.campaignLogItems.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...item };
+    this.campaignLogItems.set(id, updated);
+    return updated;
   }
 
   // Communication Attempts

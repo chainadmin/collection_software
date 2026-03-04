@@ -685,6 +685,57 @@ export const insertRemittanceItemSchema = createInsertSchema(remittanceItems).om
 export type InsertRemittanceItem = z.infer<typeof insertRemittanceItemSchema>;
 export type RemittanceItem = typeof remittanceItems.$inferSelect;
 
+// Campaign Integrations (organization-scoped external SMS/email providers)
+export const campaignIntegrations = pgTable("campaign_integrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // sms | email
+  apiBaseUrl: text("api_base_url").notNull(),
+  apiKey: text("api_key").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdDate: text("created_date").notNull(),
+});
+
+export const insertCampaignIntegrationSchema = createInsertSchema(campaignIntegrations).omit({ id: true });
+export type InsertCampaignIntegration = z.infer<typeof insertCampaignIntegrationSchema>;
+export type CampaignIntegration = typeof campaignIntegrations.$inferSelect;
+
+// Campaign Logs (bulk campaign send tracking)
+export const campaignLogs = pgTable("campaign_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  integrationId: varchar("integration_id").notNull(),
+  campaignName: text("campaign_name").notNull(),
+  campaignType: text("campaign_type").notNull(), // sms | email
+  totalAccounts: integer("total_accounts").notNull(),
+  status: text("status").notNull().default("pending"), // pending | sent | partial | failed
+  sentDate: text("sent_date").notNull(),
+  sentBy: text("sent_by").notNull(),
+  errorMessage: text("error_message"),
+});
+
+export const insertCampaignLogSchema = createInsertSchema(campaignLogs).omit({ id: true });
+export type InsertCampaignLog = z.infer<typeof insertCampaignLogSchema>;
+export type CampaignLog = typeof campaignLogs.$inferSelect;
+
+// Campaign Log Items (per-account campaign status)
+export const campaignLogItems = pgTable("campaign_log_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignLogId: varchar("campaign_log_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  fileNumber: text("file_number").notNull(),
+  contactValue: text("contact_value").notNull(),
+  contactType: text("contact_type").notNull(), // phone | email
+  status: text("status").notNull().default("queued"), // queued | sent | delivered | failed | replied | opted-out
+  externalId: text("external_id"),
+  responseText: text("response_text"),
+});
+
+export const insertCampaignLogItemSchema = createInsertSchema(campaignLogItems).omit({ id: true });
+export type InsertCampaignLogItem = z.infer<typeof insertCampaignLogItemSchema>;
+export type CampaignLogItem = typeof campaignLogItems.$inferSelect;
+
 // API Tokens (for external integrations like SMS/TXT software)
 export const apiTokens = pgTable("api_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

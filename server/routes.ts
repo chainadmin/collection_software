@@ -3291,6 +3291,196 @@ export async function registerRoutes(
     }
   });
 
+  // Campaign Integrations API
+  app.get("/api/campaign-integrations", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const integrations = await storage.getCampaignIntegrations(orgId);
+      res.json(integrations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch campaign integrations" });
+    }
+  });
+
+  app.post("/api/campaign-integrations", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const integration = await storage.createCampaignIntegration({
+        organizationId: orgId,
+        name: req.body.name,
+        type: req.body.type,
+        apiBaseUrl: req.body.apiBaseUrl,
+        apiKey: req.body.apiKey,
+        isActive: req.body.isActive ?? true,
+        createdDate: new Date().toISOString(),
+      });
+      res.status(201).json(integration);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create campaign integration" });
+    }
+  });
+
+  app.patch("/api/campaign-integrations/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCampaignIntegration(req.params.id);
+      if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(404).json({ error: "Campaign integration not found" });
+      }
+      const updated = await storage.updateCampaignIntegration(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update campaign integration" });
+    }
+  });
+
+  app.delete("/api/campaign-integrations/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCampaignIntegration(req.params.id);
+      if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(404).json({ error: "Campaign integration not found" });
+      }
+      await storage.deleteCampaignIntegration(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete campaign integration" });
+    }
+  });
+
+  app.get("/api/campaign-integrations/:id/campaigns", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const integration = await storage.getCampaignIntegration(req.params.id);
+      if (!integration || !validateOrgOwnership(integration.organizationId, orgId)) {
+        return res.status(404).json({ error: "Campaign integration not found" });
+      }
+
+      const response = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns`, {
+        headers: {
+          Authorization: `Bearer ${integration.apiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(502).json({ error: "Failed to fetch campaigns from external system" });
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch campaign list" });
+    }
+  });
+
+  app.post("/api/campaigns/send", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const collectorId = req.session?.collector?.id || "unknown";
+      const { integrationId, campaignName, accounts } = req.body as { integrationId: string; campaignName: string; accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> };
+
+      if (!integrationId || !campaignName || !Array.isArray(accounts) || accounts.length === 0) {
+        return res.status(400).json({ error: "integrationId, campaignName, and accounts are required" });
+      }
+
+      const integration = await storage.getCampaignIntegration(integrationId);
+      if (!integration || !validateOrgOwnership(integration.organizationId, orgId)) {
+        return res.status(404).json({ error: "Campaign integration not found" });
+      }
+
+      const debtors = await Promise.all(accounts.map((a) => storage.getDebtor(a.debtorId)));
+      if (debtors.some((d) => !d || d.organizationId !== orgId)) {
+        return res.status(403).json({ error: "One or more accounts do not belong to your organization" });
+      }
+
+      const campaignLog = await storage.createCampaignLog({
+        organizationId: orgId,
+        integrationId: integration.id,
+        campaignName,
+        campaignType: integration.type,
+        totalAccounts: accounts.length,
+        status: "pending",
+        sentDate: new Date().toISOString(),
+        sentBy: collectorId,
+        errorMessage: null,
+      });
+
+      const items = await Promise.all(accounts.map(async (account, idx) => {
+        const debtor = debtors[idx]!;
+        return storage.createCampaignLogItem({
+          campaignLogId: campaignLog.id,
+          debtorId: debtor.id,
+          fileNumber: debtor.fileNumber || debtor.accountNumber,
+          contactValue: account.contactValue,
+          contactType: account.contactType,
+          status: "queued",
+          externalId: null,
+          responseText: null,
+        });
+      }));
+
+      const payload = {
+        organizationId: orgId,
+        campaignLogId: campaignLog.id,
+        campaignName,
+        campaignType: integration.type,
+        accounts: items.map((item) => ({
+          fileNumber: item.fileNumber,
+          contactValue: item.contactValue,
+          contactType: item.contactType,
+        })),
+      };
+
+      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${integration.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!externalResponse.ok) {
+        const errorText = await externalResponse.text();
+        await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
+        return res.status(502).json({ error: "External campaign send failed", details: errorText });
+      }
+
+      await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
+      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: "sent" })));
+
+      res.json({ success: true, campaignLogId: campaignLog.id });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to send campaign" });
+    }
+  });
+
+  app.get("/api/campaign-logs", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const logs = await storage.getCampaignLogs(orgId);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch campaign logs" });
+    }
+  });
+
+  app.get("/api/campaign-logs/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const log = await storage.getCampaignLog(req.params.id);
+      if (!log || !validateOrgOwnership(log.organizationId, orgId)) {
+        return res.status(404).json({ error: "Campaign log not found" });
+      }
+
+      const items = await storage.getCampaignLogItems(log.id);
+      res.json({ ...log, items });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch campaign log" });
+    }
+  });
+
   // Register external API routes for SMS/TXT software integration
   registerExternalApiRoutes(app);
 
