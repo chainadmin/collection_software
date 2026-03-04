@@ -22,9 +22,24 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
             .then((registration) => {
-              console.log('SW registered:', registration);
+              registration.addEventListener('updatefound', () => {
+                var newWorker = registration.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'activated') {
+                      var reloadKey = 'sw-reload-' + Date.now();
+                      if (!sessionStorage.getItem('sw-reloaded')) {
+                        sessionStorage.setItem('sw-reloaded', '1');
+                        window.location.reload();
+                      }
+                    }
+                  });
+                }
+              });
+              sessionStorage.removeItem('sw-reloaded');
+              registration.update();
             })
             .catch((error) => {
               console.log('SW registration failed:', error);

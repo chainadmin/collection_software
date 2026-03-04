@@ -113,6 +113,12 @@ app.use((req, res, next) => {
     console.log("Migration skipped (database may not be available):", error instanceof Error ? error.message : error);
   }
 
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    next();
+  });
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

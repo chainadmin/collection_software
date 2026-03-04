@@ -105,8 +105,13 @@ A comprehensive external API is provided for integration with SMS platforms, sof
 - **Vaul**: Drawer component.
 - **react-day-picker**: Calendar/date picker.
 
+### Caching Strategy
+- **Service Worker** (`client/public/sw.js`): Network-first for navigations and non-hashed assets, cache-first for Vite hashed assets (`/assets/*`). App shell pre-cached on install. Old caches purged on SW activation via version bump (`CACHE_NAME`).
+- **Cache-Control Headers** (`server/static.ts`): Hashed assets get `max-age=1y, immutable`. HTML, `sw.js`, and `manifest.json` get `no-cache, must-revalidate`. API responses get `no-store`.
+- **SW Registration** (`client/index.html`): Uses `updateViaCache: 'none'` to prevent browser from caching SW file. Auto-reloads once on SW update with loop guard via sessionStorage.
+
 ### Session Management
-- **connect-pg-simple**: PostgreSQL session store.
+- **PgSessionStore** (`server/pg-session-store.ts`): Custom PostgreSQL session store using the shared pool from `server/db.ts`.
 - **express-session**: Session middleware.
 
 ### Build & Development

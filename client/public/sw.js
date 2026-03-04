@@ -1,5 +1,5 @@
-const CACHE_NAME = 'debtmanagerpro-v4';
-const STATIC_ASSETS = [
+const CACHE_NAME = 'debtmanagerpro-v5';
+const APP_SHELL = [
   '/',
   '/manifest.json',
   '/favicon.png'
@@ -8,7 +8,7 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      return cache.addAll(APP_SHELL);
     })
   );
   self.skipWaiting();
@@ -34,12 +34,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (event.request.url.includes('/api/')) {
+  const url = new URL(event.request.url);
+
+  if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(event.request)
-        .then((response) => {
-          return response;
-        })
         .catch(() => {
           return new Response(JSON.stringify({ error: 'Offline' }), {
             status: 503,
@@ -50,21 +49,57 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
         }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
+        return fetch(event.request).then((response) => {
+          if (!response || response.status !== 200) {
+            return response;
+          }
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+          return response;
         });
+      })
+    );
+    return;
+  }
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          return caches.match('/').then((cachedResponse) => {
+            return cachedResponse || new Response('Offline', { status: 503 });
+          });
+        })
+    );
+    return;
+  }
+
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
         return response;
-      });
-    })
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          return cachedResponse || new Response('Offline', { status: 503 });
+        });
+      })
   );
 });
