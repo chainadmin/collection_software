@@ -49,37 +49,45 @@ export default function SuperAdmin() {
   });
 
   useEffect(() => {
-    const validateSession = async () => {
-      const stored = localStorage.getItem("superAdminSession");
-      if (!stored) {
-        setLocation("/super-admin-login");
-        return;
-      }
+    const stored = localStorage.getItem("superAdminSession");
+    if (!stored) {
+      setLocation("/super-admin-login");
+      return;
+    }
 
+    try {
+      const parsed = JSON.parse(stored);
+      setAdmin(parsed);
+      setSessionValid(true);
+    } catch {
+      localStorage.removeItem("superAdminSession");
+      setLocation("/super-admin-login");
+      return;
+    }
+
+    const validateInBackground = async (attempt = 1): Promise<void> => {
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
-        if (!res.ok) {
-          localStorage.removeItem("superAdminSession");
-          setLocation("/super-admin-login");
-          return;
-        }
+        if (!res.ok) throw new Error("Session check failed");
         const data = await res.json();
-
-        if (data.type === "globalAdmin" && data.admin) {
-          const parsed = JSON.parse(stored);
-          setAdmin(parsed);
-          setSessionValid(true);
-        } else {
-          localStorage.removeItem("superAdminSession");
-          setLocation("/super-admin-login");
+        if (data.type !== "globalAdmin" || !data.admin) {
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+            return validateInBackground(attempt + 1);
+          }
+          handleSessionExpired();
         }
       } catch {
-        localStorage.removeItem("superAdminSession");
-        setLocation("/super-admin-login");
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          return validateInBackground(attempt + 1);
+        }
+        handleSessionExpired();
       }
     };
 
-    validateSession();
+    const timer = setTimeout(() => validateInBackground(), 500);
+    return () => clearTimeout(timer);
   }, [setLocation]);
 
   const handleSessionExpired = () => {
