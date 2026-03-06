@@ -351,8 +351,13 @@ export default function Landing() {
                     className="hover:text-foreground cursor-pointer"
                     data-testid="button-download-app"
                   >
-                    Download App
+                    Download Admin App
                   </button>
+                </li>
+                <li>
+                  <Link href="/collector-install" className="hover:text-foreground" data-testid="link-download-collector">
+                    Download Collector App
+                  </Link>
                 </li>
               </ul>
             </div>

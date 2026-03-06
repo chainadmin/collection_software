@@ -527,6 +527,81 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/collector-login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+
+      const collector = await storage.getCollectorByUsername(username);
+      if (!collector) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+
+      if (!await verifyPassword(password, collector.password)) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+
+      if (collector.status !== "active") {
+        return res.status(403).json({ error: "Your account is not active" });
+      }
+
+      const organization = await storage.getOrganization(collector.organizationId);
+      if (!organization || !organization.isActive) {
+        return res.status(403).json({ error: "Your organization is not active" });
+      }
+
+      if (organization.ipRestrictionEnabled) {
+        const clientIp = getClientIp(req);
+
+        if (net.isIP(clientIp) === 0) {
+          return res.status(403).json({
+            error: "Access denied. Could not validate your IP address.",
+          });
+        }
+
+        const isWhitelisted = await storage.isIpWhitelisted(organization.id, clientIp);
+        if (!isWhitelisted) {
+          console.log(`[Collector Login] IP ${clientIp} blocked for org ${organization.id}`);
+          return res.status(403).json({
+            error: "Access denied. Your IP address is not authorized.",
+          });
+        }
+      }
+
+      req.session.collector = {
+        id: collector.id,
+        organizationId: organization.id,
+        role: collector.role,
+        name: collector.name,
+        email: collector.email || "",
+      };
+
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Failed to establish session" });
+        }
+        res.json({
+          message: "Login successful",
+          collector: {
+            id: collector.id,
+            name: collector.name,
+            email: collector.email,
+            role: collector.role,
+          },
+          organizationId: organization.id,
+          organizationName: organization.name,
+        });
+      });
+    } catch (error) {
+      console.error("Collector login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   // Super Admin Login
   app.post("/api/super-admin/login", async (req, res) => {
     try {
@@ -1314,8 +1389,12 @@ export async function registerRoutes(
   app.post("/api/collectors", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const body = { ...req.body };
+      if (body.password && !body.password.startsWith("$2")) {
+        body.password = await hashPassword(body.password);
+      }
       const collector = await storage.createCollector({
-        ...req.body,
+        ...body,
         organizationId: orgId,
       });
       res.status(201).json(collector);
@@ -1326,7 +1405,11 @@ export async function registerRoutes(
 
   app.patch("/api/collectors/:id", async (req, res) => {
     try {
-      const collector = await storage.updateCollector(req.params.id, req.body);
+      const body = { ...req.body };
+      if (body.password && !body.password.startsWith("$2")) {
+        body.password = await hashPassword(body.password);
+      }
+      const collector = await storage.updateCollector(req.params.id, body);
       if (!collector) {
         return res.status(404).json({ error: "Collector not found" });
       }

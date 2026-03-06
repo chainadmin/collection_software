@@ -13,6 +13,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
+  collectorLogin: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   setAuthUser: (user: AuthUser) => void;
 }
@@ -94,6 +95,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const collectorLogin = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const response = await fetch("/api/auth/collector-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const authUser: AuthUser = {
+          id: data.collector?.id || data.id,
+          email: data.collector?.email || "",
+          name: data.collector?.name || data.name,
+          role: data.collector?.role || data.role,
+          organizationId: data.organizationId,
+        };
+        setUser(authUser);
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+        localStorage.setItem("appMode", "collector");
+        return true;
+      }
+
+      if (response.status === 403) {
+        const data = await response.json();
+        throw new Error(data.error || "Access denied");
+      }
+
+      return false;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const logout = async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -115,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         login,
+        collectorLogin,
         logout,
         setAuthUser,
       }}

@@ -27,8 +27,10 @@ function LogoutButton() {
   const [, setLocation] = useLocation();
 
   const handleLogout = async () => {
+    const isCollectorApp = localStorage.getItem("appMode") === "collector";
+    localStorage.removeItem("appMode");
     await logout();
-    setLocation("/login");
+    setLocation(isCollectorApp ? "/collector-login" : "/login");
   };
 
   return (

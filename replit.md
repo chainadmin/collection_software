@@ -35,7 +35,14 @@ Key features include click-to-call functionality, auto-saving notes, a payment c
 The system supports hourly wage tracking for profitability analysis, role-based permissions (e.g., Dashboard Access, Payment Runner Access), and generates profitability reports comparing wage cost to collections ROI.
 
 ### PWA Support
-The application is installable as a Progressive Web App (PWA) on desktop and iOS, utilizing a manifest and service worker.
+The application is installable as a Progressive Web App (PWA) on desktop and iOS, utilizing a manifest and service worker. Two separate PWA manifests exist:
+- **Admin App** (`manifest.json`): Full application starting at `/login` with email-based authentication
+- **Collector App** (`manifest-collector.json`): Collector-only workstation starting at `/collector-login` with username+password authentication and IP restriction enforcement
+
+### Dual Login System
+The application has two separate login flows:
+- **Admin Login** (`/login`): Email + password authentication for admins/managers. Full access to all features.
+- **Collector Login** (`/collector-login`): Username + password authentication for collectors. IP-restricted per organization. Sets `appMode: "collector"` in localStorage which locks the UI to collector-only views (workstation, whiteboard, declines, liq rates). The collector install page (`/collector-install`) handles PWA installation with the collector-specific manifest.
 
 ### Public Signup Flow
 New organizations receive a 14-day free trial without requiring a credit card. A multi-step signup process collects company information and allows plan selection. Subscription status is enforced server-side, redirecting users to a subscription page upon trial expiration.

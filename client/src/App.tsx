@@ -13,6 +13,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
+import CollectorLogin from "@/pages/collector-login";
+import CollectorInstall from "@/pages/collector-install";
 import Signup from "@/pages/signup";
 import Dashboard from "@/pages/dashboard";
 import Workstation from "@/pages/workstation";
@@ -106,7 +108,8 @@ function AppLayout() {
   });
 
   const currentCollector = collectors[0];
-  const isCollectorRole = currentCollector?.role === "collector";
+  const isCollectorRole = authUser?.role === "collector" || currentCollector?.role === "collector";
+  const isCollectorAppMode = typeof window !== "undefined" && localStorage.getItem("appMode") === "collector";
 
   // Redirect to subscribe page if trial expired and not active
   useEffect(() => {
@@ -130,10 +133,10 @@ function AppLayout() {
     location.startsWith("/app/admin/");
 
   useEffect(() => {
-    if (isCollectorRole && isAdminRoute && !isCollectorRoute) {
+    if ((isCollectorRole || isCollectorAppMode) && isAdminRoute && !isCollectorRoute) {
       setLocation("/app/workstation");
     }
-  }, [isCollectorRole, isAdminRoute, isCollectorRoute, setLocation]);
+  }, [isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, setLocation]);
 
   const handleAccountSelect = (debtor: Debtor) => {
     if (isCollectorRoute || isCollectorRole) {
@@ -148,7 +151,7 @@ function AppLayout() {
     "--sidebar-width-icon": "4rem",
   };
 
-  const showCollectorSidebar = isCollectorRole || isCollectorRoute;
+  const showCollectorSidebar = isCollectorRole || isCollectorAppMode || isCollectorRoute;
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
@@ -201,6 +204,8 @@ function AppContent() {
   const isPublicOnlyRoute = 
     location === "/" || 
     location === "/login" || 
+    location === "/collector-login" || 
+    location === "/collector-install" || 
     location === "/signup" ||
     location === "/demo" ||
     location === "/contact";
@@ -227,18 +232,21 @@ function AppContent() {
     );
   }
 
-  // Redirect authenticated users from public pages to dashboard
+  const isCollectorMode = typeof window !== "undefined" && localStorage.getItem("appMode") === "collector";
+
   if (isAuthenticated && isPublicOnlyRoute) {
-    return <Redirect to="/app" />;
+    return <Redirect to={isCollectorMode ? "/app/workstation" : "/app"} />;
   }
 
   if (isPublicRoute) {
     return (
       <Switch>
         <Route path="/">
-          {isStandaloneDesktop ? <Redirect to="/login" /> : <Landing />}
+          {isStandaloneDesktop ? <Redirect to={isCollectorMode ? "/collector-login" : "/login"} /> : <Landing />}
         </Route>
         <Route path="/login" component={Login} />
+        <Route path="/collector-login" component={CollectorLogin} />
+        <Route path="/collector-install" component={CollectorInstall} />
         <Route path="/signup" component={Signup} />
         <Route path="/subscribe" component={Subscribe} />
         <Route path="/demo" component={Landing} />
@@ -249,9 +257,8 @@ function AppContent() {
     );
   }
 
-  // Require authentication for /app routes
   if (!isAuthenticated) {
-    return <Redirect to="/login" />;
+    return <Redirect to={isCollectorMode ? "/collector-login" : "/login"} />;
   }
 
   return <AppLayout />;
