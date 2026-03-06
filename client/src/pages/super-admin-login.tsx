@@ -25,18 +25,8 @@ export default function SuperAdminLogin() {
 
       if (res.ok) {
         localStorage.setItem("superAdminSession", JSON.stringify(data.admin));
-
-        const sessionCheck = await fetch("/api/auth/session", { credentials: "include" });
-        const sessionData = await sessionCheck.json();
-
-        if (sessionData.type === "globalAdmin" && sessionData.admin) {
-          toast({ title: "Welcome", description: `Logged in as ${data.admin.name}` });
-          setLocation("/super-admin");
-        } else {
-          console.error("Session not established after login:", sessionData);
-          toast({ title: "Login Issue", description: "Login succeeded but session was not saved. Please try again.", variant: "destructive" });
-          localStorage.removeItem("superAdminSession");
-        }
+        toast({ title: "Welcome", description: `Logged in as ${data.admin.name}` });
+        setLocation("/super-admin");
       } else {
         toast({ title: "Login Failed", description: data.error, variant: "destructive" });
       }

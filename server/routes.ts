@@ -555,9 +555,10 @@ export async function registerRoutes(
 
       req.session.save((err) => {
         if (err) {
-          console.error("Session save error:", err);
+          console.error("[Super Admin] Session save error:", err);
           return res.status(500).json({ error: "Failed to establish session" });
         }
+        console.log(`[Super Admin] Session saved successfully for ${admin.username}, sid: ${req.sessionID}`);
         res.json({
           message: "Super admin login successful",
           admin: {
@@ -625,6 +626,27 @@ export async function registerRoutes(
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to toggle organization status" });
+    }
+  });
+
+  app.patch("/api/super-admin/organizations/:id/set-subscription", requireGlobalAdminAuth, async (req, res) => {
+    try {
+      const { status } = req.body;
+      if (!status || !["active", "trial", "cancelled"].includes(status)) {
+        return res.status(400).json({ error: "Invalid subscription status" });
+      }
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      const updated = await storage.updateOrganization(req.params.id, {
+        subscriptionStatus: status,
+        isActive: true,
+      });
+      console.log(`[Super Admin] Set org ${req.params.id} subscription to: ${status}`);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update subscription status" });
     }
   });
 

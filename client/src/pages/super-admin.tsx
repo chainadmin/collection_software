@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShieldCheck, Building2, Power, PowerOff, Search, LogOut, RefreshCw, Plus, Bell, CheckCheck, Clock, Mail, Send, Eye, EyeOff, Loader2 } from "lucide-react";
+import { ShieldCheck, Building2, Power, PowerOff, Search, LogOut, RefreshCw, Plus, Bell, CheckCheck, Clock, Mail, Send, Eye, EyeOff, Loader2, CreditCard } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -168,6 +168,20 @@ export default function SuperAdmin() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to apply free month.", variant: "destructive" });
+    },
+  });
+
+  const setSubscriptionMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/super-admin/organizations/${id}/set-subscription`, { status });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/organizations"] });
+      toast({ title: "Subscription Updated", description: `Subscription set to ${variables.status}.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update subscription.", variant: "destructive" });
     },
   });
 
@@ -626,40 +640,58 @@ export default function SuperAdmin() {
                             <span className="text-sm">{org.createdDate ? new Date(org.createdDate).toLocaleDateString() : "-"}</span>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={org.isActive ? "default" : "secondary"}>
-                              {org.isActive ? "Active" : "Inactive"}
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={org.isActive ? "default" : "secondary"}>
+                                {org.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                              <Badge variant={org.subscriptionStatus === "active" ? "default" : "outline"} className="text-xs">
+                                Sub: {org.subscriptionStatus || "trial"}
+                              </Badge>
+                            </div>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => toggleMutation.mutate(org.id)}
-                              disabled={toggleMutation.isPending || freeMonthMutation.isPending}
-                              data-testid={`button-toggle-${org.id}`}
-                            >
-                              {org.isActive ? (
-                                <>
-                                  <PowerOff className="h-4 w-4 mr-2" />
-                                  Disable
-                                </>
-                              ) : (
-                                <>
-                                  <Power className="h-4 w-4 mr-2" />
-                                  Enable
-                                </>
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => toggleMutation.mutate(org.id)}
+                                disabled={toggleMutation.isPending || freeMonthMutation.isPending || setSubscriptionMutation.isPending}
+                                data-testid={`button-toggle-${org.id}`}
+                              >
+                                {org.isActive ? (
+                                  <>
+                                    <PowerOff className="h-4 w-4 mr-2" />
+                                    Disable
+                                  </>
+                                ) : (
+                                  <>
+                                    <Power className="h-4 w-4 mr-2" />
+                                    Enable
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => freeMonthMutation.mutate(org.id)}
+                                disabled={toggleMutation.isPending || freeMonthMutation.isPending || setSubscriptionMutation.isPending}
+                                data-testid={`button-free-month-${org.id}`}
+                              >
+                                Free Month
+                              </Button>
+                              {org.subscriptionStatus !== "active" && (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => setSubscriptionMutation.mutate({ id: org.id, status: "active" })}
+                                  disabled={toggleMutation.isPending || freeMonthMutation.isPending || setSubscriptionMutation.isPending}
+                                  data-testid={`button-set-active-${org.id}`}
+                                >
+                                  <CreditCard className="h-4 w-4 mr-2" />
+                                  Set Active
+                                </Button>
                               )}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="ml-2"
-                              onClick={() => freeMonthMutation.mutate(org.id)}
-                              disabled={toggleMutation.isPending || freeMonthMutation.isPending}
-                              data-testid={`button-free-month-${org.id}`}
-                            >
-                              Free Month
-                            </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
