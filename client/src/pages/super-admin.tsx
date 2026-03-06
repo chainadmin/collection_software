@@ -58,46 +58,11 @@ export default function SuperAdmin() {
     try {
       const parsed = JSON.parse(stored);
       setAdmin(parsed);
+      setSessionValid(true);
     } catch {
       localStorage.removeItem("superAdminSession");
       setLocation("/super-admin-login");
-      return;
     }
-
-    let cancelled = false;
-
-    const validateSession = async (attempt = 1): Promise<void> => {
-      if (cancelled) return;
-      try {
-        const res = await fetch("/api/auth/session", { credentials: "include" });
-        if (!res.ok) throw new Error("Session check failed");
-        const data = await res.json();
-        if (data.type === "globalAdmin" && data.admin) {
-          if (!cancelled) setSessionValid(true);
-        } else {
-          if (attempt < 5) {
-            await new Promise(r => setTimeout(r, 1000 * attempt));
-            return validateSession(attempt + 1);
-          }
-          if (!cancelled) {
-            localStorage.removeItem("superAdminSession");
-            setLocation("/super-admin-login");
-          }
-        }
-      } catch {
-        if (attempt < 5) {
-          await new Promise(r => setTimeout(r, 1000 * attempt));
-          return validateSession(attempt + 1);
-        }
-        if (!cancelled) {
-          localStorage.removeItem("superAdminSession");
-          setLocation("/super-admin-login");
-        }
-      }
-    };
-
-    const timer = setTimeout(() => validateSession(), 800);
-    return () => { cancelled = true; clearTimeout(timer); };
   }, [setLocation]);
 
   const handleSessionExpired = () => {
@@ -338,19 +303,8 @@ export default function SuperAdmin() {
     return `$${amount}/mo`;
   };
 
-  if (!admin) {
+  if (!admin || !sessionValid) {
     return null;
-  }
-
-  if (!sessionValid) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Verifying session...</p>
-        </div>
-      </div>
-    );
   }
 
   return (

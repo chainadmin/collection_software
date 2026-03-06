@@ -547,25 +547,32 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Your admin account is not active" });
       }
 
-      req.session.globalAdmin = {
-        id: admin.id,
-        username: admin.username,
-        name: admin.name,
-      };
-
-      req.session.save((err) => {
-        if (err) {
-          console.error("[Super Admin] Session save error:", err);
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error("[Super Admin] Session regenerate error:", regenErr);
           return res.status(500).json({ error: "Failed to establish session" });
         }
-        console.log(`[Super Admin] Session saved successfully for ${admin.username}, sid: ${req.sessionID}`);
-        res.json({
-          message: "Super admin login successful",
-          admin: {
-            id: admin.id,
-            username: admin.username,
-            name: admin.name,
-          },
+
+        req.session.globalAdmin = {
+          id: admin.id,
+          username: admin.username,
+          name: admin.name,
+        };
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("[Super Admin] Session save error:", err);
+            return res.status(500).json({ error: "Failed to establish session" });
+          }
+          console.log(`[Super Admin] Session saved successfully for ${admin.username}, sid: ${req.sessionID}`);
+          res.json({
+            message: "Super admin login successful",
+            admin: {
+              id: admin.id,
+              username: admin.username,
+              name: admin.name,
+            },
+          });
         });
       });
     } catch (error) {

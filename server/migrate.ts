@@ -700,6 +700,12 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'debtors' AND column_name = 'charge_off_date') THEN
           ALTER TABLE debtors ADD COLUMN charge_off_date text;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_settings' AND column_name = 'smtp_password') THEN
+          ALTER TABLE email_settings ADD COLUMN smtp_password text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_settings' AND column_name = 'notification_email') THEN
+          ALTER TABLE email_settings ADD COLUMN notification_email text;
+        END IF;
       END $$;
     `);
 
