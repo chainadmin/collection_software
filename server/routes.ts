@@ -14,6 +14,8 @@ import {
   voidDebtorTransaction,
   type MerchantCredentials
 } from "./authorizenet";
+import { processPayment } from "./payment-processor";
+import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { db } from "./db";
 import { emailSettings } from "@shared/schema";
@@ -1852,6 +1854,37 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/payment-runner/auto-status", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const org = await storage.getOrganization(orgId);
+      const status = getAutoRunnerStatus();
+      res.json({
+        autoRunnerEnabled: org?.autoRunnerEnabled ?? false,
+        isRunning: status.isRunning,
+        lastRunTimestamp: status.lastRunTimestamp,
+        lastRunResult: status.lastRunResult,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get auto-runner status" });
+    }
+  });
+
+  app.post("/api/payment-runner/auto-trigger", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const collector = req.session.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can trigger auto-runner" });
+      }
+      console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);
+      const result = await runAutoPayments(orgId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to trigger auto-runner" });
+    }
+  });
+
   app.get("/api/liquidation/snapshots", async (req, res) => {
     try {
       const { portfolioId } = req.query;
@@ -2048,6 +2081,36 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/organization/auto-runner", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { enabled } = req.body;
+      const org = await storage.updateOrganization(orgId, {
+        autoRunnerEnabled: enabled
+      });
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      console.log(`[Auto Runner] Org ${orgId} auto-runner set to: ${enabled}`);
+      res.json({ autoRunnerEnabled: org.autoRunnerEnabled });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update auto-runner setting" });
+    }
+  });
+
+  app.get("/api/organization/auto-runner", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        return res.status(404).json({ error: "Organization not found" });
+      }
+      res.json({ autoRunnerEnabled: org.autoRunnerEnabled ?? false });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get auto-runner status" });
+    }
+  });
+
   // Time Clock API
   app.get("/api/time-clock", async (req, res) => {
     try {
@@ -2145,104 +2208,18 @@ export async function registerRoutes(
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
-
-      const debtor = await storage.getDebtor(payment.debtorId);
-      let success = false;
-      let declineReason: string | null = null;
-      let transactionId: string | null = null;
-
-      // Get organization's active Authorize.net merchant
-      const merchants = await storage.getMerchants(orgId);
-      const activeMerchant = merchants.find(
-        m => m.isActive && m.processorType === 'authorize_net' && m.authorizeNetApiLoginId && m.authorizeNetTransactionKey
-      );
-
-      if (activeMerchant) {
-        const merchantCredentials: MerchantCredentials = {
-          apiLoginId: activeMerchant.authorizeNetApiLoginId!,
-          transactionKey: activeMerchant.authorizeNetTransactionKey!,
-          testMode: activeMerchant.testMode ?? true,
-        };
-
-        if (payment.paymentMethod === "card" && payment.cardId) {
-          const card = await storage.getPaymentCard(payment.cardId);
-          if (card && card.cardNumber) {
-            const result = await processDebtorCardPayment(
-              merchantCredentials,
-              {
-                cardNumber: card.cardNumber,
-                expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-                cardCode: card.cvv || "999",
-              },
-              payment.amount / 100,
-              payment.referenceNumber || undefined,
-              debtor?.email || undefined
-            );
-            success = result.success;
-            declineReason = result.errorMessage || null;
-            transactionId = result.transactionId || null;
-          } else {
-            declineReason = "Card not found or missing card details";
-          }
-        } else if (payment.paymentMethod === "ach") {
-          const bankAccounts = await storage.getBankAccounts(payment.debtorId);
-          const bankAccount = bankAccounts[0];
-          if (bankAccount) {
-            const result = await processDebtorAchPayment(
-              merchantCredentials,
-              {
-                accountType: bankAccount.accountType as 'checking' | 'savings',
-                routingNumber: bankAccount.routingNumber || '',
-                accountNumber: bankAccount.accountNumber || '',
-                nameOnAccount: debtor ? `${debtor.firstName} ${debtor.lastName}` : 'Account Holder',
-              },
-              payment.amount / 100,
-              payment.referenceNumber || undefined
-            );
-            success = result.success;
-            declineReason = result.errorMessage || null;
-            transactionId = result.transactionId || null;
-          } else {
-            declineReason = "No bank account on file";
-          }
-        } else if (payment.paymentMethod === "check") {
-          success = true;
-        } else {
-          declineReason = "Unsupported payment method or missing card";
-        }
-      } else {
-        // No merchant configured - simulate for demo
-        success = Math.random() > 0.2;
-        declineReason = success ? null : "No merchant configured - simulated decline";
-      }
-      
-      const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: success ? "processed" : "declined",
-        notes: success 
-          ? (transactionId ? `${payment.notes || ''} [TXN: ${transactionId}]`.trim() : payment.notes) 
-          : `DECLINED: ${declineReason}`,
-      });
-
-      // If declined, add decline reason to debtor notes
-      if (!success && debtor) {
-        await storage.createNote({
-          debtorId: payment.debtorId,
-          collectorId: payment.processedBy || "system",
-          content: `Payment of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
-          noteType: "payment",
-          createdDate: new Date().toISOString().split("T")[0],
-          organizationId: orgId,
-        });
+      if (payment.organizationId !== orgId) {
+        return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      res.json({ ...updatedPayment, declineReason, transactionId });
+      const result = await processPayment(payment, storage, orgId);
+      res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment processing error:", error);
       res.status(500).json({ error: "Failed to process payment" });
     }
   });
 
-  // Re-run a failed payment
   app.post("/api/payments/:id/rerun", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2250,97 +2227,18 @@ export async function registerRoutes(
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
+      if (payment.organizationId !== orgId) {
+        return res.status(403).json({ error: "Payment does not belong to this organization" });
+      }
 
       await storage.updatePayment(req.params.id, { status: "pending" });
-
-      const debtor = await storage.getDebtor(payment.debtorId);
-      let success = false;
-      let declineReason: string | null = null;
-      let transactionId: string | null = null;
-
-      // Get organization's merchant
-      const merchants = await storage.getMerchants(orgId);
-      const activeMerchant = merchants.find(
-        m => m.isActive && m.processorType === 'authorize_net' && m.authorizeNetApiLoginId && m.authorizeNetTransactionKey
-      );
-
-      if (activeMerchant) {
-        const merchantCredentials: MerchantCredentials = {
-          apiLoginId: activeMerchant.authorizeNetApiLoginId!,
-          transactionKey: activeMerchant.authorizeNetTransactionKey!,
-          testMode: activeMerchant.testMode ?? true,
-        };
-
-        if (payment.paymentMethod === "card" && payment.cardId) {
-          const card = await storage.getPaymentCard(payment.cardId);
-          if (card && card.cardNumber) {
-            const result = await processDebtorCardPayment(
-              merchantCredentials,
-              {
-                cardNumber: card.cardNumber,
-                expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-                cardCode: card.cvv || "999",
-              },
-              payment.amount / 100,
-              payment.referenceNumber || undefined,
-              debtor?.email || undefined
-            );
-            success = result.success;
-            declineReason = result.errorMessage || null;
-            transactionId = result.transactionId || null;
-          } else {
-            declineReason = "Card not found";
-          }
-        } else if (payment.paymentMethod === "ach") {
-          const bankAccounts = await storage.getBankAccounts(payment.debtorId);
-          const bankAccount = bankAccounts[0];
-          if (bankAccount) {
-            const result = await processDebtorAchPayment(
-              merchantCredentials,
-              {
-                accountType: bankAccount.accountType as 'checking' | 'savings',
-                routingNumber: bankAccount.routingNumber || '',
-                accountNumber: bankAccount.accountNumber || '',
-                nameOnAccount: debtor ? `${debtor.firstName} ${debtor.lastName}` : 'Account Holder',
-              },
-              payment.amount / 100,
-              payment.referenceNumber || undefined
-            );
-            success = result.success;
-            declineReason = result.errorMessage || null;
-            transactionId = result.transactionId || null;
-          } else {
-            declineReason = "No bank account on file";
-          }
-        } else if (payment.paymentMethod === "check") {
-          success = true;
-        } else {
-          declineReason = "Unsupported payment method";
-        }
-      } else {
-        success = Math.random() > 0.3;
-        declineReason = success ? null : "No merchant configured - simulated decline";
-      }
-      
-      const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: success ? "processed" : "declined",
-        notes: success 
-          ? (transactionId ? `Re-run successful [TXN: ${transactionId}]` : "Re-run successful")
-          : `DECLINED: ${declineReason}`,
-      });
-
-      if (!success && debtor) {
-        await storage.createNote({
-          debtorId: payment.debtorId,
-          collectorId: payment.processedBy || "system",
-          content: `Payment re-run of $${(payment.amount / 100).toFixed(2)} DECLINED: ${declineReason}`,
-          noteType: "payment",
-          createdDate: new Date().toISOString().split("T")[0],
-          organizationId: orgId,
-        });
+      const resetPayment = await storage.getPayment(req.params.id);
+      if (!resetPayment) {
+        return res.status(404).json({ error: "Payment not found after reset" });
       }
 
-      res.json({ ...updatedPayment, declineReason, transactionId });
+      const result = await processPayment(resetPayment, storage, orgId);
+      res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment rerun error:", error);
       res.status(500).json({ error: "Failed to re-run payment" });

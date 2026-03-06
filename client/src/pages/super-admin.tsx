@@ -24,9 +24,9 @@ const PLAN_SEATS = {
 };
 
 const PLAN_PRICES: Record<string, number> = {
-  starter: 99,
-  growth: 249,
-  agency: 499,
+  starter: 200,
+  growth: 400,
+  agency: 750,
 };
 
 export default function SuperAdmin() {

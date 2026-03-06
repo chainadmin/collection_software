@@ -16,6 +16,7 @@ import {
   PlayCircle,
   CheckSquare,
   ArrowUpCircle,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
@@ -58,6 +60,22 @@ export default function PaymentRunner() {
 
   const { data: merchants } = useQuery<Merchant[]>({
     queryKey: ["/api/merchants"],
+  });
+
+  const { data: autoStatus } = useQuery<{
+    autoRunnerEnabled: boolean;
+    isRunning: boolean;
+    lastRunTimestamp: string | null;
+    lastRunResult: {
+      runTime: string;
+      totalProcessed: number;
+      totalSuccess: number;
+      totalDeclined: number;
+      totalSkipped: number;
+    } | null;
+  }>({
+    queryKey: ["/api/payment-runner/auto-status"],
+    refetchInterval: 30000,
   });
 
   const { data: collectors } = useQuery<Collector[]>({
@@ -170,6 +188,44 @@ export default function PaymentRunner() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to post payments.", variant: "destructive" });
+    },
+  });
+
+  const toggleAutoRunnerMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PATCH", "/api/organization/auto-runner", { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-runner/auto-status"] });
+      toast({
+        title: data.autoRunnerEnabled ? "Auto-Runner Enabled" : "Auto-Runner Disabled",
+        description: data.autoRunnerEnabled
+          ? "Payments will process automatically at 7 AM and 6 PM Eastern."
+          : "Automatic payment processing has been turned off.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update auto-runner setting.", variant: "destructive" });
+    },
+  });
+
+  const triggerAutoRunMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/payment-runner/auto-trigger");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-runner/auto-status"] });
+      toast({
+        title: "Auto-Run Complete",
+        description: `Processed: ${data.totalProcessed}, Success: ${data.totalSuccess}, Declined: ${data.totalDeclined}, Skipped: ${data.totalSkipped}`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to trigger auto-runner.", variant: "destructive" });
     },
   });
 
@@ -361,6 +417,54 @@ export default function PaymentRunner() {
                   </p>
                 </div>
               </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-auto-runner">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <Zap className={cn("h-5 w-5", autoStatus?.autoRunnerEnabled ? "text-blue-600" : "text-muted-foreground")} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3">
+                <p className="font-medium" data-testid="text-auto-runner-title">Auto Payment Runner</p>
+                <Switch
+                  checked={autoStatus?.autoRunnerEnabled ?? false}
+                  onCheckedChange={(checked) => toggleAutoRunnerMutation.mutate(checked)}
+                  disabled={toggleAutoRunnerMutation.isPending}
+                  data-testid="switch-auto-runner"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {autoStatus?.autoRunnerEnabled
+                  ? "Runs automatically at 7:00 AM and 6:00 PM Eastern"
+                  : "Enable to automatically process pending payments twice daily"}
+              </p>
+              {autoStatus?.lastRunResult && (
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-run-info">
+                  Last run: {format(new Date(autoStatus.lastRunResult.runTime), "MMM d, h:mm a")} —{" "}
+                  {autoStatus.lastRunResult.totalProcessed} processed,{" "}
+                  {autoStatus.lastRunResult.totalSuccess} success,{" "}
+                  {autoStatus.lastRunResult.totalDeclined} declined
+                </p>
+              )}
+            </div>
+            {canPostOrReverse && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => triggerAutoRunMutation.mutate()}
+                disabled={triggerAutoRunMutation.isPending || autoStatus?.isRunning}
+                data-testid="button-trigger-auto-run"
+              >
+                {triggerAutoRunMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4 mr-2" />
+                )}
+                Run Now
+              </Button>
             )}
           </div>
         </CardContent>

@@ -43,6 +43,17 @@ New organizations receive a 14-day free trial without requiring a credit card. A
 ### Payment Runner Features (Debt Collection)
 The payment runner facilitates batch processing of pending debtor payments through the organization's own merchant accounts. It supports re-running failed payments, processing single payments, reversing completed payments (with gateway void and future payment cancellation), and automatically adding decline notes.
 
+### Auto Payment Runner
+The system includes an automatic payment runner (`server/auto-payment-runner.ts`) that processes pending payments twice daily at 7:00 AM and 6:00 PM Eastern time. Each organization has an `autoRunnerEnabled` toggle (default: off). The scheduler checks every 60 seconds, groups payments by organization, validates each org has the toggle enabled and an active merchant, then processes through the unified payment processor. Includes double-run guard, per-org result tracking, and manual trigger capability for admins.
+
+### Unified Payment Processor
+All payment processing (manual, batch, and auto) routes through `server/payment-processor.ts` — a single `processPayment()` function that:
+1. Looks up the org's active merchant
+2. Routes to the correct gateway based on `processorType`: Authorize.net, NMI (Direct Post API), or USAePay (REST API)
+3. Handles card and ACH payment methods
+4. Updates payment status and adds decline notes automatically
+5. Enforces strict org isolation — each payment always uses its own org's merchant
+
 ### Organization Merchant Configuration
 Each organization configures its own merchant account credentials (e.g., Authorize.net, NMI, USAePay) for processing debtor payments, with support for test mode.
 

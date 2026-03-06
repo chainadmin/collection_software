@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
+import { eq, and, desc, lte, ilike, or, sql } from "drizzle-orm";
 import {
   organizations,
   users,
@@ -514,6 +514,15 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingPayments(): Promise<Payment[]> {
     return await db.select().from(payments).where(eq(payments.status, "pending"));
+  }
+
+  async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+    return await db.select().from(payments).where(
+      and(
+        eq(payments.status, "pending"),
+        lte(payments.paymentDate, maxDate)
+      )
+    );
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {

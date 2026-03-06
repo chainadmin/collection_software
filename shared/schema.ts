@@ -26,6 +26,7 @@ export const organizations = pgTable("organizations", {
   firstMonthFree: boolean("first_month_free").default(false), // First month free promotion
   seatLimit: integer("seat_limit").default(4), // Max collectors allowed
   ipRestrictionEnabled: boolean("ip_restriction_enabled").default(false), // Enable IP whitelist for collector login
+  autoRunnerEnabled: boolean("auto_runner_enabled").default(false), // Enable automatic payment processing at 7am/6pm ET
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true });

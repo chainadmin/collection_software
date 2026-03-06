@@ -150,8 +150,16 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`serving on port ${port}`);
+
+      try {
+        const { startAutoPaymentScheduler } = await import("./auto-payment-runner");
+        startAutoPaymentScheduler();
+        log("Auto payment scheduler started");
+      } catch (error) {
+        console.error("Failed to start auto payment scheduler:", error);
+      }
     },
   );
 })();
