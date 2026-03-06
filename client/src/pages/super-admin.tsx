@@ -58,36 +58,46 @@ export default function SuperAdmin() {
     try {
       const parsed = JSON.parse(stored);
       setAdmin(parsed);
-      setSessionValid(true);
     } catch {
       localStorage.removeItem("superAdminSession");
       setLocation("/super-admin-login");
       return;
     }
 
-    const validateInBackground = async (attempt = 1): Promise<void> => {
+    let cancelled = false;
+
+    const validateSession = async (attempt = 1): Promise<void> => {
+      if (cancelled) return;
       try {
         const res = await fetch("/api/auth/session", { credentials: "include" });
         if (!res.ok) throw new Error("Session check failed");
         const data = await res.json();
-        if (data.type !== "globalAdmin" || !data.admin) {
-          if (attempt < 3) {
+        if (data.type === "globalAdmin" && data.admin) {
+          if (!cancelled) setSessionValid(true);
+        } else {
+          if (attempt < 5) {
             await new Promise(r => setTimeout(r, 1000 * attempt));
-            return validateInBackground(attempt + 1);
+            return validateSession(attempt + 1);
           }
-          handleSessionExpired();
+          if (!cancelled) {
+            localStorage.removeItem("superAdminSession");
+            setLocation("/super-admin-login");
+          }
         }
       } catch {
-        if (attempt < 3) {
+        if (attempt < 5) {
           await new Promise(r => setTimeout(r, 1000 * attempt));
-          return validateInBackground(attempt + 1);
+          return validateSession(attempt + 1);
         }
-        handleSessionExpired();
+        if (!cancelled) {
+          localStorage.removeItem("superAdminSession");
+          setLocation("/super-admin-login");
+        }
       }
     };
 
-    const timer = setTimeout(() => validateInBackground(), 500);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => validateSession(), 800);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [setLocation]);
 
   const handleSessionExpired = () => {
@@ -100,7 +110,8 @@ export default function SuperAdmin() {
   const { data: organizations = [], isLoading, isError: orgsError, error: orgsErrorDetail, refetch } = useQuery<Organization[]>({
     queryKey: ["/api/super-admin/organizations"],
     enabled: sessionValid,
-    retry: 1,
+    retry: 2,
+    retryDelay: 1000,
     staleTime: 0,
   });
 
@@ -108,11 +119,13 @@ export default function SuperAdmin() {
     queryKey: ["/api/super-admin/notifications"],
     enabled: sessionValid,
     refetchInterval: 30000,
-    retry: 1,
+    retry: 2,
+    retryDelay: 1000,
     staleTime: 0,
   });
 
   useEffect(() => {
+    if (!sessionValid) return;
     const interceptor = (event: PromiseRejectionEvent) => {
       if (event.reason?.message?.includes("401")) {
         handleSessionExpired();
@@ -120,7 +133,7 @@ export default function SuperAdmin() {
     };
     window.addEventListener("unhandledrejection", interceptor);
     return () => window.removeEventListener("unhandledrejection", interceptor);
-  }, []);
+  }, [sessionValid]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -325,8 +338,19 @@ export default function SuperAdmin() {
     return `$${amount}/mo`;
   };
 
-  if (!admin || !sessionValid) {
+  if (!admin) {
     return null;
+  }
+
+  if (!sessionValid) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Verifying session...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
