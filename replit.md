@@ -137,7 +137,7 @@ A comprehensive external API is provided for integration with SMS platforms, sof
 - **esbuild**: Server-side TypeScript bundling.
 
 ### Organization Subscription Billing
-- **Authorize.net**: Used *only* for billing organizations for their Debt Manager Pro subscription. Not used for debtor payments. Supports subscription plans and uses sandbox/production endpoints.
+- **Stripe**: Used for billing organizations for their Debt Manager Pro subscription via Stripe Checkout. Not used for debtor payments. The subscribe page redirects to Stripe's hosted checkout page; on return, the session is verified and the org is activated. Uses `STRIPE_SECRET_KEY` (server) and `VITE_STRIPE_PUBLISHABLE_KEY` (frontend, currently unused but available). Key file: `server/stripe.ts`.
 
 ### Email Notifications (Super Admin)
 - **Nodemailer**: Used to send SMTP-based email notifications from the super admin system account.

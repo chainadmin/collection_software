@@ -6,14 +6,17 @@ import crypto from "crypto";
 import net from "net";
 import bcrypt from "bcrypt";
 import { 
-  chargeSubscription, 
-  isConfigured as isAuthNetConfigured, 
-  getSubscriptionPrices,
   processDebtorCardPayment,
   processDebtorAchPayment,
   voidDebtorTransaction,
   type MerchantCredentials
 } from "./authorizenet";
+import {
+  createCheckoutSession,
+  verifyCheckoutSession,
+  isStripeConfigured,
+  getSubscriptionPrices,
+} from "./stripe";
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
@@ -990,7 +993,7 @@ export async function registerRoutes(
     }
   });
 
-  // Organization Billing API (Authorize.net for Debt Manager Pro subscriptions)
+  // Organization Billing API (Stripe for Debt Manager Pro subscriptions)
   app.get("/api/billing/plans", async (_req, res) => {
     try {
       const prices = getSubscriptionPrices();
@@ -1000,7 +1003,7 @@ export async function registerRoutes(
           { id: "growth", name: "Growth", price: prices.growth.price, seats: prices.growth.seats },
           { id: "agency", name: "Agency", price: prices.agency.price, seats: prices.agency.seats },
         ],
-        configured: isAuthNetConfigured(),
+        configured: isStripeConfigured(),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch billing plans" });
@@ -1009,9 +1012,10 @@ export async function registerRoutes(
 
   app.post("/api/billing/subscribe", async (req, res) => {
     try {
-      const { organizationId, plan, cardNumber, expirationDate, cardCode, email } = req.body;
+      const { plan } = req.body;
+      const orgId = getOrgId(req);
 
-      if (!organizationId || !plan || !cardNumber || !expirationDate || !cardCode) {
+      if (!orgId || !plan) {
         return res.status(400).json({ error: "Missing required billing information" });
       }
 
@@ -1019,17 +1023,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid subscription plan" });
       }
 
-      const organization = await storage.getOrganization(organizationId);
+      const organization = await storage.getOrganization(orgId);
       if (!organization) {
         return res.status(404).json({ error: "Organization not found" });
       }
 
-      // Calculate seat limit based on plan
       const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
 
-      if (!isAuthNetConfigured()) {
-        // Demo mode - simulate successful subscription and activate organization
-        await storage.updateOrganization(organizationId, { 
+      if (!isStripeConfigured()) {
+        await storage.updateOrganization(orgId, { 
           isActive: true,
           subscriptionPlan: plan,
           subscriptionStatus: "active",
@@ -1044,49 +1046,67 @@ export async function registerRoutes(
         });
       }
 
-      const result = await chargeSubscription(
-        { cardNumber, expirationDate, cardCode },
-        {
-          organizationId,
-          organizationName: organization.name,
-          plan: plan as 'starter' | 'growth' | 'agency',
-          email: email || organization.email || '',
-        }
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.headers.host}`;
+
+      const checkoutUrl = await createCheckoutSession(
+        orgId,
+        plan as 'starter' | 'growth' | 'agency',
+        `${baseUrl}/subscribe?session_id={CHECKOUT_SESSION_ID}`,
+        `${baseUrl}/subscribe?canceled=true`
       );
 
-      if (result.success) {
-        // Activate organization after successful payment
-        await storage.updateOrganization(organizationId, { 
-          isActive: true,
-          subscriptionPlan: plan,
-          subscriptionStatus: "active",
-          billingStartDate: new Date().toISOString().split("T")[0],
-          seatLimit: seatLimits[plan] || 4,
-        });
-        
-        res.json({
-          success: true,
-          message: "Subscription payment processed successfully",
-          plan,
-          transactionId: result.transactionId,
-          authCode: result.authCode,
-        });
-      } else {
-        res.status(400).json({
-          success: false,
-          error: result.errorMessage || "Payment failed",
-        });
-      }
+      res.json({
+        success: true,
+        checkoutUrl,
+      });
     } catch (error) {
       console.error("Subscription billing error:", error);
-      res.status(500).json({ error: "Failed to process subscription payment" });
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  app.get("/api/billing/checkout-success", async (req, res) => {
+    try {
+      const sessionId = req.query.session_id as string;
+      if (!sessionId) {
+        return res.status(400).json({ error: "Missing session_id" });
+      }
+
+      const callerOrgId = getOrgId(req);
+      const result = await verifyCheckoutSession(sessionId);
+      if (!result.success || !result.organizationId || !result.plan) {
+        return res.status(400).json({ error: "Payment not completed" });
+      }
+
+      if (result.organizationId !== callerOrgId) {
+        return res.status(403).json({ error: "Organization mismatch" });
+      }
+
+      const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
+
+      await storage.updateOrganization(result.organizationId, {
+        isActive: true,
+        subscriptionPlan: result.plan,
+        subscriptionStatus: "active",
+        billingStartDate: new Date().toISOString().split("T")[0],
+        seatLimit: seatLimits[result.plan] || 4,
+      });
+
+      res.json({
+        success: true,
+        plan: result.plan,
+        message: "Subscription activated successfully",
+      });
+    } catch (error) {
+      console.error("Checkout verification error:", error);
+      res.status(500).json({ error: "Failed to verify checkout session" });
     }
   });
 
   app.get("/api/billing/status", async (req, res) => {
     try {
       res.json({
-        configured: isAuthNetConfigured(),
+        configured: isStripeConfigured(),
         environment: process.env.NODE_ENV === 'production' ? 'production' : 'sandbox',
       });
     } catch (error) {

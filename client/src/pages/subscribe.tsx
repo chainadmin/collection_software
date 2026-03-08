@@ -1,9 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -16,6 +14,7 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle,
+  ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -53,11 +52,7 @@ export default function Subscribe() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [selectedPlan, setSelectedPlan] = useState("growth");
-  const [paymentData, setPaymentData] = useState({
-    cardNumber: "",
-    expirationDate: "",
-    cardCode: "",
-  });
+  const [verifying, setVerifying] = useState(false);
 
   const auth = localStorage.getItem(AUTH_STORAGE_KEY);
   const user = auth ? JSON.parse(auth) : null;
@@ -75,78 +70,82 @@ export default function Subscribe() {
     enabled: !!user?.organizationId,
   });
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    const canceled = params.get("canceled");
+
+    if (sessionId && !verifying) {
+      setVerifying(true);
+      fetch(`/api/billing/checkout-success?session_id=${sessionId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
+            toast({
+              title: "Subscription activated!",
+              description: `Your ${data.plan} plan is now active.`,
+            });
+            window.history.replaceState({}, "", "/subscribe");
+          } else {
+            toast({
+              title: "Verification failed",
+              description: data.error || "Could not verify payment. Please contact support.",
+              variant: "destructive",
+            });
+          }
+        })
+        .catch(() => {
+          toast({
+            title: "Verification error",
+            description: "Could not verify payment. Please contact support.",
+            variant: "destructive",
+          });
+        })
+        .finally(() => setVerifying(false));
+    }
+
+    if (canceled) {
+      toast({
+        title: "Payment canceled",
+        description: "You can try again whenever you're ready.",
+        variant: "destructive",
+      });
+      window.history.replaceState({}, "", "/subscribe");
+    }
+  }, []);
+
   const subscribeMutation = useMutation({
-    mutationFn: async (data: { plan: string; cardNumber: string; expirationDate: string; cardCode: string }) => {
-      return apiRequest("POST", "/api/billing/subscribe", {
+    mutationFn: async (data: { plan: string }) => {
+      const res = await apiRequest("POST", "/api/billing/subscribe", {
         organizationId: user?.organizationId,
         plan: data.plan,
-        cardNumber: data.cardNumber.replace(/\s/g, ""),
-        expirationDate: data.expirationDate.replace("/", ""),
-        cardCode: data.cardCode,
-        email: user?.email,
       });
+      return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
-      toast({
-        title: "Subscription activated!",
-        description: `Your ${selectedPlan} plan is now active.`,
-      });
-      setLocation("/app");
+    onSuccess: (data) => {
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
+        toast({
+          title: "Subscription activated!",
+          description: `Your ${selectedPlan} plan is now active.`,
+        });
+        setLocation("/app");
+      }
     },
     onError: (error: any) => {
       toast({
         title: "Payment failed",
-        description: error.message || "Failed to process payment. Please check your card details.",
+        description: error.message || "Failed to start checkout. Please try again.",
         variant: "destructive",
       });
     },
   });
 
-  const handlePaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value;
-    const name = e.target.name;
-
-    if (name === "cardNumber") {
-      value = value.replace(/\D/g, "").slice(0, 16);
-      value = value.replace(/(.{4})/g, "$1 ").trim();
-    } else if (name === "expirationDate") {
-      value = value.replace(/\D/g, "").slice(0, 4);
-      if (value.length >= 2) {
-        value = value.slice(0, 2) + "/" + value.slice(2);
-      }
-    } else if (name === "cardCode") {
-      value = value.replace(/\D/g, "").slice(0, 4);
-    }
-
-    setPaymentData({ ...paymentData, [name]: value });
-  };
-
-  const validatePayment = () => {
-    const cardNum = paymentData.cardNumber.replace(/\s/g, "");
-    if (cardNum.length < 13 || cardNum.length > 16) {
-      toast({ title: "Invalid card number", description: "Please enter a valid card number", variant: "destructive" });
-      return false;
-    }
-    if (paymentData.expirationDate.length !== 5) {
-      toast({ title: "Invalid expiration", description: "Please enter expiration as MM/YY", variant: "destructive" });
-      return false;
-    }
-    if (paymentData.cardCode.length < 3) {
-      toast({ title: "Invalid CVV", description: "Please enter a valid security code", variant: "destructive" });
-      return false;
-    }
-    return true;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validatePayment()) return;
-    
-    subscribeMutation.mutate({
-      plan: selectedPlan,
-      ...paymentData,
-    });
+  const handleSubmit = () => {
+    subscribeMutation.mutate({ plan: selectedPlan });
   };
 
   if (!user) {
@@ -167,10 +166,13 @@ export default function Subscribe() {
     );
   }
 
-  if (subLoading) {
+  if (subLoading || verifying) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
+          {verifying && <p className="text-muted-foreground">Verifying your payment...</p>}
+        </div>
       </div>
     );
   }
@@ -268,77 +270,36 @@ export default function Subscribe() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CreditCard className="h-5 w-5" />
-                Payment Details
+                Subscribe to {selectedPlanDetails?.name}
               </CardTitle>
               <CardDescription>
-                Subscribe to the {selectedPlanDetails?.name} plan for ${selectedPlanDetails?.price}/month
+                ${selectedPlanDetails?.price}/month · You'll be redirected to Stripe for secure payment
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cardNumber">Card Number</Label>
-                  <div className="relative">
-                    <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="cardNumber"
-                      name="cardNumber"
-                      placeholder="4111 1111 1111 1111"
-                      value={paymentData.cardNumber}
-                      onChange={handlePaymentChange}
-                      className="pl-10"
-                      required
-                      data-testid="input-card-number"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="expirationDate">Expiration</Label>
-                    <Input
-                      id="expirationDate"
-                      name="expirationDate"
-                      placeholder="MM/YY"
-                      value={paymentData.expirationDate}
-                      onChange={handlePaymentChange}
-                      required
-                      data-testid="input-expiration"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cardCode">CVV</Label>
-                    <Input
-                      id="cardCode"
-                      name="cardCode"
-                      placeholder="123"
-                      value={paymentData.cardCode}
-                      onChange={handlePaymentChange}
-                      required
-                      data-testid="input-cvv"
-                    />
-                  </div>
-                </div>
+              <Button 
+                className="w-full" 
+                size="lg"
+                onClick={handleSubmit}
+                disabled={subscribeMutation.isPending}
+                data-testid="button-subscribe"
+              >
+                {subscribeMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Redirecting to checkout...
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Subscribe for ${selectedPlanDetails?.price}/mo
+                  </>
+                )}
+              </Button>
 
-                <Button 
-                  type="submit" 
-                  className="w-full" 
-                  disabled={subscribeMutation.isPending}
-                  data-testid="button-subscribe"
-                >
-                  {subscribeMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>Subscribe for ${selectedPlanDetails?.price}/mo</>
-                  )}
-                </Button>
-
-                <p className="text-xs text-muted-foreground text-center">
-                  Payments are securely processed via Authorize.net
-                </p>
-              </form>
+              <p className="text-xs text-muted-foreground text-center mt-3">
+                Payments are securely processed via Stripe
+              </p>
             </CardContent>
           </Card>
         )}
