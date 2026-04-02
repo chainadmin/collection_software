@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import QRCode from "qrcode";
 import {
   Search,
   Plus,
@@ -15,6 +16,8 @@ import {
   CreditCard,
   Link2,
   Copy,
+  QrCode,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,6 +102,8 @@ export default function Collectors() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCollector, setEditingCollector] = useState<Collector | null>(null);
+  const [showQrDialog, setShowQrDialog] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const { data: collectors, isLoading } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
@@ -232,6 +237,25 @@ export default function Collectors() {
   const collectorInstallUrl = typeof window !== "undefined"
     ? `${window.location.origin}/collector-install`
     : "/collector-install";
+
+  useEffect(() => {
+    if (showQrDialog && qrCanvasRef.current) {
+      QRCode.toCanvas(qrCanvasRef.current, collectorInstallUrl, {
+        width: 280,
+        margin: 2,
+        color: { dark: "#09090b", light: "#ffffff" },
+      });
+    }
+  }, [showQrDialog, collectorInstallUrl]);
+
+  const handleDownloadQr = () => {
+    const canvas = qrCanvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = "collector-app-qr.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
 
   const CollectorFormFields = ({ formInstance, isEdit }: { formInstance: any; isEdit?: boolean }) => (
     <>
@@ -476,6 +500,15 @@ export default function Collectors() {
           <Copy className="h-3 w-3 mr-1" />
           Copy
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowQrDialog(true)}
+          data-testid="button-show-qr-code"
+        >
+          <QrCode className="h-3 w-3 mr-1" />
+          QR Code
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -654,6 +687,35 @@ export default function Collectors() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Code Dialog */}
+      <Dialog open={showQrDialog} onOpenChange={setShowQrDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Collector App QR Code</DialogTitle>
+            <DialogDescription>
+              Collectors can scan this code to download and install the app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-2">
+            <div className="rounded-lg border p-3 bg-white">
+              <canvas ref={qrCanvasRef} data-testid="qr-code-canvas" />
+            </div>
+            <p className="text-xs text-muted-foreground text-center break-all px-2">
+              {collectorInstallUrl}
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowQrDialog(false)} className="sm:mr-auto">
+              Close
+            </Button>
+            <Button onClick={handleDownloadQr} data-testid="button-download-qr">
+              <Download className="h-4 w-4 mr-2" />
+              Download PNG
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
