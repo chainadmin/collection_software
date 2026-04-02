@@ -30,10 +30,14 @@ export function serveStatic(app: Express) {
 
   app.get("/collector-install", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache, must-revalidate");
-    const html = fs.readFileSync(indexHtmlPath, "utf-8").replace(
-      /<link rel="manifest" href="\/manifest\.json"\s*\/?>/,
-      `<link rel="manifest" href="/manifest-collector.json">`,
-    );
+    const source = fs.readFileSync(indexHtmlPath, "utf-8");
+    const manifestPattern = /<link rel="manifest" href="\/manifest\.json"\s*\/?>/;
+    const html = manifestPattern.test(source)
+      ? source.replace(manifestPattern, `<link rel="manifest" href="/manifest-collector.json">`)
+      : source;
+    if (!manifestPattern.test(source)) {
+      console.warn("[collector-install] manifest link not found in built index.html — PWA install may not work");
+    }
     res.type("html").send(html);
   });
 
