@@ -1119,13 +1119,15 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const tokens = await storage.getApiTokensByOrg(orgId);
+      // Return masked tokens — full value only revealed at creation
       res.json(tokens.map((t) => ({
         id: t.id,
         name: t.name,
-        token: t.token,
+        tokenMasked: `${t.token.slice(0, 10)}${"*".repeat(20)}`,
         isActive: t.isActive,
         createdDate: t.createdDate,
         lastUsedDate: t.lastUsedDate,
+        expiresAt: t.expiresAt,
         organizationId: t.organizationId,
       })));
     } catch (error) {
@@ -1136,7 +1138,7 @@ export async function registerRoutes(
   app.post("/api/settings/tokens", requireAuth, async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { name } = req.body;
+      const { name, expiresAt } = req.body;
       if (!name || typeof name !== "string" || !name.trim()) {
         return res.status(400).json({ error: "Token name is required" });
       }
@@ -1149,10 +1151,20 @@ export async function registerRoutes(
         isActive: true,
         createdDate: new Date().toISOString(),
         lastUsedDate: null,
-        expiresAt: null,
+        expiresAt: expiresAt && typeof expiresAt === "string" ? expiresAt : null,
         permissions: null,
       });
-      res.json(token);
+      // Return full token only on creation — this is the one-time reveal
+      res.json({
+        id: token.id,
+        name: token.name,
+        token: rawToken,
+        isActive: token.isActive,
+        createdDate: token.createdDate,
+        lastUsedDate: token.lastUsedDate,
+        expiresAt: token.expiresAt,
+        organizationId: token.organizationId,
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to create API token" });
     }

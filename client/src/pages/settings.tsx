@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,17 +86,34 @@ export default function Settings() {
     { id: "8", name: "closed", label: "Closed", color: "gray", isSystem: true },
   ]);
 
-  const { data: apiTokens = [], isLoading: tokensLoading } = useQuery<ApiToken[]>({
+  const [revealedToken, setRevealedToken] = useState<string | null>(null);
+  const [showTokenRevealDialog, setShowTokenRevealDialog] = useState(false);
+  const [showSendInfoDialog, setShowSendInfoDialog] = useState(false);
+  const [sendInfoEmail, setSendInfoEmail] = useState("");
+
+  type MaskedApiToken = {
+    id: string;
+    name: string;
+    tokenMasked: string;
+    isActive: boolean | null;
+    createdDate: string;
+    lastUsedDate: string | null;
+    expiresAt: string | null;
+    organizationId: string | null;
+  };
+
+  const { data: apiTokens = [], isLoading: tokensLoading } = useQuery<MaskedApiToken[]>({
     queryKey: ["/api/settings/tokens"],
   });
 
   const createTokenMutation = useMutation({
-    mutationFn: async (name: string) =>
-      apiRequest("POST", "/api/settings/tokens", { name }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/tokens"] });
+    mutationFn: async (payload: { name: string; expiresAt?: string }) =>
+      apiRequest("POST", "/api/settings/tokens", payload),
+    onSuccess: async (data: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/settings/tokens"] });
       setNewTokenName("");
-      toast({ title: "Token Created", description: "New API token has been generated." });
+      setRevealedToken(data.token);
+      setShowTokenRevealDialog(true);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create API token.", variant: "destructive" });
@@ -119,14 +137,12 @@ export default function Settings() {
       toast({ title: "Error", description: "Please enter a token name.", variant: "destructive" });
       return;
     }
-    createTokenMutation.mutate(newTokenName.trim());
+    createTokenMutation.mutate({ name: newTokenName.trim() });
   };
 
-  const handleSendIntegrationInfo = () => {
-    const baseUrl = window.location.origin;
-    const info = `DebtFlow Pro API Integration Info\n\nBase URL: ${baseUrl}/api/v2\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nEndpoints:\n- GET  /api/v2/accounts?ssn=XXX\n- POST /api/v2/softphone/queue\n- POST /api/v2/send_text\n- POST /api/v2/send_email_c2c\n\nFull API docs available on request.`;
-    navigator.clipboard.writeText(info);
-    toast({ title: "Copied!", description: "Integration info copied to clipboard. Share with your integration partner." });
+  const getIntegrationInfoText = () => {
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    return `DebtFlow Pro API Integration Info\n\nBase URL: ${baseUrl}/api/v2\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nCollector Login:\n  POST ${baseUrl}/api/v2/login\n  Body: { "username": "...", "password": "..." }\n\nKey Endpoints:\n  GET  /api/v2/accounts?ssn=XXX\n  POST /api/v2/softphone/initiate\n  POST /api/v2/softphone/result\n  POST /api/v2/send_text\n  POST /api/v2/send_email_c2c\n  GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
   };
 
   const handleAddStatus = () => {
@@ -449,12 +465,10 @@ export default function Settings() {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium flex items-center gap-2">
-                    <Key className="h-4 w-4" />
-                    API Tokens
-                  </p>
-                </div>
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Key className="h-4 w-4" />
+                  API Tokens
+                </p>
                 <div className="flex gap-2">
                   <Input
                     placeholder="Token name (e.g., SMS Platform, Dialer)"
@@ -484,48 +498,54 @@ export default function Settings() {
                     No API tokens yet. Generate one to get started.
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                    {apiTokens.map((token) => (
-                      <div
-                        key={token.id}
-                        className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
-                        data-testid={`token-item-${token.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{token.name}</p>
-                          <code className="text-xs text-muted-foreground truncate block max-w-[260px]" data-testid={`text-token-value-${token.id}`}>
-                            {token.token}
-                          </code>
-                          {token.lastUsedDate && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Last used: {new Date(token.lastUsedDate).toLocaleDateString()}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 ml-2">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => {
-                              navigator.clipboard.writeText(token.token);
-                              toast({ title: "Copied!", description: "Token copied to clipboard." });
-                            }}
-                            data-testid={`button-copy-token-${token.id}`}
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 border-b">
+                        <tr>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Name / Token</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Created</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Last Used</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Expires</th>
+                          <th className="p-2 w-16"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {apiTokens.map((token, idx) => (
+                          <tr
+                            key={token.id}
+                            className={idx % 2 === 0 ? "bg-background" : "bg-muted/20"}
+                            data-testid={`token-item-${token.id}`}
                           >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => deleteTokenMutation.mutate(token.id)}
-                            disabled={deleteTokenMutation.isPending}
-                            data-testid={`button-revoke-token-${token.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                            <td className="p-2">
+                              <p className="font-medium">{token.name}</p>
+                              <code className="text-xs text-muted-foreground font-mono" data-testid={`text-token-masked-${token.id}`}>
+                                {token.tokenMasked}
+                              </code>
+                            </td>
+                            <td className="p-2 text-xs text-muted-foreground hidden md:table-cell">
+                              {new Date(token.createdDate).toLocaleDateString()}
+                            </td>
+                            <td className="p-2 text-xs text-muted-foreground hidden md:table-cell">
+                              {token.lastUsedDate ? new Date(token.lastUsedDate).toLocaleDateString() : "Never"}
+                            </td>
+                            <td className="p-2 text-xs text-muted-foreground hidden md:table-cell">
+                              {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : "Never"}
+                            </td>
+                            <td className="p-2">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => deleteTokenMutation.mutate(token.id)}
+                                disabled={deleteTokenMutation.isPending}
+                                data-testid={`button-revoke-token-${token.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
@@ -534,20 +554,132 @@ export default function Settings() {
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Share Integration Info</p>
-                  <p className="text-xs text-muted-foreground">Copy API details to send to your integration partner</p>
+                  <p className="text-sm font-medium">Send Integration Info</p>
+                  <p className="text-xs text-muted-foreground">Share API connection details with your integration partner</p>
                 </div>
                 <Button
                   variant="outline"
-                  onClick={handleSendIntegrationInfo}
+                  onClick={() => setShowSendInfoDialog(true)}
                   data-testid="button-send-integration-info"
                 >
                   <Send className="h-4 w-4 mr-2" />
-                  Copy Info
+                  Send Info
                 </Button>
               </div>
             </CardContent>
           </Card>
+
+          {/* One-time token reveal dialog */}
+          <Dialog open={showTokenRevealDialog} onOpenChange={(open) => {
+            if (!open) { setShowTokenRevealDialog(false); setRevealedToken(null); }
+          }}>
+            <DialogContent className="max-w-lg" data-testid="dialog-token-reveal">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Key className="h-5 w-5 text-green-600" />
+                  API Token Created
+                </DialogTitle>
+                <DialogDescription>
+                  Copy this token now — it will not be shown again.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-3">
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-700 dark:text-yellow-400">
+                  Save this token in a secure location. After closing this dialog, you will only see the first 10 characters.
+                </div>
+                <div className="flex items-center gap-2">
+                  <code
+                    className="flex-1 text-xs bg-muted p-3 rounded border font-mono break-all select-all"
+                    data-testid="text-revealed-token"
+                  >
+                    {revealedToken}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => {
+                      if (revealedToken) {
+                        navigator.clipboard.writeText(revealedToken);
+                        toast({ title: "Copied!", description: "Token copied to clipboard." });
+                      }
+                    }}
+                    data-testid="button-copy-revealed-token"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => { setShowTokenRevealDialog(false); setRevealedToken(null); }} data-testid="button-close-token-dialog">
+                  I've saved the token
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Send Integration Info dialog */}
+          <Dialog open={showSendInfoDialog} onOpenChange={setShowSendInfoDialog}>
+            <DialogContent className="max-w-lg" data-testid="dialog-send-info">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Send className="h-5 w-5" />
+                  Send Integration Info
+                </DialogTitle>
+                <DialogDescription>
+                  Share API connection details with your integration partner via email.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div>
+                  <Label htmlFor="send-info-email">Partner Email Address</Label>
+                  <Input
+                    id="send-info-email"
+                    type="email"
+                    placeholder="partner@smsplatform.com"
+                    value={sendInfoEmail}
+                    onChange={(e) => setSendInfoEmail(e.target.value)}
+                    className="mt-1"
+                    data-testid="input-send-info-email"
+                  />
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50 border">
+                  <p className="text-xs font-medium mb-2 text-muted-foreground">Info that will be shared:</p>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-all leading-relaxed max-h-[160px] overflow-y-auto">
+                    {getIntegrationInfoText()}
+                  </pre>
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getIntegrationInfoText());
+                    toast({ title: "Copied!", description: "Integration info copied to clipboard." });
+                  }}
+                  data-testid="button-copy-integration-info"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy to Clipboard
+                </Button>
+                <Button
+                  onClick={() => {
+                    const info = getIntegrationInfoText();
+                    const subject = encodeURIComponent("DebtFlow Pro API Integration Info");
+                    const body = encodeURIComponent(info);
+                    const mailto = sendInfoEmail
+                      ? `mailto:${sendInfoEmail}?subject=${subject}&body=${body}`
+                      : `mailto:?subject=${subject}&body=${body}`;
+                    window.open(mailto, "_blank");
+                    setShowSendInfoDialog(false);
+                  }}
+                  data-testid="button-open-mailto"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Open in Email Client
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <div className="space-y-6">
