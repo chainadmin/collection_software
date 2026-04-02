@@ -30,6 +30,10 @@ import {
   Smartphone,
   Copy,
   ExternalLink,
+  Zap,
+  Key,
+  RefreshCw,
+  Send,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +44,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import type { ApiToken } from "@shared/schema";
 
 const STATUS_COLORS = [
   { name: "blue", bg: "bg-blue-500", label: "Blue" },
@@ -64,7 +71,9 @@ function getColorClass(colorName: string): string {
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [newStatus, setNewStatus] = useState("");
+  const [newTokenName, setNewTokenName] = useState("");
   const [accountStatuses, setAccountStatuses] = useState([
     { id: "1", name: "newbiz", label: "New Business", color: "blue", isSystem: true },
     { id: "2", name: "1st_message", label: "1st Message", color: "yellow", isSystem: true },
@@ -75,6 +84,50 @@ export default function Settings() {
     { id: "7", name: "paid", label: "Paid in Full", color: "emerald", isSystem: true },
     { id: "8", name: "closed", label: "Closed", color: "gray", isSystem: true },
   ]);
+
+  const { data: apiTokens = [], isLoading: tokensLoading } = useQuery<ApiToken[]>({
+    queryKey: ["/api/settings/tokens"],
+  });
+
+  const createTokenMutation = useMutation({
+    mutationFn: async (name: string) =>
+      apiRequest("POST", "/api/settings/tokens", { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/tokens"] });
+      setNewTokenName("");
+      toast({ title: "Token Created", description: "New API token has been generated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create API token.", variant: "destructive" });
+    },
+  });
+
+  const deleteTokenMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/settings/tokens/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/tokens"] });
+      toast({ title: "Token Revoked", description: "API token has been revoked." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to revoke API token.", variant: "destructive" });
+    },
+  });
+
+  const handleCreateToken = () => {
+    if (!newTokenName.trim()) {
+      toast({ title: "Error", description: "Please enter a token name.", variant: "destructive" });
+      return;
+    }
+    createTokenMutation.mutate(newTokenName.trim());
+  };
+
+  const handleSendIntegrationInfo = () => {
+    const baseUrl = window.location.origin;
+    const info = `DebtFlow Pro API Integration Info\n\nBase URL: ${baseUrl}/api/v2\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nEndpoints:\n- GET  /api/v2/accounts?ssn=XXX\n- POST /api/v2/softphone/queue\n- POST /api/v2/send_text\n- POST /api/v2/send_email_c2c\n\nFull API docs available on request.`;
+    navigator.clipboard.writeText(info);
+    toast({ title: "Copied!", description: "Integration info copied to clipboard. Share with your integration partner." });
+  };
 
   const handleAddStatus = () => {
     if (!newStatus.trim()) {
@@ -353,6 +406,145 @@ export default function Settings() {
               </p>
               <div className="pt-2">
                 <Button data-testid="button-save-statuses">Save Status Configuration</Button>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Zap className="h-5 w-5" />
+                External Integrations
+              </CardTitle>
+              <CardDescription>
+                Connect SMS platforms, softphones, and dialers via the API v2
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
+                <p className="text-sm font-medium">API Base URL</p>
+                <div className="flex items-center gap-2">
+                  <code
+                    className="flex-1 text-xs bg-background p-2 rounded border truncate"
+                    data-testid="text-api-base-url"
+                  >
+                    {typeof window !== "undefined" ? `${window.location.origin}/api/v2` : "/api/v2"}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/v2`);
+                      toast({ title: "Copied!", description: "API base URL copied to clipboard." });
+                    }}
+                    data-testid="button-copy-api-url"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><strong>Authentication:</strong> Bearer Token</p>
+                  <p><strong>Header:</strong> <code className="bg-background px-1 rounded">Authorization: Bearer YOUR_TOKEN</code></p>
+                  <p><strong>Collector Login:</strong> <code className="bg-background px-1 rounded">POST /api/v2/login</code> with username + password</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <Key className="h-4 w-4" />
+                    API Tokens
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Token name (e.g., SMS Platform, Dialer)"
+                    value={newTokenName}
+                    onChange={(e) => setNewTokenName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleCreateToken()}
+                    data-testid="input-token-name"
+                  />
+                  <Button
+                    onClick={handleCreateToken}
+                    disabled={createTokenMutation.isPending}
+                    data-testid="button-generate-token"
+                  >
+                    {createTokenMutation.isPending ? (
+                      <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-1" />
+                    )}
+                    Generate
+                  </Button>
+                </div>
+
+                {tokensLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading tokens...</div>
+                ) : apiTokens.length === 0 ? (
+                  <div className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
+                    No API tokens yet. Generate one to get started.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto">
+                    {apiTokens.map((token) => (
+                      <div
+                        key={token.id}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
+                        data-testid={`token-item-${token.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{token.name}</p>
+                          <code className="text-xs text-muted-foreground truncate block max-w-[260px]" data-testid={`text-token-value-${token.id}`}>
+                            {token.token}
+                          </code>
+                          {token.lastUsedDate && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Last used: {new Date(token.lastUsedDate).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 ml-2">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => {
+                              navigator.clipboard.writeText(token.token);
+                              toast({ title: "Copied!", description: "Token copied to clipboard." });
+                            }}
+                            data-testid={`button-copy-token-${token.id}`}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteTokenMutation.mutate(token.id)}
+                            disabled={deleteTokenMutation.isPending}
+                            data-testid={`button-revoke-token-${token.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Share Integration Info</p>
+                  <p className="text-xs text-muted-foreground">Copy API details to send to your integration partner</p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleSendIntegrationInfo}
+                  data-testid="button-send-integration-info"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Copy Info
+                </Button>
               </div>
             </CardContent>
           </Card>

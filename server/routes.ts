@@ -1114,6 +1114,66 @@ export async function registerRoutes(
     }
   });
 
+  // API Token Management (org-scoped)
+  app.get("/api/settings/tokens", requireAuth, async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const tokens = await storage.getApiTokensByOrg(orgId);
+      res.json(tokens.map((t) => ({
+        id: t.id,
+        name: t.name,
+        token: t.token,
+        isActive: t.isActive,
+        createdDate: t.createdDate,
+        lastUsedDate: t.lastUsedDate,
+        organizationId: t.organizationId,
+      })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch API tokens" });
+    }
+  });
+
+  app.post("/api/settings/tokens", requireAuth, async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { name } = req.body;
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ error: "Token name is required" });
+      }
+      const { randomBytes } = await import("crypto");
+      const rawToken = `dmv2_${randomBytes(32).toString("hex")}`;
+      const token = await storage.createApiToken({
+        name: name.trim(),
+        token: rawToken,
+        organizationId: orgId,
+        isActive: true,
+        createdDate: new Date().toISOString(),
+        lastUsedDate: null,
+        expiresAt: null,
+        permissions: null,
+      });
+      res.json(token);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create API token" });
+    }
+  });
+
+  app.delete("/api/settings/tokens/:id", requireAuth, async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { id } = req.params;
+      const tokens = await storage.getApiTokensByOrg(orgId);
+      const token = tokens.find((t) => t.id === id);
+      if (!token) {
+        return res.status(404).json({ error: "Token not found" });
+      }
+      await storage.deleteApiToken(id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete API token" });
+    }
+  });
+
   // Get organization subscription status
   app.get("/api/billing/subscription", async (req, res) => {
     try {

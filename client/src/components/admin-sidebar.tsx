@@ -8,7 +8,6 @@ import {
   Settings,
   Building2,
   Wrench,
-  Mail,
   BarChart3,
   ChevronDown,
   FileDown,
@@ -19,8 +18,6 @@ import {
   Banknote,
   Receipt,
   Upload,
-  Inbox,
-  FileText,
   Clock,
   UserCog,
   DollarSign,
@@ -100,15 +97,6 @@ const adminSections: NavSection[] = [
       { title: "Merchants", url: "/app/admin/payments/merchants", icon: Banknote },
       { title: "Remittance", url: "/app/admin/payments/remittance", icon: Receipt },
       { title: "Import Batch", url: "/app/admin/payments/import-batch", icon: Upload },
-    ],
-  },
-  {
-    title: "SMS/TXT",
-    icon: Mail,
-    items: [
-      { title: "Manage", url: "/app/admin/email/manage", icon: Inbox },
-      { title: "Settings", url: "/app/admin/email/settings", icon: Settings },
-      { title: "Templates", url: "/app/admin/email/templates", icon: FileText },
     ],
   },
   {

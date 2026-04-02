@@ -278,6 +278,7 @@ export interface IStorage {
 
   // API Tokens
   getApiTokens(): Promise<ApiToken[]>;
+  getApiTokensByOrg(orgId: string): Promise<ApiToken[]>;
   getApiTokenByToken(token: string): Promise<ApiToken | undefined>;
   createApiToken(token: InsertApiToken): Promise<ApiToken>;
   updateApiTokenLastUsed(id: string): Promise<void>;
@@ -2280,6 +2281,10 @@ export class MemStorage implements IStorage {
   // API Tokens
   async getApiTokens(): Promise<ApiToken[]> {
     return Array.from(this.apiTokens.values());
+  }
+
+  async getApiTokensByOrg(orgId: string): Promise<ApiToken[]> {
+    return Array.from(this.apiTokens.values()).filter((t) => t.organizationId === orgId);
   }
 
   async getApiTokenByToken(token: string): Promise<ApiToken | undefined> {
