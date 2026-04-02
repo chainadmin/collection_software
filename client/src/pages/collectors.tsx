@@ -229,9 +229,9 @@ export default function Collectors() {
   const totalSeats = collectors?.length || 0;
   const totalGoal = collectors?.reduce((sum, c) => sum + (c.goal || 0), 0) || 0;
 
-  const collectorLoginUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/collector-login`
-    : "/collector-login";
+  const collectorInstallUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/collector-install`
+    : "/collector-install";
 
   const CollectorFormFields = ({ formInstance, isEdit }: { formInstance: any; isEdit?: boolean }) => (
     <>
@@ -452,17 +452,17 @@ export default function Collectors() {
       <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/40">
         <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-muted-foreground mb-0.5">Collector Login URL</p>
-          <code className="text-xs truncate block" data-testid="text-collector-login-url">{collectorLoginUrl}</code>
+          <p className="text-xs font-medium text-muted-foreground mb-0.5">Collector App Link</p>
+          <code className="text-xs truncate block" data-testid="text-collector-install-url">{collectorInstallUrl}</code>
         </div>
         <Button
           size="sm"
           variant="outline"
           onClick={() => {
-            navigator.clipboard.writeText(collectorLoginUrl);
-            toast({ title: "Copied!", description: "Collector login URL copied to clipboard." });
+            navigator.clipboard.writeText(collectorInstallUrl);
+            toast({ title: "Copied!", description: "Collector app link copied to clipboard." });
           }}
-          data-testid="button-copy-collector-login-url"
+          data-testid="button-copy-collector-install-url"
         >
           <Copy className="h-3 w-3 mr-1" />
           Copy
