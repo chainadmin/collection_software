@@ -912,6 +912,49 @@ export default function Settings() {
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Open App in New Tab
               </Button>
+
+              <Separator />
+
+              <div>
+                <p className="text-sm font-medium mb-1">Collector App</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Share this link with collectors so they can install the Collector Workstation app.
+                </p>
+                <div className="p-3 rounded-md bg-muted/50 mb-3">
+                  <p className="text-xs text-muted-foreground mb-2">Collector App Download Link</p>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`${typeof window !== 'undefined' ? window.location.origin : ''}/collector-install`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 text-xs bg-background p-2 rounded border truncate hover:underline"
+                      data-testid="text-settings-collector-url"
+                    >
+                      {typeof window !== 'undefined' ? window.location.origin : ''}/collector-install
+                    </a>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/collector-install`);
+                        toast({ title: "Copied!", description: "Collector app link copied to clipboard" });
+                      }}
+                      data-testid="button-copy-collector-link-settings"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => window.open(`${window.location.origin}/collector-install`, '_blank')}
+                  data-testid="button-open-collector-install"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open Collector Install Page
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
