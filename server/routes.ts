@@ -1174,12 +1174,10 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { id } = req.params;
-      const tokens = await storage.getApiTokensByOrg(orgId);
-      const token = tokens.find((t) => t.id === id);
-      if (!token) {
+      const deleted = await storage.deleteApiTokenByOrg(id, orgId);
+      if (!deleted) {
         return res.status(404).json({ error: "Token not found" });
       }
-      await storage.deleteApiToken(id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete API token" });

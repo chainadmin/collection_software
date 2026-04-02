@@ -998,6 +998,13 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
+  async deleteApiTokenByOrg(id: string, orgId: string): Promise<boolean> {
+    const result = await db.delete(apiTokens)
+      .where(and(eq(apiTokens.id, id), eq(apiTokens.organizationId, orgId)))
+      .returning({ id: apiTokens.id });
+    return result.length > 0;
+  }
+
   // Campaign Integrations
   async getCampaignIntegrations(orgId: string): Promise<CampaignIntegration[]> {
     return await db.select().from(campaignIntegrations).where(eq(campaignIntegrations.organizationId, orgId));

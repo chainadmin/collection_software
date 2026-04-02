@@ -283,6 +283,7 @@ export interface IStorage {
   createApiToken(token: InsertApiToken): Promise<ApiToken>;
   updateApiTokenLastUsed(id: string): Promise<void>;
   deleteApiToken(id: string): Promise<boolean>;
+  deleteApiTokenByOrg(id: string, orgId: string): Promise<boolean>;
 
   // Campaign Integrations
   getCampaignIntegrations(orgId: string): Promise<CampaignIntegration[]>;
@@ -2317,6 +2318,12 @@ export class MemStorage implements IStorage {
   }
 
   async deleteApiToken(id: string): Promise<boolean> {
+    return this.apiTokens.delete(id);
+  }
+
+  async deleteApiTokenByOrg(id: string, orgId: string): Promise<boolean> {
+    const token = this.apiTokens.get(id);
+    if (!token || token.organizationId !== orgId) return false;
     return this.apiTokens.delete(id);
   }
 
