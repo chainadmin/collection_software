@@ -1,4 +1,4 @@
-import { type Express } from "express";
+import { type Express, type Response, type NextFunction } from "express";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
@@ -38,7 +38,7 @@ export async function setupVite(server: Server, app: Express) {
     "index.html",
   );
 
-  async function serveIndexHtml(url: string, res: any, next: any, manifestOverride?: string) {
+  async function serveIndexHtml(url: string, res: Response, next: NextFunction, manifestOverride?: string) {
     try {
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
@@ -47,7 +47,7 @@ export async function setupVite(server: Server, app: Express) {
       );
       if (manifestOverride) {
         template = template.replace(
-          `<link rel="manifest" href="/manifest.json" />`,
+          /<link rel="manifest" href="\/manifest\.json"\s*\/?>/,
           `<link rel="manifest" href="${manifestOverride}" />`,
         );
       }
