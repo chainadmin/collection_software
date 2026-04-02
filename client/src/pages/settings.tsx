@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/popover";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth-context";
 import type { ApiToken } from "@shared/schema";
 
 const STATUS_COLORS = [
@@ -72,6 +73,7 @@ function getColorClass(colorName: string): string {
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
   const [newStatus, setNewStatus] = useState("");
   const [newTokenName, setNewTokenName] = useState("");
@@ -90,6 +92,7 @@ export default function Settings() {
   const [showTokenRevealDialog, setShowTokenRevealDialog] = useState(false);
   const [showSendInfoDialog, setShowSendInfoDialog] = useState(false);
   const [sendInfoEmail, setSendInfoEmail] = useState("");
+  const [sendInfoPhone, setSendInfoPhone] = useState("");
 
   type MaskedApiToken = {
     id: string;
@@ -107,9 +110,11 @@ export default function Settings() {
   });
 
   const createTokenMutation = useMutation({
-    mutationFn: async (payload: { name: string; expiresAt?: string }) =>
-      apiRequest("POST", "/api/settings/tokens", payload),
-    onSuccess: async (data: any) => {
+    mutationFn: async (payload: { name: string; expiresAt?: string }) => {
+      const res = await apiRequest("POST", "/api/settings/tokens", payload);
+      return res.json() as Promise<{ id: string; name: string; token: string; createdDate: string; lastUsedDate: string | null; expiresAt: string | null }>;
+    },
+    onSuccess: async (data) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/settings/tokens"] });
       setNewTokenName("");
       setRevealedToken(data.token);
@@ -436,6 +441,14 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {authUser?.email && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">Admin:</span>
+                  <span className="font-medium" data-testid="text-admin-email">{authUser.email}</span>
+                </div>
+              )}
+
               <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
                 <p className="text-sm font-medium">API Base URL</p>
                 <div className="flex items-center gap-2">
@@ -630,17 +643,31 @@ export default function Settings() {
                 </DialogDescription>
               </DialogHeader>
               <div className="py-4 space-y-4">
-                <div>
-                  <Label htmlFor="send-info-email">Partner Email Address</Label>
-                  <Input
-                    id="send-info-email"
-                    type="email"
-                    placeholder="partner@smsplatform.com"
-                    value={sendInfoEmail}
-                    onChange={(e) => setSendInfoEmail(e.target.value)}
-                    className="mt-1"
-                    data-testid="input-send-info-email"
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="send-info-email">Partner Email Address</Label>
+                    <Input
+                      id="send-info-email"
+                      type="email"
+                      placeholder="partner@smsplatform.com"
+                      value={sendInfoEmail}
+                      onChange={(e) => setSendInfoEmail(e.target.value)}
+                      className="mt-1"
+                      data-testid="input-send-info-email"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="send-info-phone">Partner Phone / SMS</Label>
+                    <Input
+                      id="send-info-phone"
+                      type="tel"
+                      placeholder="+1 (555) 000-0000"
+                      value={sendInfoPhone}
+                      onChange={(e) => setSendInfoPhone(e.target.value)}
+                      className="mt-1"
+                      data-testid="input-send-info-phone"
+                    />
+                  </div>
                 </div>
                 <div className="p-3 rounded-lg bg-muted/50 border">
                   <p className="text-xs font-medium mb-2 text-muted-foreground">Info that will be shared:</p>
@@ -649,7 +676,7 @@ export default function Settings() {
                   </pre>
                 </div>
               </div>
-              <DialogFooter className="gap-2">
+              <DialogFooter className="gap-2 flex-wrap">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -661,6 +688,20 @@ export default function Settings() {
                   <Copy className="h-4 w-4 mr-2" />
                   Copy to Clipboard
                 </Button>
+                {sendInfoPhone && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const body = encodeURIComponent(getIntegrationInfoText());
+                      const phone = sendInfoPhone.replace(/\D/g, "");
+                      window.open(`sms:${phone}?body=${body}`, "_blank");
+                    }}
+                    data-testid="button-open-sms"
+                  >
+                    <Phone className="h-4 w-4 mr-2" />
+                    Send via SMS
+                  </Button>
+                )}
                 <Button
                   onClick={() => {
                     const info = getIntegrationInfoText();

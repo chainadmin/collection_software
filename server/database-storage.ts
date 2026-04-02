@@ -974,6 +974,10 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(apiTokens);
   }
 
+  async getApiTokensByOrg(orgId: string): Promise<ApiToken[]> {
+    return await db.select().from(apiTokens).where(eq(apiTokens.organizationId, orgId));
+  }
+
   async getApiTokenByToken(token: string): Promise<ApiToken | undefined> {
     const [apiToken] = await db.select().from(apiTokens).where(eq(apiTokens.token, token));
     return apiToken;
