@@ -2,6 +2,7 @@
   "name": "DMP Collector",
   "short_name": "DMP Collector",
   "description": "Debt Manager Pro - Collector Workstation",
+  "id": "/collector",
   "start_url": "/collector-login",
   "display": "standalone",
   "background_color": "#09090b",

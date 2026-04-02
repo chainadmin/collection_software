@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import QRCode from "qrcode";
+import type { Control, FieldValues } from "react-hook-form";
 import {
   Search,
   Plus,
@@ -97,6 +98,219 @@ const editCollectorSchema = z.object({
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
 type EditCollectorForm = z.infer<typeof editCollectorSchema>;
 
+interface CollectorFormFieldsProps {
+  control: Control<FieldValues>;
+  isEdit?: boolean;
+}
+
+function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
+  return (
+    <>
+      <FormField
+        control={control}
+        name="name"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Full Name</FormLabel>
+            <FormControl>
+              <Input placeholder="John Smith" {...field} data-testid="input-collector-name" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={control}
+        name="hourlyWage"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Hourly Wage ($)</FormLabel>
+            <FormControl>
+              <Input
+                type="number"
+                placeholder="15.00"
+                step="0.01"
+                value={field.value ? (field.value / 100).toFixed(2) : ""}
+                onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
+                onBlur={field.onBlur}
+                name={field.name}
+                ref={field.ref}
+                data-testid="input-collector-hourly-wage"
+              />
+            </FormControl>
+            <FormDescription>Required - used for profitability tracking</FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={control}
+        name="email"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Email Address (Optional)</FormLabel>
+            <FormControl>
+              <Input type="email" placeholder="john@company.com" {...field} data-testid="input-collector-email" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          control={control}
+          name="username"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Username</FormLabel>
+              <FormControl>
+                <Input placeholder="jsmith" {...field} data-testid="input-collector-username" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{isEdit ? "New Password" : "Password"}</FormLabel>
+              <FormControl>
+                <Input
+                  type="password"
+                  placeholder={isEdit ? "Leave blank to keep current" : "••••••••"}
+                  {...field}
+                  data-testid="input-collector-password"
+                />
+              </FormControl>
+              {isEdit && <FormDescription>Leave blank to keep existing password</FormDescription>}
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          control={control}
+          name="role"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Role</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger data-testid="select-collector-role">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="collector">Collector</SelectItem>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={control}
+          name="status"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Status</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value}>
+                <FormControl>
+                  <SelectTrigger data-testid="select-collector-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+      <FormField
+        control={control}
+        name="goal"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Monthly Goal ($)</FormLabel>
+            <FormControl>
+              <Input
+                type="number"
+                placeholder="25000"
+                value={field.value ?? ""}
+                onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
+                onBlur={field.onBlur}
+                name={field.name}
+                ref={field.ref}
+                data-testid="input-collector-goal"
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <div className="space-y-3 pt-2">
+        <FormLabel className="text-sm font-medium">Workstation Permissions</FormLabel>
+        <div className="space-y-2">
+          <FormField
+            control={control}
+            name="canViewDashboard"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-dashboard" />
+                </FormControl>
+                <div className="flex items-center gap-2 pb-0">
+                  <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                  <FormLabel className="font-normal">Company Dashboard</FormLabel>
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="canViewEmail"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-email" />
+                </FormControl>
+                <div className="flex items-center gap-2 pb-0">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <FormLabel className="font-normal">Email / SMS Tab</FormLabel>
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="canViewPaymentRunner"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-payment-runner" />
+                </FormControl>
+                <div className="flex items-center gap-2 pb-0">
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                  <FormLabel className="font-normal">Payment Runner</FormLabel>
+                </div>
+              </FormItem>
+            )}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Collectors() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -165,8 +379,6 @@ export default function Collectors() {
       return apiRequest("POST", "/api/collectors", {
         ...data,
         avatarInitials: getInitials(data.name),
-        goal: data.goal,
-        hourlyWage: data.hourlyWage,
       });
     },
     onSuccess: () => {
@@ -225,7 +437,7 @@ export default function Collectors() {
     return (
       searchQuery === "" ||
       collector.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      collector.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (collector.email ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       collector.username.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
@@ -256,207 +468,6 @@ export default function Collectors() {
     link.href = canvas.toDataURL("image/png");
     link.click();
   };
-
-  const CollectorFormFields = ({ formInstance, isEdit }: { formInstance: any; isEdit?: boolean }) => (
-    <>
-      <FormField
-        control={formInstance.control}
-        name="name"
-        render={({ field }: any) => (
-          <FormItem>
-            <FormLabel>Full Name</FormLabel>
-            <FormControl>
-              <Input placeholder="John Smith" {...field} data-testid="input-collector-name" />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <FormField
-        control={formInstance.control}
-        name="hourlyWage"
-        render={({ field }: any) => (
-          <FormItem>
-            <FormLabel>Hourly Wage ($)</FormLabel>
-            <FormControl>
-              <Input
-                type="number"
-                placeholder="15.00"
-                step="0.01"
-                {...field}
-                value={field.value ? (field.value / 100).toFixed(2) : ""}
-                onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
-                data-testid="input-collector-hourly-wage"
-              />
-            </FormControl>
-            <FormDescription>Required - used for profitability tracking</FormDescription>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <FormField
-        control={formInstance.control}
-        name="email"
-        render={({ field }: any) => (
-          <FormItem>
-            <FormLabel>Email Address (Optional)</FormLabel>
-            <FormControl>
-              <Input type="email" placeholder="john@company.com" {...field} data-testid="input-collector-email" />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <div className="grid grid-cols-2 gap-4">
-        <FormField
-          control={formInstance.control}
-          name="username"
-          render={({ field }: any) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input placeholder="jsmith" {...field} data-testid="input-collector-username" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={formInstance.control}
-          name="password"
-          render={({ field }: any) => (
-            <FormItem>
-              <FormLabel>{isEdit ? "New Password" : "Password"}</FormLabel>
-              <FormControl>
-                <Input
-                  type="password"
-                  placeholder={isEdit ? "Leave blank to keep current" : "••••••••"}
-                  {...field}
-                  data-testid="input-collector-password"
-                />
-              </FormControl>
-              {isEdit && <FormDescription>Leave blank to keep existing password</FormDescription>}
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <FormField
-          control={formInstance.control}
-          name="role"
-          render={({ field }: any) => (
-            <FormItem>
-              <FormLabel>Role</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger data-testid="select-collector-role">
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="collector">Collector</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={formInstance.control}
-          name="status"
-          render={({ field }: any) => (
-            <FormItem>
-              <FormLabel>Status</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger data-testid="select-collector-status">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
-      <FormField
-        control={formInstance.control}
-        name="goal"
-        render={({ field }: any) => (
-          <FormItem>
-            <FormLabel>Monthly Goal ($)</FormLabel>
-            <FormControl>
-              <Input
-                type="number"
-                placeholder="25000"
-                {...field}
-                onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
-                data-testid="input-collector-goal"
-              />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <div className="space-y-3 pt-2">
-        <FormLabel className="text-sm font-medium">Workstation Permissions</FormLabel>
-        <div className="space-y-2">
-          <FormField
-            control={formInstance.control}
-            name="canViewDashboard"
-            render={({ field }: any) => (
-              <FormItem className="flex flex-row items-center gap-2">
-                <FormControl>
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-dashboard" />
-                </FormControl>
-                <div className="flex items-center gap-2 pb-0">
-                  <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-                  <FormLabel className="font-normal">Company Dashboard</FormLabel>
-                </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={formInstance.control}
-            name="canViewEmail"
-            render={({ field }: any) => (
-              <FormItem className="flex flex-row items-center gap-2">
-                <FormControl>
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-email" />
-                </FormControl>
-                <div className="flex items-center gap-2 pb-0">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <FormLabel className="font-normal">Email / SMS Tab</FormLabel>
-                </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={formInstance.control}
-            name="canViewPaymentRunner"
-            render={({ field }: any) => (
-              <FormItem className="flex flex-row items-center gap-2">
-                <FormControl>
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-payment-runner" />
-                </FormControl>
-                <div className="flex items-center gap-2 pb-0">
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
-                  <FormLabel className="font-normal">Payment Runner</FormLabel>
-                </div>
-              </FormItem>
-            )}
-          />
-        </div>
-      </div>
-    </>
-  );
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -651,7 +662,7 @@ export default function Collectors() {
           </DialogHeader>
           <Form {...addForm}>
             <form onSubmit={addForm.handleSubmit((data) => addCollectorMutation.mutate(data))} className="space-y-4">
-              <CollectorFormFields formInstance={addForm} />
+              <CollectorFormFields control={addForm.control as Control<FieldValues>} />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
                   Cancel
@@ -676,7 +687,7 @@ export default function Collectors() {
           </DialogHeader>
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit((data) => editCollectorMutation.mutate(data))} className="space-y-4">
-              <CollectorFormFields formInstance={editForm} isEdit />
+              <CollectorFormFields control={editForm.control as Control<FieldValues>} isEdit />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setEditingCollector(null)}>
                   Cancel
