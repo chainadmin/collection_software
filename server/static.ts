@@ -26,8 +26,19 @@ export function serveStatic(app: Express) {
     },
   }));
 
+  const indexHtmlPath = path.resolve(distPath, "index.html");
+
+  app.get("/collector-install", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    const html = fs.readFileSync(indexHtmlPath, "utf-8").replace(
+      /<link rel="manifest" href="\/manifest\.json"\s*\/?>/,
+      `<link rel="manifest" href="/manifest-collector.json">`,
+    );
+    res.type("html").send(html);
+  });
+
   app.use("*", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache, must-revalidate");
-    res.sendFile(path.resolve(distPath, "index.html"));
+    res.sendFile(indexHtmlPath);
   });
 }

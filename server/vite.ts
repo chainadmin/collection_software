@@ -31,28 +31,39 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("*", async (req, res, next) => {
-    const url = req.originalUrl;
+  const clientTemplate = path.resolve(
+    import.meta.dirname,
+    "..",
+    "client",
+    "index.html",
+  );
 
+  async function serveIndexHtml(url: string, res: any, next: any, manifestOverride?: string) {
     try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
-        "client",
-        "index.html",
-      );
-
-      // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
+      if (manifestOverride) {
+        template = template.replace(
+          `<link rel="manifest" href="/manifest.json" />`,
+          `<link rel="manifest" href="${manifestOverride}" />`,
+        );
+      }
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
     }
+  }
+
+  app.get("/collector-install", (req, res, next) => {
+    serveIndexHtml(req.originalUrl, res, next, "/manifest-collector.json");
+  });
+
+  app.use("*", async (req, res, next) => {
+    serveIndexHtml(req.originalUrl, res, next);
   });
 }
