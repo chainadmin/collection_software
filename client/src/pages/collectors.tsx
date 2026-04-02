@@ -453,7 +453,16 @@ export default function Collectors() {
         <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-muted-foreground mb-0.5">Collector App Link</p>
-          <code className="text-xs truncate block" data-testid="text-collector-install-url">{collectorInstallUrl}</code>
+          <a
+            href={collectorInstallUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={collectorInstallUrl}
+            className="text-xs truncate block hover:underline text-foreground"
+            data-testid="text-collector-install-url"
+          >
+            {collectorInstallUrl}
+          </a>
         </div>
         <Button
           size="sm"
