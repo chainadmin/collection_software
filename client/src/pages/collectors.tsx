@@ -67,8 +67,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Collector } from "@shared/schema";
 
-// ── Schemas ──────────────────────────────────────────────────────────────────
-
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Valid email is required").optional().or(z.literal("")),
@@ -99,8 +97,6 @@ const editCollectorSchema = z.object({
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
 type EditCollectorForm = z.infer<typeof editCollectorSchema>;
-
-// ── Shared form fields ────────────────────────────────────────────────────────
 
 interface CollectorFormFieldsProps {
   control: Control<FieldValues>;
@@ -315,9 +311,6 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
   );
 }
 
-// ── Add Collector Dialog ──────────────────────────────────────────────────────
-// Owns its own useForm so parent re-renders never affect it.
-
 interface AddCollectorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -398,10 +391,6 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
   );
 }
 
-// ── Edit Collector Dialog ─────────────────────────────────────────────────────
-// Owns its own useForm so parent re-renders never affect it.
-// collector === null means closed; non-null means open and pre-filled.
-
 interface EditCollectorDialogProps {
   collector: Collector | null;
   onClose: () => void;
@@ -427,7 +416,6 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
     },
   });
 
-  // Reset form whenever a different collector is selected for editing.
   useEffect(() => {
     if (collector) {
       form.reset({
@@ -444,7 +432,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
       });
     }
-  }, [collector?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [collector?.id]);
 
   const mutation = useMutation({
     mutationFn: async (data: EditCollectorForm) => {
@@ -510,8 +498,6 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
     </Dialog>
   );
 }
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Collectors() {
   const { toast } = useToast();
@@ -758,7 +744,6 @@ export default function Collectors() {
         </CardContent>
       </Card>
 
-      {/* Dialogs — each manages its own form state at module scope */}
       <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} />
       <EditCollectorDialog
         collector={editingCollector}
