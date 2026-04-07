@@ -67,6 +67,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Collector } from "@shared/schema";
 
+// ── Schemas ──────────────────────────────────────────────────────────────────
+
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Valid email is required").optional().or(z.literal("")),
@@ -97,6 +99,8 @@ const editCollectorSchema = z.object({
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
 type EditCollectorForm = z.infer<typeof editCollectorSchema>;
+
+// ── Shared form fields ────────────────────────────────────────────────────────
 
 interface CollectorFormFieldsProps {
   control: Control<FieldValues>;
@@ -138,7 +142,7 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
                 data-testid="input-collector-hourly-wage"
               />
             </FormControl>
-            <FormDescription>Required - used for profitability tracking</FormDescription>
+            <FormDescription>Required — used for profitability tracking</FormDescription>
             <FormMessage />
           </FormItem>
         )}
@@ -311,19 +315,18 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
   );
 }
 
-export default function Collectors() {
+// ── Add Collector Dialog ──────────────────────────────────────────────────────
+// Owns its own useForm so parent re-renders never affect it.
+
+interface AddCollectorDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editingCollector, setEditingCollector] = useState<Collector | null>(null);
-  const [showQrDialog, setShowQrDialog] = useState(false);
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  const { data: collectors, isLoading } = useQuery<Collector[]>({
-    queryKey: ["/api/collectors"],
-  });
-
-  const addForm = useForm<AddCollectorForm>({
+  const form = useForm<AddCollectorForm>({
     resolver: zodResolver(addCollectorSchema),
     defaultValues: {
       name: "",
@@ -340,7 +343,74 @@ export default function Collectors() {
     },
   });
 
-  const editForm = useForm<EditCollectorForm>({
+  const mutation = useMutation({
+    mutationFn: async (data: AddCollectorForm) => {
+      return apiRequest("POST", "/api/collectors", {
+        ...data,
+        avatarInitials: getInitials(data.name),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
+      onOpenChange(false);
+      form.reset();
+      toast({ title: "Collector added", description: "Collector has been created successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add collector.", variant: "destructive" });
+    },
+  });
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) form.reset();
+    onOpenChange(next);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add Collector</DialogTitle>
+          <DialogDescription>Add a new collector to your organization.</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
+            className="space-y-4"
+          >
+            <CollectorFormFields control={form.control as Control<FieldValues>} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                data-testid="button-submit-collector"
+              >
+                {mutation.isPending ? "Adding..." : "Add Collector"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Edit Collector Dialog ─────────────────────────────────────────────────────
+// Owns its own useForm so parent re-renders never affect it.
+// collector === null means closed; non-null means open and pre-filled.
+
+interface EditCollectorDialogProps {
+  collector: Collector | null;
+  onClose: () => void;
+}
+
+function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
+  const { toast } = useToast();
+
+  const form = useForm<EditCollectorForm>({
     resolver: zodResolver(editCollectorSchema),
     defaultValues: {
       name: "",
@@ -357,44 +427,28 @@ export default function Collectors() {
     },
   });
 
-  const openEditDialog = (collector: Collector) => {
-    setEditingCollector(collector);
-    editForm.reset({
-      name: collector.name,
-      email: collector.email || "",
-      username: collector.username,
-      password: "",
-      role: collector.role,
-      status: collector.status,
-      goal: collector.goal || 0,
-      hourlyWage: collector.hourlyWage || 0,
-      canViewDashboard: collector.canViewDashboard ?? false,
-      canViewEmail: collector.canViewEmail ?? false,
-      canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
-    });
-  };
-
-  const addCollectorMutation = useMutation({
-    mutationFn: async (data: AddCollectorForm) => {
-      return apiRequest("POST", "/api/collectors", {
-        ...data,
-        avatarInitials: getInitials(data.name),
+  // Reset form whenever a different collector is selected for editing.
+  useEffect(() => {
+    if (collector) {
+      form.reset({
+        name: collector.name,
+        email: collector.email || "",
+        username: collector.username,
+        password: "",
+        role: collector.role,
+        status: collector.status,
+        goal: collector.goal || 0,
+        hourlyWage: collector.hourlyWage || 0,
+        canViewDashboard: collector.canViewDashboard ?? false,
+        canViewEmail: collector.canViewEmail ?? false,
+        canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
       });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
-      setShowAddDialog(false);
-      addForm.reset();
-      toast({ title: "Collector added", description: "Collector has been created successfully." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add collector.", variant: "destructive" });
-    },
-  });
+    }
+  }, [collector?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const editCollectorMutation = useMutation({
+  const mutation = useMutation({
     mutationFn: async (data: EditCollectorForm) => {
-      if (!editingCollector) return;
+      if (!collector) return;
       const payload: Record<string, unknown> = {
         name: data.name,
         email: data.email || "",
@@ -411,16 +465,64 @@ export default function Collectors() {
       if (data.password && data.password.length >= 6) {
         payload.password = data.password;
       }
-      return apiRequest("PATCH", `/api/collectors/${editingCollector.id}`, payload);
+      return apiRequest("PATCH", `/api/collectors/${collector.id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
-      setEditingCollector(null);
+      onClose();
       toast({ title: "Collector updated", description: "Collector info has been saved." });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update collector.", variant: "destructive" });
     },
+  });
+
+  return (
+    <Dialog open={!!collector} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Collector</DialogTitle>
+          <DialogDescription>
+            Update {collector?.name}'s information and permissions.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
+            className="space-y-4"
+          >
+            <CollectorFormFields control={form.control as Control<FieldValues>} isEdit />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                data-testid="button-submit-edit-collector"
+              >
+                {mutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function Collectors() {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingCollector, setEditingCollector] = useState<Collector | null>(null);
+  const [showQrDialog, setShowQrDialog] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const { data: collectors, isLoading } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
   });
 
   const deleteCollectorMutation = useMutation({
@@ -474,9 +576,7 @@ export default function Collectors() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Collectors</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage collectors and their assignments
-          </p>
+          <p className="text-sm text-muted-foreground">Manage collectors and their assignments</p>
         </div>
         <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-collector">
           <Plus className="h-4 w-4 mr-2" />
@@ -587,12 +687,19 @@ export default function Collectors() {
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" data-testid={`collector-menu-${collector.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            data-testid={`collector-menu-${collector.id}`}
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(collector)} data-testid={`button-edit-collector-${collector.id}`}>
+                          <DropdownMenuItem
+                            onClick={() => setEditingCollector(collector)}
+                            data-testid={`button-edit-collector-${collector.id}`}
+                          >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
@@ -615,7 +722,7 @@ export default function Collectors() {
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <DollarSign className="h-4 w-4" />
-                        <span className="font-mono">{formatCurrency((collector.hourlyWage || 0))}/hr</span>
+                        <span className="font-mono">{formatCurrency(collector.hourlyWage || 0)}/hr</span>
                       </div>
                       <div className="flex items-center justify-between pt-2">
                         <StatusBadge status={collector.status} />
@@ -651,55 +758,12 @@ export default function Collectors() {
         </CardContent>
       </Card>
 
-      {/* Add Collector Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) addForm.reset(); }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Collector</DialogTitle>
-            <DialogDescription>
-              Add a new collector to your organization.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...addForm}>
-            <form onSubmit={addForm.handleSubmit((data) => addCollectorMutation.mutate(data))} className="space-y-4">
-              <CollectorFormFields control={addForm.control as Control<FieldValues>} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={addCollectorMutation.isPending} data-testid="button-submit-collector">
-                  {addCollectorMutation.isPending ? "Adding..." : "Add Collector"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Collector Dialog */}
-      <Dialog open={!!editingCollector} onOpenChange={(open) => { if (!open) setEditingCollector(null); }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Collector</DialogTitle>
-            <DialogDescription>
-              Update {editingCollector?.name}'s information and permissions.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit((data) => editCollectorMutation.mutate(data))} className="space-y-4">
-              <CollectorFormFields control={editForm.control as Control<FieldValues>} isEdit />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditingCollector(null)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={editCollectorMutation.isPending} data-testid="button-submit-edit-collector">
-                  {editCollectorMutation.isPending ? "Saving..." : "Save Changes"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+      {/* Dialogs — each manages its own form state at module scope */}
+      <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} />
+      <EditCollectorDialog
+        collector={editingCollector}
+        onClose={() => setEditingCollector(null)}
+      />
 
       {/* QR Code Dialog */}
       <Dialog open={showQrDialog} onOpenChange={setShowQrDialog}>
@@ -719,7 +783,11 @@ export default function Collectors() {
             </p>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => setShowQrDialog(false)} className="sm:mr-auto">
+            <Button
+              variant="outline"
+              onClick={() => setShowQrDialog(false)}
+              className="sm:mr-auto"
+            >
               Close
             </Button>
             <Button onClick={handleDownloadQr} data-testid="button-download-qr">
