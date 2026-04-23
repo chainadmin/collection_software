@@ -207,6 +207,7 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
                   <SelectItem value="collector">Collector</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="auditor">Auditor</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />

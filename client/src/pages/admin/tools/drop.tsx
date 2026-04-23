@@ -37,7 +37,7 @@ export default function DropAccounts() {
     queryKey: ["/api/collectors"],
   });
 
-  const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin");
+  const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin" && c.role !== "auditor");
 
   const dropAccountsMutation = useMutation({
     mutationFn: async (data: { 

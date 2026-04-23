@@ -1723,9 +1723,18 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/debtors", async (req, res) => {
+  app.post("/api/debtors", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (req.body.assignedCollectorId) {
+        const target = await storage.getCollector(req.body.assignedCollectorId);
+        if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid collector" });
+        }
+        if (target.role === "auditor") {
+          return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
+        }
+      }
       const debtor = await storage.createDebtor({
         ...req.body,
         organizationId: orgId,
@@ -1745,6 +1754,15 @@ export async function registerRoutes(
       }
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
+      }
+      if (req.body.assignedCollectorId) {
+        const target = await storage.getCollector(req.body.assignedCollectorId);
+        if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid collector" });
+        }
+        if (target.role === "auditor") {
+          return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
+        }
       }
       const debtor = await storage.updateDebtor(req.params.id, req.body);
       res.json(debtor);
@@ -3324,9 +3342,18 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/drop-items", async (req, res) => {
+  app.post("/api/drop-items", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (req.body.collectorId) {
+        const target = await storage.getCollector(req.body.collectorId);
+        if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid collector" });
+        }
+        if (target.role === "auditor") {
+          return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
+        }
+      }
       const item = await storage.createDropItem({
         ...req.body,
         organizationId: orgId,
@@ -3536,8 +3563,18 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-queue", async (req, res) => {
+  app.post("/api/work-queue", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      if (req.body.collectorId) {
+        const target = await storage.getCollector(req.body.collectorId);
+        if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid collector" });
+        }
+        if (target.role === "auditor") {
+          return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
+        }
+      }
       const item = await storage.createWorkQueueItem({
         ...req.body,
         assignedDate: new Date().toISOString().split("T")[0],
