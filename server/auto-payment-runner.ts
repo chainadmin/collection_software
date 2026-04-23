@@ -23,7 +23,16 @@ let isRunning = false;
 let lastRunTimestamp: string | null = null;
 
 const CHECK_INTERVAL_MS = 60 * 1000;
-const RUN_HOURS = [7, 18];
+const DEFAULT_RUN_HOURS = [7, 18];
+
+function parseRunHours(raw: string | null | undefined): number[] {
+  if (!raw) return DEFAULT_RUN_HOURS;
+  const parts = String(raw)
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 23);
+  return parts.length > 0 ? Array.from(new Set(parts)).sort((a, b) => a - b) : DEFAULT_RUN_HOURS;
+}
 
 function getEasternTime(): Date {
   const now = new Date();
@@ -190,25 +199,38 @@ export function getAutoRunnerStatus() {
 }
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
-let lastTriggerKey: string | null = null;
+const lastOrgTriggerKeys: Map<string, string> = new Map();
 
 export function startAutoPaymentScheduler() {
-  console.log("[Auto Runner] Scheduler started — checking every 60s for 7:00 AM / 6:00 PM Eastern");
+  console.log("[Auto Runner] Scheduler started — checking every 60s; per-org schedule from autoRunnerHours");
 
-  schedulerInterval = setInterval(() => {
+  schedulerInterval = setInterval(async () => {
     const et = getEasternTime();
     const hour = et.getHours();
     const minute = et.getMinutes();
 
-    if (RUN_HOURS.includes(hour) && minute === 0) {
-      const triggerKey = `${getEasternDateString()}-${hour}`;
-      if (triggerKey === lastTriggerKey) return;
-      lastTriggerKey = triggerKey;
+    if (minute !== 0) return;
 
-      console.log(`[Auto Runner] Trigger fired at ${hour}:00 Eastern`);
-      runAutoPayments().catch(err => {
-        console.error("[Auto Runner] Scheduled run error:", err);
-      });
+    try {
+      const orgs = await storage.getOrganizations();
+      const dateStr = getEasternDateString();
+
+      for (const org of orgs) {
+        if (!org.autoRunnerEnabled) continue;
+        const hours = parseRunHours(org.autoRunnerHours);
+        if (!hours.includes(hour)) continue;
+
+        const triggerKey = `${dateStr}-${hour}`;
+        if (lastOrgTriggerKeys.get(org.id) === triggerKey) continue;
+        lastOrgTriggerKeys.set(org.id, triggerKey);
+
+        console.log(`[Auto Runner] Trigger fired for org "${org.name}" at ${hour}:00 Eastern`);
+        runAutoPayments(org.id).catch((err) => {
+          console.error(`[Auto Runner] Scheduled run error for org ${org.id}:`, err);
+        });
+      }
+    } catch (err) {
+      console.error("[Auto Runner] Scheduler tick error:", err);
     }
   }, CHECK_INTERVAL_MS);
 

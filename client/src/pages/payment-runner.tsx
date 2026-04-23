@@ -64,6 +64,7 @@ export default function PaymentRunner() {
 
   const { data: autoStatus } = useQuery<{
     autoRunnerEnabled: boolean;
+    autoRunnerHours?: string;
     isRunning: boolean;
     lastRunTimestamp: string | null;
     lastRunResult: {
@@ -76,6 +77,39 @@ export default function PaymentRunner() {
   }>({
     queryKey: ["/api/payment-runner/auto-status"],
     refetchInterval: 30000,
+  });
+
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleHours, setScheduleHours] = useState<number[]>([]);
+
+  const currentHours: number[] = (() => {
+    const raw = autoStatus?.autoRunnerHours ?? "7,18";
+    return String(raw)
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 23)
+      .sort((a, b) => a - b);
+  })();
+
+  const formatHour = (h: number) => {
+    const period = h < 12 ? "AM" : "PM";
+    const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${display}:00 ${period}`;
+  };
+
+  const updateScheduleMutation = useMutation({
+    mutationFn: async (hours: number[]) => {
+      const res = await apiRequest("PATCH", "/api/organization/auto-runner", { hours });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-runner/auto-status"] });
+      toast({ title: "Schedule Updated", description: "Auto-runner schedule saved." });
+      setScheduleOpen(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update schedule.", variant: "destructive" });
+    },
   });
 
   const { data: collectors } = useQuery<Collector[]>({
@@ -436,10 +470,10 @@ export default function PaymentRunner() {
                   data-testid="switch-auto-runner"
                 />
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground" data-testid="text-auto-runner-schedule">
                 {autoStatus?.autoRunnerEnabled
-                  ? "Runs automatically at 7:00 AM and 6:00 PM Eastern"
-                  : "Enable to automatically process pending payments twice daily"}
+                  ? `Processes pending payments at ${currentHours.length > 0 ? currentHours.map(formatHour).join(" and ") : "no scheduled times"} Eastern`
+                  : "Enable to automatically process pending payments on a schedule"}
               </p>
               {autoStatus?.lastRunResult && (
                 <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-run-info">
@@ -451,24 +485,89 @@ export default function PaymentRunner() {
               )}
             </div>
             {canPostOrReverse && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => triggerAutoRunMutation.mutate()}
-                disabled={triggerAutoRunMutation.isPending || autoStatus?.isRunning}
-                data-testid="button-trigger-auto-run"
-              >
-                {triggerAutoRunMutation.isPending ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Run Now
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setScheduleHours(currentHours);
+                    setScheduleOpen(true);
+                  }}
+                  data-testid="button-edit-auto-schedule"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Schedule
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => triggerAutoRunMutation.mutate()}
+                  disabled={triggerAutoRunMutation.isPending || autoStatus?.isRunning}
+                  data-testid="button-trigger-auto-run"
+                >
+                  {triggerAutoRunMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Run Now
+                </Button>
+              </>
             )}
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+        <DialogContent data-testid="dialog-auto-schedule">
+          <DialogHeader>
+            <DialogTitle>Auto-Runner Schedule</DialogTitle>
+            <DialogDescription>
+              Pick the Eastern Time hours when the auto-runner should process pending payments. Only payments with status "pending" and a payment date on or before today will be processed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-4 gap-2 py-2 max-h-72 overflow-y-auto">
+            {Array.from({ length: 24 }, (_, h) => h).map((h) => {
+              const checked = scheduleHours.includes(h);
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() =>
+                    setScheduleHours((prev) =>
+                      prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h].sort((a, b) => a - b)
+                    )
+                  }
+                  className={cn(
+                    "px-2 py-2 text-sm rounded border transition-colors",
+                    checked
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background hover:bg-muted border-border"
+                  )}
+                  data-testid={`button-hour-${h}`}
+                >
+                  {formatHour(h)}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Selected: {scheduleHours.length > 0 ? scheduleHours.map(formatHour).join(", ") : "none"}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScheduleOpen(false)} data-testid="button-cancel-schedule">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => updateScheduleMutation.mutate(scheduleHours)}
+              disabled={updateScheduleMutation.isPending}
+              data-testid="button-save-schedule"
+            >
+              {updateScheduleMutation.isPending ? "Saving..." : "Save Schedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 md:grid-cols-5">
         <StatCard

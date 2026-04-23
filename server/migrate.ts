@@ -709,6 +709,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'auto_runner_enabled') THEN
           ALTER TABLE organizations ADD COLUMN auto_runner_enabled boolean DEFAULT false;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'auto_runner_hours') THEN
+          ALTER TABLE organizations ADD COLUMN auto_runner_hours text DEFAULT '7,18';
+        END IF;
       END $$;
     `);
 

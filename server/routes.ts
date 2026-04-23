@@ -2396,15 +2396,29 @@ export async function registerRoutes(
   app.patch("/api/organization/auto-runner", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { enabled } = req.body;
-      const org = await storage.updateOrganization(orgId, {
-        autoRunnerEnabled: enabled
-      });
+      const { enabled, hours } = req.body;
+      const updates: any = {};
+      if (typeof enabled === "boolean") updates.autoRunnerEnabled = enabled;
+      if (hours !== undefined) {
+        // Accept array of numbers or comma-separated string; normalize to "h1,h2"
+        const arr = Array.isArray(hours)
+          ? hours
+          : String(hours).split(",");
+        const cleaned = arr
+          .map((h: any) => parseInt(String(h).trim(), 10))
+          .filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 23);
+        const unique = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+        updates.autoRunnerHours = unique.join(",");
+      }
+      const org = await storage.updateOrganization(orgId, updates);
       if (!org) {
         return res.status(404).json({ error: "Organization not found" });
       }
-      console.log(`[Auto Runner] Org ${orgId} auto-runner set to: ${enabled}`);
-      res.json({ autoRunnerEnabled: org.autoRunnerEnabled });
+      console.log(`[Auto Runner] Org ${orgId} updated:`, updates);
+      res.json({
+        autoRunnerEnabled: org.autoRunnerEnabled ?? false,
+        autoRunnerHours: org.autoRunnerHours ?? "7,18",
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to update auto-runner setting" });
     }
@@ -2417,7 +2431,10 @@ export async function registerRoutes(
       if (!org) {
         return res.status(404).json({ error: "Organization not found" });
       }
-      res.json({ autoRunnerEnabled: org.autoRunnerEnabled ?? false });
+      res.json({
+        autoRunnerEnabled: org.autoRunnerEnabled ?? false,
+        autoRunnerHours: org.autoRunnerHours ?? "7,18",
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to get auto-runner status" });
     }
