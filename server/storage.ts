@@ -52,6 +52,8 @@ import {
   type InsertRecallBatch,
   type RecallItem,
   type InsertRecallItem,
+  type AccountStatus,
+  type InsertAccountStatus,
   type ConsolidationCompany,
   type InsertConsolidationCompany,
   type ConsolidationCase,
@@ -243,6 +245,13 @@ export interface IStorage {
   getRecallItems(batchId: string): Promise<RecallItem[]>;
   createRecallItem(item: InsertRecallItem): Promise<RecallItem>;
   updateRecallItem(id: string, item: Partial<InsertRecallItem>): Promise<RecallItem | undefined>;
+
+  // Account Statuses (custom per-org)
+  getAccountStatuses(organizationId: string): Promise<AccountStatus[]>;
+  createAccountStatus(status: InsertAccountStatus): Promise<AccountStatus>;
+  updateAccountStatus(id: string, status: Partial<InsertAccountStatus>): Promise<AccountStatus | undefined>;
+  deleteAccountStatus(id: string): Promise<boolean>;
+  getAccountStatus(id: string): Promise<AccountStatus | undefined>;
 
   // Consolidation Companies
   getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]>;
@@ -2102,6 +2111,15 @@ export class MemStorage implements IStorage {
     this.recallItems.set(id, updated);
     return updated;
   }
+
+  // Account Statuses (no-op in MemStorage)
+  async getAccountStatuses(_organizationId: string): Promise<AccountStatus[]> { return []; }
+  async createAccountStatus(status: InsertAccountStatus): Promise<AccountStatus> {
+    return { id: randomUUID(), ...status, color: status.color ?? "slate", sortOrder: status.sortOrder ?? 0 } as AccountStatus;
+  }
+  async updateAccountStatus(_id: string, _status: Partial<InsertAccountStatus>): Promise<AccountStatus | undefined> { return undefined; }
+  async deleteAccountStatus(_id: string): Promise<boolean> { return false; }
+  async getAccountStatus(_id: string): Promise<AccountStatus | undefined> { return undefined; }
 
   // Consolidation Companies
   async getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]> {

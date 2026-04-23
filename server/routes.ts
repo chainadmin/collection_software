@@ -3488,6 +3488,80 @@ export async function registerRoutes(
     }
   });
 
+  // Account Statuses API (custom per-org)
+  app.get("/api/account-statuses", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const rows = await storage.getAccountStatuses(orgId);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch account statuses" });
+    }
+  });
+
+  app.post("/api/account-statuses", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { code, label, color, sortOrder } = req.body || {};
+      if (!code || !label) return res.status(400).json({ error: "code and label required" });
+      const cleanCode = String(code).trim().toLowerCase().replace(/\s+/g, "_");
+      if (!cleanCode) return res.status(400).json({ error: "Invalid code" });
+      const RESERVED_SYSTEM_CODES = [
+        "newbiz", "1st_message", "final", "promise", "payments_pending",
+        "open", "in_payment", "paid", "decline", "disputed", "settled",
+        "closed", "bankruptcy", "legal",
+      ];
+      if (RESERVED_SYSTEM_CODES.includes(cleanCode)) {
+        return res.status(409).json({ error: "This is a reserved system status code" });
+      }
+      const existing = await storage.getAccountStatuses(orgId);
+      if (existing.some(s => s.code.toLowerCase() === cleanCode)) {
+        return res.status(409).json({ error: "Status code already exists" });
+      }
+      const created = await storage.createAccountStatus({
+        organizationId: orgId,
+        code: cleanCode,
+        label: String(label).trim(),
+        color: color || "slate",
+        sortOrder: sortOrder ?? existing.length,
+      } as any);
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create account status" });
+    }
+  });
+
+  app.patch("/api/account-statuses/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getAccountStatus(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { organizationId: _, code: __, ...body } = req.body || {};
+      const updated = await storage.updateAccountStatus(req.params.id, body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update account status" });
+    }
+  });
+
+  app.delete("/api/account-statuses/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getAccountStatus(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      await storage.deleteAccountStatus(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete account status" });
+    }
+  });
+
   // Consolidation Companies API
   app.get("/api/consolidation-companies", async (req: any, res) => {
     try {

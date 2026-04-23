@@ -81,7 +81,31 @@ import type {
   PaymentCard,
   TimeClockEntry,
   DebtorReference,
+  AccountStatus,
 } from "@shared/schema";
+
+const SYSTEM_STATUS_OPTIONS = [
+  { code: "newbiz", label: "New Business" },
+  { code: "1st_message", label: "1st Message" },
+  { code: "final", label: "Final" },
+  { code: "promise", label: "Promise" },
+  { code: "payments_pending", label: "Payments Pending" },
+  { code: "open", label: "Open" },
+  { code: "in_payment", label: "In Payment" },
+  { code: "paid", label: "Paid in Full" },
+  { code: "decline", label: "Decline" },
+  { code: "disputed", label: "Disputed" },
+  { code: "settled", label: "Settled" },
+  { code: "closed", label: "Closed" },
+  { code: "bankruptcy", label: "Bankruptcy" },
+  { code: "legal", label: "Legal" },
+];
+
+const STATUS_COLOR_MAP: Record<string, string> = {
+  blue: "bg-blue-500", green: "bg-green-500", red: "bg-red-500", yellow: "bg-yellow-500",
+  purple: "bg-purple-500", orange: "bg-orange-500", teal: "bg-teal-500", pink: "bg-pink-500",
+  indigo: "bg-indigo-500", gray: "bg-gray-500", emerald: "bg-emerald-500", slate: "bg-slate-500",
+};
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
 
@@ -168,6 +192,17 @@ export default function Workstation() {
   const [showBulkAddNotesDialog, setShowBulkAddNotesDialog] = useState(false);
   const [bulkContactsText, setBulkContactsText] = useState("");
   const [bulkNotesText, setBulkNotesText] = useState("");
+
+  const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
+    queryKey: ["/api/account-statuses"],
+  });
+
+  const allStatusOptions = [
+    ...SYSTEM_STATUS_OPTIONS,
+    ...customStatuses
+      .filter(cs => !SYSTEM_STATUS_OPTIONS.some(s => s.code === cs.code))
+      .map(cs => ({ code: cs.code, label: cs.label })),
+  ];
 
   const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
@@ -301,7 +336,7 @@ export default function Workstation() {
   
   // Color mapping for collection statuses
   const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
+    const systemColors: Record<string, string> = {
       newbiz: "bg-blue-500",
       "1st_message": "bg-cyan-500",
       final: "bg-orange-500",
@@ -316,7 +351,10 @@ export default function Workstation() {
       bankruptcy: "bg-rose-600",
       legal: "bg-amber-600",
     };
-    return colors[status] || "bg-gray-500";
+    if (systemColors[status]) return systemColors[status];
+    const custom = customStatuses.find(s => s.code === status);
+    if (custom?.color && STATUS_COLOR_MAP[custom.color]) return STATUS_COLOR_MAP[custom.color];
+    return "bg-gray-500";
   };
   
   const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
@@ -1057,19 +1095,11 @@ export default function Workstation() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses ({Object.values(statusCounts).reduce((a, b) => a + b, 0)})</SelectItem>
-                <SelectItem value="newbiz">New Business ({statusCounts["newbiz"] || 0})</SelectItem>
-                <SelectItem value="1st_message">1st Message ({statusCounts["1st_message"] || 0})</SelectItem>
-                <SelectItem value="final">Final ({statusCounts["final"] || 0})</SelectItem>
-                <SelectItem value="promise">Promise ({statusCounts["promise"] || 0})</SelectItem>
-                <SelectItem value="payments_pending">Payments Pending ({statusCounts["payments_pending"] || 0})</SelectItem>
-                <SelectItem value="open">Open ({statusCounts["open"] || 0})</SelectItem>
-                <SelectItem value="in_payment">In Payment ({statusCounts["in_payment"] || 0})</SelectItem>
-                <SelectItem value="decline">Decline ({statusCounts["decline"] || 0})</SelectItem>
-                <SelectItem value="disputed">Disputed ({statusCounts["disputed"] || 0})</SelectItem>
-                <SelectItem value="settled">Settled ({statusCounts["settled"] || 0})</SelectItem>
-                <SelectItem value="closed">Closed ({statusCounts["closed"] || 0})</SelectItem>
-                <SelectItem value="bankruptcy">Bankruptcy ({statusCounts["bankruptcy"] || 0})</SelectItem>
-                <SelectItem value="legal">Legal ({statusCounts["legal"] || 0})</SelectItem>
+                {allStatusOptions.map(opt => (
+                  <SelectItem key={opt.code} value={opt.code} data-testid={`status-filter-${opt.code}`}>
+                    {opt.label} ({statusCounts[opt.code] || 0})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -1161,19 +1191,11 @@ export default function Workstation() {
                         </div>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="newbiz">New Business</SelectItem>
-                        <SelectItem value="1st_message">1st Message</SelectItem>
-                        <SelectItem value="final">Final</SelectItem>
-                        <SelectItem value="promise">Promise</SelectItem>
-                        <SelectItem value="payments_pending">Payments Pending</SelectItem>
-                        <SelectItem value="decline">Decline</SelectItem>
-                        <SelectItem value="open">Open</SelectItem>
-                        <SelectItem value="in_payment">In Payment</SelectItem>
-                        <SelectItem value="disputed">Disputed</SelectItem>
-                        <SelectItem value="settled">Settled</SelectItem>
-                        <SelectItem value="closed">Closed</SelectItem>
-                        <SelectItem value="bankruptcy">Bankruptcy</SelectItem>
-                        <SelectItem value="legal">Legal</SelectItem>
+                        {allStatusOptions.map(opt => (
+                          <SelectItem key={opt.code} value={opt.code} data-testid={`status-option-${opt.code}`}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

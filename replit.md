@@ -76,6 +76,9 @@ Reports can be filtered by client, portfolio, or date range, showing per-payment
 ### Recall Management
 Supports "Recall" and "Monthly Payors" categorization, flexible filtering, and batch export of recall lists with full account details.
 
+### Custom Account Statuses
+Each organization can define its own custom account statuses in addition to the 14 built-in system statuses. Stored in the `account_statuses` table with `(organizationId, code)` uniqueness. Managed via `/api/account-statuses` (GET/POST/PATCH/DELETE) with strict org isolation and reserved-code protection. The Settings > Account Statuses UI allows admins to add custom statuses with color choice and delete them; system statuses are read-only. The Workstation page merges custom statuses into the "Work By Status" filter dropdown and the per-debtor status selector, with custom colors applied via Tailwind class mapping.
+
 ### IP Whitelist Feature
 Organizations can restrict collector login access by IP address:
 - **Organization Setting**: `ipRestrictionEnabled` flag toggles enforcement

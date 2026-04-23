@@ -27,6 +27,7 @@ import {
   dropItems,
   recallBatches,
   recallItems,
+  accountStatuses,
   consolidationCompanies,
   consolidationCases,
   workQueueItems,
@@ -92,6 +93,8 @@ import {
   type InsertRecallBatch,
   type RecallItem,
   type InsertRecallItem,
+  type AccountStatus,
+  type InsertAccountStatus,
   type ConsolidationCompany,
   type InsertConsolidationCompany,
   type ConsolidationCase,
@@ -859,6 +862,32 @@ export class DatabaseStorage implements IStorage {
   async updateRecallItem(id: string, item: Partial<InsertRecallItem>): Promise<RecallItem | undefined> {
     const [updated] = await db.update(recallItems).set(item).where(eq(recallItems.id, id)).returning();
     return updated;
+  }
+
+  // Account Statuses
+  async getAccountStatuses(organizationId: string): Promise<AccountStatus[]> {
+    return await db.select().from(accountStatuses).where(eq(accountStatuses.organizationId, organizationId));
+  }
+
+  async getAccountStatus(id: string): Promise<AccountStatus | undefined> {
+    const [row] = await db.select().from(accountStatuses).where(eq(accountStatuses.id, id));
+    return row;
+  }
+
+  async createAccountStatus(status: InsertAccountStatus): Promise<AccountStatus> {
+    const id = randomUUID();
+    const [created] = await db.insert(accountStatuses).values({ ...status, id }).returning();
+    return created;
+  }
+
+  async updateAccountStatus(id: string, status: Partial<InsertAccountStatus>): Promise<AccountStatus | undefined> {
+    const [updated] = await db.update(accountStatuses).set(status).where(eq(accountStatuses.id, id)).returning();
+    return updated;
+  }
+
+  async deleteAccountStatus(id: string): Promise<boolean> {
+    const result = await db.delete(accountStatuses).where(eq(accountStatuses.id, id)).returning();
+    return result.length > 0;
   }
 
   // Consolidation Companies

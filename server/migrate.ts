@@ -737,6 +737,21 @@ export async function runMigrations() {
     } catch (err: any) {
       console.warn("[Migrate] Could not drop legacy collectors_username_key:", err?.message || err);
     }
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "account_statuses" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "code" text NOT NULL,
+        "label" text NOT NULL,
+        "color" text DEFAULT 'slate',
+        "sort_order" integer DEFAULT 0
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS "account_statuses_org_code_unique"
+      ON "account_statuses" ("organization_id", lower("code"))
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

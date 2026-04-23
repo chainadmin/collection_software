@@ -48,7 +48,18 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
-import type { ApiToken } from "@shared/schema";
+import type { ApiToken, AccountStatus } from "@shared/schema";
+
+const SYSTEM_STATUSES = [
+  { code: "newbiz", label: "New Business", color: "blue" },
+  { code: "1st_message", label: "1st Message", color: "yellow" },
+  { code: "final", label: "Final", color: "red" },
+  { code: "promise", label: "Promise", color: "green" },
+  { code: "payments_pending", label: "Payments Pending", color: "purple" },
+  { code: "in_payment", label: "In Payment", color: "teal" },
+  { code: "paid", label: "Paid in Full", color: "emerald" },
+  { code: "closed", label: "Closed", color: "gray" },
+];
 
 const STATUS_COLORS = [
   { name: "blue", bg: "bg-blue-500", label: "Blue" },
@@ -77,16 +88,58 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const [newStatus, setNewStatus] = useState("");
   const [newTokenName, setNewTokenName] = useState("");
-  const [accountStatuses, setAccountStatuses] = useState([
-    { id: "1", name: "newbiz", label: "New Business", color: "blue", isSystem: true },
-    { id: "2", name: "1st_message", label: "1st Message", color: "yellow", isSystem: true },
-    { id: "3", name: "final", label: "Final", color: "red", isSystem: true },
-    { id: "4", name: "promise", label: "Promise", color: "green", isSystem: true },
-    { id: "5", name: "payments_pending", label: "Payments Pending", color: "purple", isSystem: true },
-    { id: "6", name: "in_payment", label: "In Payment", color: "teal", isSystem: true },
-    { id: "7", name: "paid", label: "Paid in Full", color: "emerald", isSystem: true },
-    { id: "8", name: "closed", label: "Closed", color: "gray", isSystem: true },
-  ]);
+  const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
+    queryKey: ["/api/account-statuses"],
+  });
+
+  const accountStatuses = [
+    ...SYSTEM_STATUSES.map((s, i) => ({
+      id: `sys-${s.code}`,
+      name: s.code,
+      label: s.label,
+      color: s.color,
+      isSystem: true,
+    })),
+    ...customStatuses.map((s) => ({
+      id: s.id,
+      name: s.code,
+      label: s.label,
+      color: s.color || "slate",
+      isSystem: false,
+    })),
+  ];
+
+  const createStatusMutation = useMutation({
+    mutationFn: async (payload: { code: string; label: string; color: string }) => {
+      const res = await apiRequest("POST", "/api/account-statuses", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/account-statuses"] });
+      toast({ title: "Status Added", description: "Custom status created." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err?.message || "Failed to add status.", variant: "destructive" });
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, color }: { id: string; color: string }) => {
+      const res = await apiRequest("PATCH", `/api/account-statuses/${id}`, { color });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/account-statuses"] });
+    },
+  });
+
+  const deleteStatusMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/account-statuses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/account-statuses"] });
+      toast({ title: "Status Removed", description: "The status has been removed." });
+    },
+  });
 
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
   const [showTokenRevealDialog, setShowTokenRevealDialog] = useState(false);
@@ -155,11 +208,9 @@ export default function Settings() {
       toast({ title: "Error", description: "Please enter a status name.", variant: "destructive" });
       return;
     }
-    const id = String(Date.now());
-    const name = newStatus.toLowerCase().replace(/\s+/g, "_");
-    setAccountStatuses([...accountStatuses, { id, name, label: newStatus, color: "slate", isSystem: false }]);
+    const code = newStatus.toLowerCase().replace(/\s+/g, "_");
+    createStatusMutation.mutate({ code, label: newStatus.trim(), color: "slate" });
     setNewStatus("");
-    toast({ title: "Status Added", description: `"${newStatus}" has been added to account statuses.` });
   };
 
   const handleRemoveStatus = (id: string) => {
@@ -168,14 +219,16 @@ export default function Settings() {
       toast({ title: "Cannot Remove", description: "System statuses cannot be removed.", variant: "destructive" });
       return;
     }
-    setAccountStatuses(accountStatuses.filter(s => s.id !== id));
-    toast({ title: "Status Removed", description: "The status has been removed." });
+    deleteStatusMutation.mutate(id);
   };
 
   const handleColorChange = (id: string, newColor: string) => {
-    setAccountStatuses(accountStatuses.map(s => 
-      s.id === id ? { ...s, color: newColor } : s
-    ));
+    const status = accountStatuses.find(s => s.id === id);
+    if (status?.isSystem) {
+      toast({ title: "Cannot Change", description: "System status colors are fixed.", variant: "destructive" });
+      return;
+    }
+    updateStatusMutation.mutate({ id, color: newColor });
   };
 
   return (

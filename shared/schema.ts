@@ -774,3 +774,17 @@ export const communicationAttempts = pgTable("communication_attempts", {
 export const insertCommunicationAttemptSchema = createInsertSchema(communicationAttempts).omit({ id: true });
 export type InsertCommunicationAttempt = z.infer<typeof insertCommunicationAttemptSchema>;
 export type CommunicationAttempt = typeof communicationAttempts.$inferSelect;
+
+// Custom Account Statuses (per-organization)
+export const accountStatuses = pgTable("account_statuses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  code: text("code").notNull(),
+  label: text("label").notNull(),
+  color: text("color").default("slate"),
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const insertAccountStatusSchema = createInsertSchema(accountStatuses).omit({ id: true });
+export type InsertAccountStatus = z.infer<typeof insertAccountStatusSchema>;
+export type AccountStatus = typeof accountStatuses.$inferSelect;
