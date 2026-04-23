@@ -275,10 +275,9 @@ export default function Workstation() {
   const workQueue = isReady
     ? (debtors
         ?.filter((d) => {
-          const isWorkable = workableStatuses.includes(d.status);
           const isAssigned = d.assignedCollectorId === authUser?.id;
           const matchesFilter = statusFilter === "all" || d.status === statusFilter;
-          return isWorkable && isAssigned && matchesFilter;
+          return isAssigned && matchesFilter;
         })
         ?.sort((a, b) => {
           if (!a.nextFollowUpDate && !b.nextFollowUpDate) return 0;
@@ -292,7 +291,7 @@ export default function Workstation() {
   const getStatusCounts = () => {
     if (!debtors || !currentCollector) return {};
     return debtors.reduce((acc, d) => {
-      if (d.assignedCollectorId === currentCollector.id && workableStatuses.includes(d.status)) {
+      if (d.assignedCollectorId === currentCollector.id) {
         acc[d.status] = (acc[d.status] || 0) + 1;
       }
       return acc;

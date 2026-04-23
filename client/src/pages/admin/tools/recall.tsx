@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,6 +120,26 @@ export default function Recall() {
     }
   };
 
+  const recallMutation = useMutation({
+    mutationFn: async (payload: { debtorIds: string[]; reason: string; portfolioId: string | null; clientName: string | null; name: string }) => {
+      const res = await apiRequest("POST", "/api/recall/execute", payload);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Recall Complete",
+        description: `${data.processed} accounts recalled and unassigned.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/recall-batches"] });
+      setSelectedAccounts(new Set());
+      setRecallReason("");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to execute recall.", variant: "destructive" });
+    },
+  });
+
   const handleRecall = () => {
     if (selectedAccounts.size === 0) {
       toast({ title: "Error", description: "Please select accounts to recall.", variant: "destructive" });
@@ -128,12 +149,17 @@ export default function Recall() {
       toast({ title: "Error", description: "Please select a recall reason.", variant: "destructive" });
       return;
     }
-    toast({ 
-      title: "Recall Initiated", 
-      description: `${selectedAccounts.size} accounts have been marked for recall to client.` 
+    const portfolioId = selectedPortfolioId !== "all" ? selectedPortfolioId : null;
+    const clientName = selectedClientId !== "all"
+      ? clients.find((c) => c.id === selectedClientId)?.name || null
+      : null;
+    recallMutation.mutate({
+      debtorIds: Array.from(selectedAccounts),
+      reason: recallReason,
+      portfolioId,
+      clientName,
+      name: `Recall ${new Date().toISOString().split("T")[0]} (${selectedAccounts.size})`,
     });
-    setSelectedAccounts(new Set());
-    setRecallReason("");
   };
 
   const handleClientChange = (value: string) => {

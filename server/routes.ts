@@ -21,7 +21,7 @@ import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { db } from "./db";
-import { emailSettings, recallItems } from "@shared/schema";
+import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
@@ -3419,6 +3419,49 @@ export async function registerRoutes(
       res.status(201).json(item);
     } catch (error) {
       res.status(500).json({ error: "Failed to create recall item" });
+    }
+  });
+
+  // Execute a recall: clear assignment + remove work queue items, with audit trail
+  app.post("/api/recall/execute", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { name, debtorIds, reason, portfolioId, clientName } = req.body || {};
+      if (!Array.isArray(debtorIds) || debtorIds.length === 0) {
+        return res.status(400).json({ error: "debtorIds required" });
+      }
+      const batch = await storage.createRecallBatch({
+        organizationId: orgId,
+        name: name || `Recall ${new Date().toISOString().split("T")[0]}`,
+        portfolioId: portfolioId || null,
+        clientName: clientName || null,
+        totalAccounts: debtorIds.length,
+        keeperCount: 0,
+        recallCount: debtorIds.length,
+        status: "completed",
+        createdDate: new Date().toISOString().split("T")[0],
+        processedDate: new Date().toISOString().split("T")[0],
+      } as any);
+
+      let processed = 0;
+      for (const debtorId of debtorIds) {
+        const d = await storage.getDebtor(debtorId);
+        if (!d || !validateOrgOwnership(d.organizationId, orgId)) continue;
+        await storage.createRecallItem({
+          organizationId: orgId,
+          recallBatchId: batch.id,
+          debtorId,
+          isKeeper: false,
+          recallReason: reason || "recall",
+          processedDate: new Date().toISOString().split("T")[0],
+        } as any);
+        await storage.updateDebtor(debtorId, { assignedCollectorId: null } as any);
+        await db.delete(workQueueItems).where(eq(workQueueItems.debtorId, debtorId));
+        processed++;
+      }
+      res.json({ batchId: batch.id, processed });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to execute recall" });
     }
   });
 
