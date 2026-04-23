@@ -1064,6 +1064,12 @@ export default function Workstation() {
                 <SelectItem value="payments_pending">Payments Pending ({statusCounts["payments_pending"] || 0})</SelectItem>
                 <SelectItem value="open">Open ({statusCounts["open"] || 0})</SelectItem>
                 <SelectItem value="in_payment">In Payment ({statusCounts["in_payment"] || 0})</SelectItem>
+                <SelectItem value="decline">Decline ({statusCounts["decline"] || 0})</SelectItem>
+                <SelectItem value="disputed">Disputed ({statusCounts["disputed"] || 0})</SelectItem>
+                <SelectItem value="settled">Settled ({statusCounts["settled"] || 0})</SelectItem>
+                <SelectItem value="closed">Closed ({statusCounts["closed"] || 0})</SelectItem>
+                <SelectItem value="bankruptcy">Bankruptcy ({statusCounts["bankruptcy"] || 0})</SelectItem>
+                <SelectItem value="legal">Legal ({statusCounts["legal"] || 0})</SelectItem>
               </SelectContent>
             </Select>
           </div>

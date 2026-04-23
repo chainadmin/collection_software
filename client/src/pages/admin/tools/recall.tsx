@@ -256,9 +256,49 @@ export default function Recall() {
                 />
               </div>
             </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (filteredDebtors.length === 0) {
+                  toast({ title: "Nothing to recall", description: "No accounts match the current filters.", variant: "destructive" });
+                  return;
+                }
+                if (!recallReason) {
+                  toast({ title: "Select a reason", description: "Choose a recall reason first.", variant: "destructive" });
+                  return;
+                }
+                const portfolioId = selectedPortfolioId !== "all" ? selectedPortfolioId : null;
+                const clientName = selectedClientId !== "all"
+                  ? clients.find((c) => c.id === selectedClientId)?.name || null
+                  : null;
+                const scope = selectedPortfolioId !== "all"
+                  ? `portfolio "${portfolios.find((p) => p.id === selectedPortfolioId)?.name || ""}"`
+                  : selectedClientId !== "all"
+                    ? `client "${clientName}"`
+                    : "all filtered accounts";
+                if (!confirm(`Recall ALL ${filteredDebtors.length} accounts in ${scope}? This will unassign them from collectors.`)) return;
+                recallMutation.mutate({
+                  debtorIds: filteredDebtors.map((d) => d.id),
+                  reason: recallReason,
+                  portfolioId,
+                  clientName,
+                  name: `Bulk Recall ${new Date().toISOString().split("T")[0]} - ${scope}`,
+                });
+              }}
+              disabled={filteredDebtors.length === 0 || !recallReason || recallMutation.isPending}
+              className="w-full"
+              data-testid="button-bulk-recall"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              {selectedPortfolioId !== "all"
+                ? `Recall Entire Portfolio (${filteredDebtors.length})`
+                : selectedClientId !== "all"
+                  ? `Recall Entire Client (${filteredDebtors.length})`
+                  : `Recall All Filtered (${filteredDebtors.length})`}
+            </Button>
             <Button 
               onClick={handleRecall}
-              disabled={selectedAccounts.size === 0 || !recallReason}
+              disabled={selectedAccounts.size === 0 || !recallReason || recallMutation.isPending}
               className="w-full"
               data-testid="button-recall"
             >
