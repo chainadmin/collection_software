@@ -21,7 +21,7 @@ import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { db } from "./db";
-import { emailSettings } from "@shared/schema";
+import { emailSettings, recallItems } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
@@ -232,10 +232,11 @@ export async function registerRoutes(
     return res.status(401).json({ error: "Authentication required" });
   });
   
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const dateRange = (req.query.dateRange as string) || "this_month";
-      const stats = await storage.getDashboardStats(dateRange);
+      const stats = await storage.getDashboardStats(dateRange, orgId);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
@@ -1298,20 +1299,25 @@ export async function registerRoutes(
   });
 
   // Fee Schedule routes
-  app.get("/api/fee-schedules", async (req, res) => {
+  app.get("/api/fee-schedules", async (req: any, res) => {
     try {
-      const feeSchedules = await storage.getFeeSchedules();
+      const orgId = getOrgId(req);
+      const feeSchedules = await storage.getFeeSchedules(orgId);
       res.json(feeSchedules);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch fee schedules" });
     }
   });
 
-  app.get("/api/fee-schedules/:id", async (req, res) => {
+  app.get("/api/fee-schedules/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const feeSchedule = await storage.getFeeSchedule(req.params.id);
       if (!feeSchedule) {
         return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      if (!validateOrgOwnership(feeSchedule.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(feeSchedule);
     } catch (error) {
@@ -1333,9 +1339,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/fee-schedules/:id", async (req, res) => {
+  app.patch("/api/fee-schedules/:id", async (req: any, res) => {
     try {
-      const feeSchedule = await storage.updateFeeSchedule(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getFeeSchedule(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const feeSchedule = await storage.updateFeeSchedule(req.params.id, body);
       if (!feeSchedule) {
         return res.status(404).json({ error: "Fee schedule not found" });
       }
@@ -1345,8 +1361,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/fee-schedules/:id", async (req, res) => {
+  app.delete("/api/fee-schedules/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getFeeSchedule(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Fee schedule not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const deleted = await storage.deleteFeeSchedule(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Fee schedule not found" });
@@ -1493,12 +1517,21 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/collectors/:id", async (req, res) => {
+  app.patch("/api/collectors/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCollector(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const body = { ...req.body };
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
       }
+      delete body.organizationId;
       const collector = await storage.updateCollector(req.params.id, body);
       if (!collector) {
         return res.status(404).json({ error: "Collector not found" });
@@ -1509,8 +1542,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/collectors/:id", async (req, res) => {
+  app.delete("/api/collectors/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCollector(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const deleted = await storage.deleteCollector(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Collector not found" });
@@ -1562,9 +1603,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/portfolios/:id", async (req, res) => {
+  app.patch("/api/portfolios/:id", async (req: any, res) => {
     try {
-      const portfolio = await storage.updatePortfolio(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getPortfolio(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Portfolio not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const portfolio = await storage.updatePortfolio(req.params.id, body);
       if (!portfolio) {
         return res.status(404).json({ error: "Portfolio not found" });
       }
@@ -1607,23 +1658,25 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/debtors/recent", async (req, res) => {
+  app.get("/api/debtors/recent", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const debtors = await storage.getRecentDebtors(limit);
+      const debtors = await storage.getRecentDebtors(limit, orgId);
       res.json(debtors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch recent debtors" });
     }
   });
 
-  app.get("/api/debtors/search", async (req, res) => {
+  app.get("/api/debtors/search", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const query = (req.query.q as string) || "";
       if (!query.trim()) {
         return res.json([]);
       }
-      const debtors = await storage.searchDebtors(query);
+      const debtors = await storage.searchDebtors(query, orgId);
       res.json(debtors);
     } catch (error) {
       res.status(500).json({ error: "Failed to search debtors" });
@@ -1716,9 +1769,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/contacts/:id", async (req, res) => {
+  app.patch("/api/contacts/:id", async (req: any, res) => {
     try {
-      const contact = await storage.updateDebtorContact(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtorContact(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const contact = await storage.updateDebtorContact(req.params.id, body);
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
       }
@@ -1751,9 +1814,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/employment/:id", async (req, res) => {
+  app.patch("/api/employment/:id", async (req: any, res) => {
     try {
-      const record = await storage.updateEmploymentRecord(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getEmploymentRecord(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Employment record not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const record = await storage.updateEmploymentRecord(req.params.id, body);
       if (!record) {
         return res.status(404).json({ error: "Employment record not found" });
       }
@@ -1787,9 +1860,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/references/:id", async (req, res) => {
+  app.patch("/api/references/:id", async (req: any, res) => {
     try {
-      const reference = await storage.updateDebtorReference(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtorReference(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const reference = await storage.updateDebtorReference(req.params.id, body);
       if (!reference) {
         return res.status(404).json({ error: "Reference not found" });
       }
@@ -1799,8 +1882,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/references/:id", async (req, res) => {
+  app.delete("/api/references/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtorReference(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const deleted = await storage.deleteDebtorReference(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Reference not found" });
@@ -1927,28 +2018,31 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/payments/recent", async (req, res) => {
+  app.get("/api/payments/recent", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const payments = await storage.getRecentPayments(limit);
+      const payments = await storage.getRecentPayments(limit, orgId);
       res.json(payments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch recent payments" });
     }
   });
 
-  app.get("/api/payments/pending", async (req, res) => {
+  app.get("/api/payments/pending", async (req: any, res) => {
     try {
-      const payments = await storage.getPendingPayments();
+      const orgId = getOrgId(req);
+      const payments = await storage.getPendingPayments(orgId);
       res.json(payments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pending payments" });
     }
   });
 
-  app.get("/api/payment-batches", async (req, res) => {
+  app.get("/api/payment-batches", async (req: any, res) => {
     try {
-      const batches = await storage.getPaymentBatches();
+      const orgId = getOrgId(req);
+      const batches = await storage.getPaymentBatches(orgId);
       res.json(batches);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment batches" });
@@ -1982,6 +2076,12 @@ export async function registerRoutes(
 
   app.post("/api/payment-batches/:id/run", async (req, res) => {
     try {
+      const orgId = getOrgId(req as any);
+      const existing = await storage.getPaymentBatch(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Payment batch not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       const batch = await storage.updatePaymentBatch(req.params.id, {
         status: "processing",
         scheduledDate: new Date().toISOString(),
@@ -2000,7 +2100,8 @@ export async function registerRoutes(
       }, 5000);
       
       res.json(batch);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to run payment batch" });
     }
   });
@@ -2014,15 +2115,29 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/payment-batches/:id/add-payments", async (req, res) => {
+  app.post("/api/payment-batches/:id/add-payments", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { paymentIds } = req.body;
       if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
         return res.status(400).json({ error: "Payment IDs required" });
       }
+      const existingBatch = await storage.getPaymentBatch(req.params.id);
+      if (!existingBatch) return res.status(404).json({ error: "Payment batch not found" });
+      if (!validateOrgOwnership(existingBatch.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      for (const pid of paymentIds) {
+        const p = await storage.getPayment(pid);
+        if (!p) return res.status(404).json({ error: `Payment ${pid} not found` });
+        if (!validateOrgOwnership(p.organizationId, orgId)) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+      }
       const batch = await storage.addPaymentsToBatch(req.params.id, paymentIds);
       res.json(batch);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to add payments to batch" });
     }
   });
@@ -2058,10 +2173,11 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/liquidation/snapshots", async (req, res) => {
+  app.get("/api/liquidation/snapshots", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { portfolioId } = req.query;
-      const snapshots = await storage.getLiquidationSnapshots(portfolioId as string | undefined);
+      const snapshots = await storage.getLiquidationSnapshots(portfolioId as string | undefined, orgId);
       res.json(snapshots);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch liquidation snapshots" });
@@ -2082,20 +2198,25 @@ export async function registerRoutes(
   });
 
   // Merchants API
-  app.get("/api/merchants", async (req, res) => {
+  app.get("/api/merchants", async (req: any, res) => {
     try {
-      const merchants = await storage.getMerchants();
+      const orgId = getOrgId(req);
+      const merchants = await storage.getMerchants(orgId);
       res.json(merchants);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch merchants" });
     }
   });
 
-  app.get("/api/merchants/:id", async (req, res) => {
+  app.get("/api/merchants/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const merchant = await storage.getMerchant(req.params.id);
       if (!merchant) {
         return res.status(404).json({ error: "Merchant not found" });
+      }
+      if (!validateOrgOwnership(merchant.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(merchant);
     } catch (error) {
@@ -2117,9 +2238,19 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/merchants/:id", async (req, res) => {
+  app.patch("/api/merchants/:id", async (req: any, res) => {
     try {
-      const merchant = await storage.updateMerchant(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getMerchant(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const merchant = await storage.updateMerchant(req.params.id, body);
       if (!merchant) {
         return res.status(404).json({ error: "Merchant not found" });
       }
@@ -2129,8 +2260,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/merchants/:id", async (req, res) => {
+  app.delete("/api/merchants/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getMerchant(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const deleted = await storage.deleteMerchant(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Merchant not found" });
@@ -2285,12 +2424,14 @@ export async function registerRoutes(
   });
 
   // Time Clock API
-  app.get("/api/time-clock", async (req, res) => {
+  app.get("/api/time-clock", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { collectorId, date } = req.query;
       const entries = await storage.getTimeClockEntries(
         collectorId as string | undefined,
-        date as string | undefined
+        date as string | undefined,
+        orgId
       );
       res.json(entries);
     } catch (error) {
@@ -2326,12 +2467,16 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/time-clock/clock-out", async (req, res) => {
+  app.post("/api/time-clock/clock-out", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { collectorId } = req.body;
       const entry = await storage.getActiveTimeClockEntry(collectorId);
       if (!entry) {
         return res.status(400).json({ error: "Not clocked in" });
+      }
+      if (!validateOrgOwnership(entry.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
       }
       const clockOut = new Date();
       const clockIn = new Date(entry.clockIn);
@@ -2341,19 +2486,21 @@ export async function registerRoutes(
         totalMinutes,
       });
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to clock out" });
     }
   });
 
   // Payments by date (for Payment Runner)
-  app.get("/api/payments/by-date", async (req, res) => {
+  app.get("/api/payments/by-date", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
       const { date } = req.query;
       if (!date) {
         return res.status(400).json({ error: "Date parameter required" });
       }
-      const payments = await storage.getPaymentsByDate(date as string);
+      const payments = await storage.getPaymentsByDate(date as string, orgId);
       res.json(payments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments by date" });
@@ -3043,9 +3190,10 @@ export async function registerRoutes(
   });
 
   // Drop Batches API
-  app.get("/api/drop-batches", async (req, res) => {
+  app.get("/api/drop-batches", async (req: any, res) => {
     try {
-      const batches = await storage.getDropBatches();
+      const orgId = getOrgId(req);
+      const batches = await storage.getDropBatches(orgId);
       res.json(batches);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch drop batches" });
@@ -3116,9 +3264,10 @@ export async function registerRoutes(
   });
 
   // Recall Batches API
-  app.get("/api/recall-batches", async (req, res) => {
+  app.get("/api/recall-batches", async (req: any, res) => {
     try {
-      const batches = await storage.getRecallBatches();
+      const orgId = getOrgId(req);
+      const batches = await storage.getRecallBatches(orgId);
       res.json(batches);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch recall batches" });
@@ -3162,22 +3311,34 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/recall-items/:id", async (req, res) => {
+  app.patch("/api/recall-items/:id", async (req: any, res) => {
     try {
-      const item = await storage.updateRecallItem(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const all = await db.select().from(recallItems).where(eq(recallItems.id, req.params.id));
+      const existing = all[0];
+      if (!existing) return res.status(404).json({ error: "Recall item not found" });
+      const parentBatch = await storage.getRecallBatch(existing.recallBatchId);
+      if (!parentBatch) return res.status(404).json({ error: "Recall batch not found" });
+      if (!validateOrgOwnership(parentBatch.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { organizationId: _, ...body } = req.body;
+      const item = await storage.updateRecallItem(req.params.id, body);
       if (!item) {
         return res.status(404).json({ error: "Recall item not found" });
       }
       res.json(item);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to update recall item" });
     }
   });
 
   // Consolidation Companies API
-  app.get("/api/consolidation-companies", async (req, res) => {
+  app.get("/api/consolidation-companies", async (req: any, res) => {
     try {
-      const companies = await storage.getConsolidationCompanies();
+      const orgId = getOrgId(req);
+      const companies = await storage.getConsolidationCompanies(orgId);
       res.json(companies);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch consolidation companies" });
@@ -3198,26 +3359,41 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/consolidation-companies/:id", async (req, res) => {
+  app.patch("/api/consolidation-companies/:id", async (req: any, res) => {
     try {
-      const company = await storage.updateConsolidationCompany(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getConsolidationCompany(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Consolidation company not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { organizationId: _, ...body } = req.body;
+      const company = await storage.updateConsolidationCompany(req.params.id, body);
       if (!company) {
         return res.status(404).json({ error: "Consolidation company not found" });
       }
       res.json(company);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to update consolidation company" });
     }
   });
 
-  app.delete("/api/consolidation-companies/:id", async (req, res) => {
+  app.delete("/api/consolidation-companies/:id", async (req: any, res) => {
     try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getConsolidationCompany(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Consolidation company not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       const deleted = await storage.deleteConsolidationCompany(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Consolidation company not found" });
       }
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to delete consolidation company" });
     }
   });
@@ -3316,9 +3492,11 @@ export async function registerRoutes(
   app.get("/api/remittances", async (req, res) => {
     try {
       const { status, portfolioId } = req.query;
+      const orgId = getOrgId(req as any);
       const remittances = await storage.getRemittances(
         status as string | undefined,
-        portfolioId as string | undefined
+        portfolioId as string | undefined,
+        orgId
       );
       res.json(remittances);
     } catch (error) {
@@ -3340,9 +3518,16 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/remittances/:id", async (req, res) => {
+  app.patch("/api/remittances/:id", async (req: any, res) => {
     try {
-      const remittance = await storage.updateRemittance(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getRemittance(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Remittance not found" });
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { organizationId: _, ...body } = req.body;
+      const remittance = await storage.updateRemittance(req.params.id, body);
       if (!remittance) {
         return res.status(404).json({ error: "Remittance not found" });
       }
@@ -3356,9 +3541,11 @@ export async function registerRoutes(
   app.get("/api/remittance-items", async (req, res) => {
     try {
       const { remittanceId, status } = req.query;
+      const orgId = getOrgId(req as any);
       const items = await storage.getRemittanceItems(
         remittanceId as string | undefined,
-        status as string | undefined
+        status as string | undefined,
+        orgId
       );
       res.json(items);
     } catch (error) {
@@ -3379,14 +3566,25 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/remittance-items/:id", async (req, res) => {
+  app.patch("/api/remittance-items/:id", async (req: any, res) => {
     try {
-      const item = await storage.updateRemittanceItem(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const allItems = await storage.getRemittanceItems(undefined, undefined, orgId);
+      const existing = allItems.find((i) => i.id === req.params.id);
+      if (!existing) return res.status(404).json({ error: "Remittance item not found" });
+      const parent = await storage.getRemittance(existing.remittanceId);
+      if (!parent) return res.status(404).json({ error: "Remittance not found" });
+      if (!validateOrgOwnership(parent.organizationId, orgId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { organizationId: _, ...body } = req.body;
+      const item = await storage.updateRemittanceItem(req.params.id, body);
       if (!item) {
         return res.status(404).json({ error: "Remittance item not found" });
       }
       res.json(item);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.statusCode === 403) return res.status(403).json({ error: error.message });
       res.status(500).json({ error: "Failed to update remittance item" });
     }
   });

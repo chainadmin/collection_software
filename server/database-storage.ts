@@ -200,7 +200,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Fee Schedules
-  async getFeeSchedules(): Promise<FeeSchedule[]> {
+  async getFeeSchedules(organizationId?: string): Promise<FeeSchedule[]> {
+    if (organizationId) {
+      return await db.select().from(feeSchedules).where(eq(feeSchedules.organizationId, organizationId));
+    }
     return await db.select().from(feeSchedules);
   }
 
@@ -330,22 +333,29 @@ export class DatabaseStorage implements IStorage {
     return debtor;
   }
 
-  async getRecentDebtors(limit: number = 10): Promise<Debtor[]> {
+  async getRecentDebtors(limit: number = 10, organizationId?: string): Promise<Debtor[]> {
+    if (organizationId) {
+      return await db.select().from(debtors).where(eq(debtors.organizationId, organizationId)).limit(limit);
+    }
     return await db.select().from(debtors).limit(limit);
   }
 
-  async searchDebtors(query: string): Promise<Debtor[]> {
+  async searchDebtors(query: string, organizationId?: string): Promise<Debtor[]> {
     const searchPattern = `%${query}%`;
-    return await db.select().from(debtors).where(
-      or(
-        ilike(debtors.firstName, searchPattern),
-        ilike(debtors.lastName, searchPattern),
-        ilike(debtors.email, searchPattern),
-        ilike(debtors.accountNumber, searchPattern),
-        ilike(debtors.fileNumber, searchPattern),
-        ilike(debtors.ssnLast4, searchPattern)
-      )
+    const matchClause = or(
+      ilike(debtors.firstName, searchPattern),
+      ilike(debtors.lastName, searchPattern),
+      ilike(debtors.email, searchPattern),
+      ilike(debtors.accountNumber, searchPattern),
+      ilike(debtors.fileNumber, searchPattern),
+      ilike(debtors.ssnLast4, searchPattern)
     );
+    if (organizationId) {
+      return await db.select().from(debtors).where(
+        and(eq(debtors.organizationId, organizationId), matchClause)
+      );
+    }
+    return await db.select().from(debtors).where(matchClause);
   }
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {
@@ -395,6 +405,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(employmentRecords).where(eq(employmentRecords.debtorId, debtorId));
   }
 
+  async getEmploymentRecord(id: string): Promise<EmploymentRecord | undefined> {
+    const [record] = await db.select().from(employmentRecords).where(eq(employmentRecords.id, id));
+    return record;
+  }
+
   async createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord> {
     const id = randomUUID();
     const [created] = await db.insert(employmentRecords).values({ ...record, id }).returning();
@@ -414,6 +429,11 @@ export class DatabaseStorage implements IStorage {
   // Debtor References
   async getDebtorReferences(debtorId: string): Promise<DebtorReference[]> {
     return await db.select().from(debtorReferences).where(eq(debtorReferences.debtorId, debtorId));
+  }
+
+  async getDebtorReference(id: string): Promise<DebtorReference | undefined> {
+    const [reference] = await db.select().from(debtorReferences).where(eq(debtorReferences.id, id));
+    return reference;
   }
 
   async createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference> {
@@ -508,11 +528,21 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payments).where(eq(payments.debtorId, debtorId));
   }
 
-  async getRecentPayments(limit: number = 10): Promise<Payment[]> {
+  async getRecentPayments(limit: number = 10, organizationId?: string): Promise<Payment[]> {
+    if (organizationId) {
+      return await db.select().from(payments)
+        .where(eq(payments.organizationId, organizationId))
+        .orderBy(desc(payments.paymentDate)).limit(limit);
+    }
     return await db.select().from(payments).orderBy(desc(payments.paymentDate)).limit(limit);
   }
 
-  async getPendingPayments(): Promise<Payment[]> {
+  async getPendingPayments(organizationId?: string): Promise<Payment[]> {
+    if (organizationId) {
+      return await db.select().from(payments).where(
+        and(eq(payments.status, "pending"), eq(payments.organizationId, organizationId))
+      );
+    }
     return await db.select().from(payments).where(eq(payments.status, "pending"));
   }
 
@@ -537,7 +567,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payment Batches
-  async getPaymentBatches(): Promise<PaymentBatch[]> {
+  async getPaymentBatches(organizationId?: string): Promise<PaymentBatch[]> {
+    if (organizationId) {
+      return await db.select().from(paymentBatches).where(eq(paymentBatches.organizationId, organizationId));
+    }
     return await db.select().from(paymentBatches);
   }
 
@@ -576,11 +609,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Liquidation Snapshots
-  async getLiquidationSnapshots(portfolioId?: string): Promise<LiquidationSnapshot[]> {
-    if (portfolioId) {
-      return await db.select().from(liquidationSnapshots).where(eq(liquidationSnapshots.portfolioId, portfolioId));
-    }
-    return await db.select().from(liquidationSnapshots);
+  async getLiquidationSnapshots(portfolioId?: string, organizationId?: string): Promise<LiquidationSnapshot[]> {
+    const conditions = [];
+    if (portfolioId) conditions.push(eq(liquidationSnapshots.portfolioId, portfolioId));
+    if (organizationId) conditions.push(eq(liquidationSnapshots.organizationId, organizationId));
+    if (conditions.length === 0) return await db.select().from(liquidationSnapshots);
+    return await db.select().from(liquidationSnapshots).where(and(...conditions));
   }
 
   async createLiquidationSnapshot(snapshot: InsertLiquidationSnapshot): Promise<LiquidationSnapshot> {
@@ -590,10 +624,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Dashboard Stats
-  async getDashboardStats(dateRange?: string): Promise<DashboardStats> {
-    const allDebtors = await db.select().from(debtors);
-    const allPayments = await db.select().from(payments);
-    const allPortfolios = await db.select().from(portfolios);
+  async getDashboardStats(dateRange?: string, organizationId?: string): Promise<DashboardStats> {
+    const allDebtors = organizationId
+      ? await db.select().from(debtors).where(eq(debtors.organizationId, organizationId))
+      : await db.select().from(debtors);
+    const allPayments = organizationId
+      ? await db.select().from(payments).where(eq(payments.organizationId, organizationId))
+      : await db.select().from(payments);
+    const allPortfolios = organizationId
+      ? await db.select().from(portfolios).where(eq(portfolios.organizationId, organizationId))
+      : await db.select().from(portfolios);
 
     const today = new Date().toISOString().split('T')[0];
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
@@ -655,16 +695,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Time Clock
-  async getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]> {
-    if (collectorId && date) {
-      return await db.select().from(timeClockEntries).where(
-        and(eq(timeClockEntries.collectorId, collectorId), ilike(timeClockEntries.clockIn, `${date}%`))
-      );
+  async getTimeClockEntries(collectorId?: string, date?: string, organizationId?: string): Promise<TimeClockEntry[]> {
+    const conditions = [];
+    if (collectorId) conditions.push(eq(timeClockEntries.collectorId, collectorId));
+    if (date) conditions.push(ilike(timeClockEntries.clockIn, `${date}%`));
+    if (organizationId) conditions.push(eq(timeClockEntries.organizationId, organizationId));
+    if (conditions.length === 0) {
+      return await db.select().from(timeClockEntries);
     }
-    if (collectorId) {
-      return await db.select().from(timeClockEntries).where(eq(timeClockEntries.collectorId, collectorId));
-    }
-    return await db.select().from(timeClockEntries);
+    return await db.select().from(timeClockEntries).where(and(...conditions));
   }
 
   async getActiveTimeClockEntry(collectorId: string): Promise<TimeClockEntry | undefined> {
@@ -735,7 +774,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Drop Batches
-  async getDropBatches(): Promise<DropBatch[]> {
+  async getDropBatches(organizationId?: string): Promise<DropBatch[]> {
+    if (organizationId) {
+      return await db.select().from(dropBatches).where(eq(dropBatches.organizationId, organizationId));
+    }
     return await db.select().from(dropBatches);
   }
 
@@ -780,7 +822,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Recall Batches
-  async getRecallBatches(): Promise<RecallBatch[]> {
+  async getRecallBatches(organizationId?: string): Promise<RecallBatch[]> {
+    if (organizationId) {
+      return await db.select().from(recallBatches).where(eq(recallBatches.organizationId, organizationId));
+    }
     return await db.select().from(recallBatches);
   }
 
@@ -817,7 +862,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Consolidation Companies
-  async getConsolidationCompanies(): Promise<ConsolidationCompany[]> {
+  async getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]> {
+    if (organizationId) {
+      return await db.select().from(consolidationCompanies).where(eq(consolidationCompanies.organizationId, organizationId));
+    }
     return await db.select().from(consolidationCompanies);
   }
 
@@ -906,19 +954,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Remittances
-  async getRemittances(status?: string, portfolioId?: string): Promise<Remittance[]> {
-    if (status && portfolioId) {
-      return await db.select().from(remittances).where(
-        and(eq(remittances.status, status), eq(remittances.portfolioId, portfolioId))
-      );
-    }
-    if (status) {
-      return await db.select().from(remittances).where(eq(remittances.status, status));
-    }
-    if (portfolioId) {
-      return await db.select().from(remittances).where(eq(remittances.portfolioId, portfolioId));
-    }
-    return await db.select().from(remittances);
+  async getRemittances(status?: string, portfolioId?: string, organizationId?: string): Promise<Remittance[]> {
+    const conditions = [];
+    if (status) conditions.push(eq(remittances.status, status));
+    if (portfolioId) conditions.push(eq(remittances.portfolioId, portfolioId));
+    if (organizationId) conditions.push(eq(remittances.organizationId, organizationId));
+    if (conditions.length === 0) return await db.select().from(remittances);
+    return await db.select().from(remittances).where(and(...conditions));
   }
 
   async getRemittance(id: string): Promise<Remittance | undefined> {
@@ -938,19 +980,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Remittance Items
-  async getRemittanceItems(remittanceId?: string, status?: string): Promise<RemittanceItem[]> {
-    if (remittanceId && status) {
-      return await db.select().from(remittanceItems).where(
-        and(eq(remittanceItems.remittanceId, remittanceId), eq(remittanceItems.status, status))
-      );
-    }
-    if (remittanceId) {
-      return await db.select().from(remittanceItems).where(eq(remittanceItems.remittanceId, remittanceId));
-    }
-    if (status) {
-      return await db.select().from(remittanceItems).where(eq(remittanceItems.status, status));
-    }
-    return await db.select().from(remittanceItems);
+  async getRemittanceItems(remittanceId?: string, status?: string, organizationId?: string): Promise<RemittanceItem[]> {
+    const conditions = [];
+    if (remittanceId) conditions.push(eq(remittanceItems.remittanceId, remittanceId));
+    if (status) conditions.push(eq(remittanceItems.status, status));
+    if (organizationId) conditions.push(eq(remittanceItems.organizationId, organizationId));
+    if (conditions.length === 0) return await db.select().from(remittanceItems);
+    return await db.select().from(remittanceItems).where(and(...conditions));
   }
 
   async createRemittanceItem(item: InsertRemittanceItem): Promise<RemittanceItem> {
@@ -965,7 +1001,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payments by date
-  async getPaymentsByDate(date: string): Promise<Payment[]> {
+  async getPaymentsByDate(date: string, organizationId?: string): Promise<Payment[]> {
+    if (organizationId) {
+      return await db.select().from(payments).where(
+        and(eq(payments.paymentDate, date), eq(payments.organizationId, organizationId))
+      );
+    }
     return await db.select().from(payments).where(eq(payments.paymentDate, date));
   }
 

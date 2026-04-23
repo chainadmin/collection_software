@@ -110,7 +110,7 @@ export interface IStorage {
   updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
   deleteClient(id: string): Promise<boolean>;
 
-  getFeeSchedules(): Promise<FeeSchedule[]>;
+  getFeeSchedules(organizationId?: string): Promise<FeeSchedule[]>;
   getFeeSchedule(id: string): Promise<FeeSchedule | undefined>;
   createFeeSchedule(feeSchedule: InsertFeeSchedule): Promise<FeeSchedule>;
   updateFeeSchedule(id: string, feeSchedule: Partial<InsertFeeSchedule>): Promise<FeeSchedule | undefined>;
@@ -135,8 +135,9 @@ export interface IStorage {
 
   getDebtors(portfolioId?: string, collectorId?: string): Promise<Debtor[]>;
   getDebtor(id: string): Promise<Debtor | undefined>;
-  getRecentDebtors(limit?: number): Promise<Debtor[]>;
-  searchDebtors(query: string): Promise<Debtor[]>;
+  getRecentDebtors(limit?: number, organizationId?: string): Promise<Debtor[]>;
+  getDashboardStats(dateRange?: string, organizationId?: string): Promise<DashboardStats>;
+  searchDebtors(query: string, organizationId?: string): Promise<Debtor[]>;
   createDebtor(debtor: InsertDebtor): Promise<Debtor>;
   updateDebtor(id: string, debtor: Partial<InsertDebtor>): Promise<Debtor | undefined>;
   deleteDebtor(id: string): Promise<boolean>;
@@ -148,11 +149,13 @@ export interface IStorage {
   deleteDebtorContact(id: string): Promise<boolean>;
 
   getEmploymentRecords(debtorId: string): Promise<EmploymentRecord[]>;
+  getEmploymentRecord(id: string): Promise<EmploymentRecord | undefined>;
   createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord>;
   updateEmploymentRecord(id: string, record: Partial<InsertEmploymentRecord>): Promise<EmploymentRecord | undefined>;
   deleteEmploymentRecord(id: string): Promise<boolean>;
 
   getDebtorReferences(debtorId: string): Promise<DebtorReference[]>;
+  getDebtorReference(id: string): Promise<DebtorReference | undefined>;
   createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference>;
   updateDebtorReference(id: string, reference: Partial<InsertDebtorReference>): Promise<DebtorReference | undefined>;
   deleteDebtorReference(id: string): Promise<boolean>;
@@ -171,13 +174,13 @@ export interface IStorage {
   getAllPayments(): Promise<Payment[]>;
   getPayment(id: string): Promise<Payment | undefined>;
   getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
-  getRecentPayments(limit?: number): Promise<Payment[]>;
-  getPendingPayments(): Promise<Payment[]>;
+  getRecentPayments(limit?: number, organizationId?: string): Promise<Payment[]>;
+  getPendingPayments(organizationId?: string): Promise<Payment[]>;
   getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
 
-  getPaymentBatches(): Promise<PaymentBatch[]>;
+  getPaymentBatches(organizationId?: string): Promise<PaymentBatch[]>;
   getPaymentBatch(id: string): Promise<PaymentBatch | undefined>;
   createPaymentBatch(batch: InsertPaymentBatch): Promise<PaymentBatch>;
   updatePaymentBatch(id: string, batch: Partial<InsertPaymentBatch>): Promise<PaymentBatch | undefined>;
@@ -186,10 +189,9 @@ export interface IStorage {
   getNotes(debtorId: string): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
 
-  getLiquidationSnapshots(portfolioId?: string): Promise<LiquidationSnapshot[]>;
+  getLiquidationSnapshots(portfolioId?: string, organizationId?: string): Promise<LiquidationSnapshot[]>;
   createLiquidationSnapshot(snapshot: InsertLiquidationSnapshot): Promise<LiquidationSnapshot>;
 
-  getDashboardStats(dateRange?: string): Promise<DashboardStats>;
 
   // Merchants
   getMerchants(organizationId?: string): Promise<Merchant[]>;
@@ -202,7 +204,7 @@ export interface IStorage {
   getPaymentCard(id: string): Promise<PaymentCard | undefined>;
 
   // Time Clock
-  getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]>;
+  getTimeClockEntries(collectorId?: string, date?: string, organizationId?: string): Promise<TimeClockEntry[]>;
   getActiveTimeClockEntry(collectorId: string): Promise<TimeClockEntry | undefined>;
   createTimeClockEntry(entry: InsertTimeClockEntry): Promise<TimeClockEntry>;
   updateTimeClockEntry(id: string, entry: Partial<InsertTimeClockEntry>): Promise<TimeClockEntry | undefined>;
@@ -221,7 +223,7 @@ export interface IStorage {
   deleteImportMapping(id: string): Promise<boolean>;
 
   // Drop Batches
-  getDropBatches(): Promise<DropBatch[]>;
+  getDropBatches(organizationId?: string): Promise<DropBatch[]>;
   getDropBatch(id: string): Promise<DropBatch | undefined>;
   createDropBatch(batch: InsertDropBatch): Promise<DropBatch>;
   updateDropBatch(id: string, batch: Partial<InsertDropBatch>): Promise<DropBatch | undefined>;
@@ -232,7 +234,7 @@ export interface IStorage {
   updateDropItem(id: string, item: Partial<InsertDropItem>): Promise<DropItem | undefined>;
 
   // Recall Batches
-  getRecallBatches(): Promise<RecallBatch[]>;
+  getRecallBatches(organizationId?: string): Promise<RecallBatch[]>;
   getRecallBatch(id: string): Promise<RecallBatch | undefined>;
   createRecallBatch(batch: InsertRecallBatch): Promise<RecallBatch>;
   updateRecallBatch(id: string, batch: Partial<InsertRecallBatch>): Promise<RecallBatch | undefined>;
@@ -243,7 +245,7 @@ export interface IStorage {
   updateRecallItem(id: string, item: Partial<InsertRecallItem>): Promise<RecallItem | undefined>;
 
   // Consolidation Companies
-  getConsolidationCompanies(): Promise<ConsolidationCompany[]>;
+  getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]>;
   getConsolidationCompany(id: string): Promise<ConsolidationCompany | undefined>;
   createConsolidationCompany(company: InsertConsolidationCompany): Promise<ConsolidationCompany>;
   updateConsolidationCompany(id: string, company: Partial<InsertConsolidationCompany>): Promise<ConsolidationCompany | undefined>;
@@ -263,18 +265,18 @@ export interface IStorage {
   deleteWorkQueueItem(id: string): Promise<boolean>;
 
   // Remittances
-  getRemittances(status?: string, portfolioId?: string): Promise<Remittance[]>;
+  getRemittances(status?: string, portfolioId?: string, organizationId?: string): Promise<Remittance[]>;
   getRemittance(id: string): Promise<Remittance | undefined>;
   createRemittance(remittance: InsertRemittance): Promise<Remittance>;
   updateRemittance(id: string, remittance: Partial<InsertRemittance>): Promise<Remittance | undefined>;
 
   // Remittance Items
-  getRemittanceItems(remittanceId?: string, status?: string): Promise<RemittanceItem[]>;
+  getRemittanceItems(remittanceId?: string, status?: string, organizationId?: string): Promise<RemittanceItem[]>;
   createRemittanceItem(item: InsertRemittanceItem): Promise<RemittanceItem>;
   updateRemittanceItem(id: string, item: Partial<InsertRemittanceItem>): Promise<RemittanceItem | undefined>;
 
   // Payments by date
-  getPaymentsByDate(date: string): Promise<Payment[]>;
+  getPaymentsByDate(date: string, organizationId?: string): Promise<Payment[]>;
 
   // API Tokens
   getApiTokens(): Promise<ApiToken[]>;
@@ -1096,8 +1098,9 @@ export class MemStorage implements IStorage {
     return this.clients.delete(id);
   }
 
-  async getFeeSchedules(): Promise<FeeSchedule[]> {
-    return Array.from(this.feeSchedules.values());
+  async getFeeSchedules(organizationId?: string): Promise<FeeSchedule[]> {
+    const all = Array.from(this.feeSchedules.values());
+    return organizationId ? all.filter((f) => f.organizationId === organizationId) : all;
   }
 
   async getFeeSchedule(id: string): Promise<FeeSchedule | undefined> {
@@ -1250,13 +1253,13 @@ export class MemStorage implements IStorage {
     return this.debtors.get(id);
   }
 
-  async getRecentDebtors(limit: number = 10): Promise<Debtor[]> {
+  async getRecentDebtors(limit: number = 10, organizationId?: string): Promise<Debtor[]> {
     return Array.from(this.debtors.values())
-      .filter((d) => d.status === "open" || d.status === "in_payment")
+      .filter((d) => (d.status === "open" || d.status === "in_payment") && (!organizationId || d.organizationId === organizationId))
       .slice(0, limit);
   }
 
-  async searchDebtors(query: string): Promise<Debtor[]> {
+  async searchDebtors(query: string, organizationId?: string): Promise<Debtor[]> {
     const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, '');
     const matchedDebtorIds = new Set<string>();
 
@@ -1409,6 +1412,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.employmentRecords.values()).filter((r) => r.debtorId === debtorId);
   }
 
+  async getEmploymentRecord(id: string): Promise<EmploymentRecord | undefined> {
+    return this.employmentRecords.get(id);
+  }
+
   async createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord> {
     const id = randomUUID();
     const newRecord: EmploymentRecord = {
@@ -1442,6 +1449,10 @@ export class MemStorage implements IStorage {
 
   async getDebtorReferences(debtorId: string): Promise<DebtorReference[]> {
     return Array.from(this.debtorReferences.values()).filter((r) => r.debtorId === debtorId);
+  }
+
+  async getDebtorReference(id: string): Promise<DebtorReference | undefined> {
+    return this.debtorReferences.get(id);
   }
 
   async createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference> {
@@ -1567,15 +1578,16 @@ export class MemStorage implements IStorage {
     return Array.from(this.payments.values()).filter((p) => p.debtorId === debtorId);
   }
 
-  async getRecentPayments(limit: number = 10): Promise<Payment[]> {
+  async getRecentPayments(limit: number = 10, organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
+      .filter((p) => !organizationId || p.organizationId === organizationId)
       .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
       .slice(0, limit);
   }
 
-  async getPendingPayments(): Promise<Payment[]> {
+  async getPendingPayments(organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending")
+      .filter((p) => p.status === "pending" && (!organizationId || p.organizationId === organizationId))
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 
@@ -1617,7 +1629,7 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async getPaymentBatches(): Promise<PaymentBatch[]> {
+  async getPaymentBatches(organizationId?: string): Promise<PaymentBatch[]> {
     return Array.from(this.paymentBatches.values());
   }
 
@@ -1700,9 +1712,10 @@ export class MemStorage implements IStorage {
     return newNote;
   }
 
-  async getLiquidationSnapshots(portfolioId?: string): Promise<LiquidationSnapshot[]> {
+  async getLiquidationSnapshots(portfolioId?: string, organizationId?: string): Promise<LiquidationSnapshot[]> {
     let snapshots = Array.from(this.liquidationSnapshots.values());
     if (portfolioId) snapshots = snapshots.filter((s) => s.portfolioId === portfolioId);
+    if (organizationId) snapshots = snapshots.filter((s) => s.organizationId === organizationId);
     return snapshots;
   }
 
@@ -1713,10 +1726,10 @@ export class MemStorage implements IStorage {
     return newSnapshot;
   }
 
-  async getDashboardStats(dateRange?: string): Promise<DashboardStats> {
-    const debtors = Array.from(this.debtors.values());
-    const payments = Array.from(this.payments.values());
-    const portfolios = Array.from(this.portfolios.values());
+  async getDashboardStats(dateRange?: string, organizationId?: string): Promise<DashboardStats> {
+    const debtors = Array.from(this.debtors.values()).filter((d) => !organizationId || d.organizationId === organizationId);
+    const payments = Array.from(this.payments.values()).filter((p) => !organizationId || p.organizationId === organizationId);
+    const portfolios = Array.from(this.portfolios.values()).filter((p) => !organizationId || p.organizationId === organizationId);
 
     const now = new Date();
     const today = now.toISOString().split("T")[0];
@@ -1844,10 +1857,11 @@ export class MemStorage implements IStorage {
   }
 
   // Time Clock
-  async getTimeClockEntries(collectorId?: string, date?: string): Promise<TimeClockEntry[]> {
+  async getTimeClockEntries(collectorId?: string, date?: string, organizationId?: string): Promise<TimeClockEntry[]> {
     let entries = Array.from(this.timeClockEntries.values());
     if (collectorId) entries = entries.filter((e) => e.collectorId === collectorId);
     if (date) entries = entries.filter((e) => e.clockIn.startsWith(date));
+    if (organizationId) entries = entries.filter((e) => e.organizationId === organizationId);
     return entries;
   }
 
@@ -1959,7 +1973,7 @@ export class MemStorage implements IStorage {
   }
 
   // Drop Batches
-  async getDropBatches(): Promise<DropBatch[]> {
+  async getDropBatches(organizationId?: string): Promise<DropBatch[]> {
     return Array.from(this.dropBatches.values());
   }
 
@@ -2024,7 +2038,7 @@ export class MemStorage implements IStorage {
   }
 
   // Recall Batches
-  async getRecallBatches(): Promise<RecallBatch[]> {
+  async getRecallBatches(organizationId?: string): Promise<RecallBatch[]> {
     return Array.from(this.recallBatches.values());
   }
 
@@ -2089,7 +2103,7 @@ export class MemStorage implements IStorage {
   }
 
   // Consolidation Companies
-  async getConsolidationCompanies(): Promise<ConsolidationCompany[]> {
+  async getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]> {
     return Array.from(this.consolidationCompanies.values());
   }
 
@@ -2204,10 +2218,11 @@ export class MemStorage implements IStorage {
   }
 
   // Remittances
-  async getRemittances(status?: string, portfolioId?: string): Promise<Remittance[]> {
+  async getRemittances(status?: string, portfolioId?: string, organizationId?: string): Promise<Remittance[]> {
     let remittances = Array.from(this.remittances.values());
     if (status) remittances = remittances.filter((r) => r.status === status);
     if (portfolioId) remittances = remittances.filter((r) => r.portfolioId === portfolioId);
+    if (organizationId) remittances = remittances.filter((r) => r.organizationId === organizationId);
     return remittances;
   }
 
@@ -2242,10 +2257,11 @@ export class MemStorage implements IStorage {
   }
 
   // Remittance Items
-  async getRemittanceItems(remittanceId?: string, status?: string): Promise<RemittanceItem[]> {
+  async getRemittanceItems(remittanceId?: string, status?: string, organizationId?: string): Promise<RemittanceItem[]> {
     let items = Array.from(this.remittanceItems.values());
     if (remittanceId) items = items.filter((i) => i.remittanceId === remittanceId);
     if (status) items = items.filter((i) => i.status === status);
+    if (organizationId) items = items.filter((i) => i.organizationId === organizationId);
     return items;
   }
 
@@ -2275,8 +2291,10 @@ export class MemStorage implements IStorage {
   }
 
   // Payments by date
-  async getPaymentsByDate(date: string): Promise<Payment[]> {
-    return Array.from(this.payments.values()).filter((p) => p.paymentDate === date);
+  async getPaymentsByDate(date: string, organizationId?: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter(
+      (p) => p.paymentDate === date && (!organizationId || p.organizationId === organizationId)
+    );
   }
 
   // API Tokens
