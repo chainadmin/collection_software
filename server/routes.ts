@@ -2874,7 +2874,16 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Invalid client for organization" });
       }
       
-      const startingFileNumber = fileNumberStart || 1;
+      const normalizeSsn = (s: any): string | null => {
+        if (s === null || s === undefined) return null;
+        const digits = String(s).replace(/\D/g, "");
+        return digits.length > 0 ? digits : null;
+      };
+      const normalizeText = (s: any): string | null => {
+        if (s === null || s === undefined) return null;
+        const t = String(s).trim();
+        return t.length > 0 ? t : null;
+      };
 
       const results = {
         created: 0,
@@ -2886,6 +2895,18 @@ export async function registerRoutes(
       const existingDebtors = await storage.getDebtors(portfolioId);
       const allDebtors = (await storage.getDebtors()).filter((debtor) => debtor.organizationId === orgId);
 
+      // Compute next file number from existing data so concurrent imports
+      // and skipped rows don't produce colliding FN-{YYYY}-{seq} values.
+      const year = new Date().getFullYear();
+      const fnPrefix = `FN-${year}-`;
+      let maxFnSeq = (fileNumberStart || 1) - 1;
+      for (const d of allDebtors) {
+        if (d.fileNumber && d.fileNumber.startsWith(fnPrefix)) {
+          const n = parseInt(d.fileNumber.substring(fnPrefix.length), 10);
+          if (!isNaN(n) && n > maxFnSeq) maxFnSeq = n;
+        }
+      }
+
       for (const record of records) {
         try {
           const mappedData: any = {};
@@ -2895,7 +2916,7 @@ export async function registerRoutes(
               let value = record[csvColumn];
               
               if (systemField === "originalBalance" || systemField === "currentBalance") {
-                value = Math.round(parseFloat(value.replace(/[$,]/g, '')) * 100) || 0;
+                value = Math.round(parseFloat(String(value).replace(/[$,]/g, '')) * 100) || 0;
               }
               
               // For custom field slots, use the original CSV column name as the key
@@ -2908,6 +2929,15 @@ export async function registerRoutes(
             }
           }
 
+          // Normalize key matching fields so dashes/spaces don't create duplicates.
+          if (mappedData.accountNumber !== undefined) {
+            mappedData.accountNumber = normalizeText(mappedData.accountNumber);
+          }
+          if (mappedData.ssn !== undefined) {
+            mappedData.ssn = normalizeSsn(mappedData.ssn);
+            if (mappedData.ssn) mappedData.ssnLast4 = mappedData.ssn.slice(-4);
+          }
+
           if (!mappedData.accountNumber && !mappedData.ssn) {
             results.errors.push(`Row missing account number and SSN - skipped`);
             continue;
@@ -2915,7 +2945,7 @@ export async function registerRoutes(
 
           const existingInPortfolio = existingDebtors.find(
             (d) => (mappedData.accountNumber && d.accountNumber === mappedData.accountNumber) ||
-                   (mappedData.ssn && d.ssn === mappedData.ssn)
+                   (mappedData.ssn && normalizeSsn(d.ssn) === mappedData.ssn)
           );
 
           if (existingInPortfolio) {
@@ -2927,7 +2957,7 @@ export async function registerRoutes(
           let linkedAccountId: string | null = null;
           if (mappedData.ssn) {
             const linkedDebtor = allDebtors.find(
-              (d) => d.ssn === mappedData.ssn && d.portfolioId !== portfolioId
+              (d) => normalizeSsn(d.ssn) === mappedData.ssn && d.portfolioId !== portfolioId
             );
             if (linkedDebtor) {
               linkedAccountId = linkedDebtor.id;
@@ -2936,8 +2966,8 @@ export async function registerRoutes(
           }
 
           // Always auto-generate file number: FN-{YYYY}-{sequential}
-          const year = new Date().getFullYear();
-          const seq = (startingFileNumber + results.created).toString().padStart(6, '0');
+          maxFnSeq++;
+          const seq = maxFnSeq.toString().padStart(6, '0');
           const autoFileNumber = `FN-${year}-${seq}`;
 
           // Collect unmapped columns as custom fields
@@ -3125,6 +3155,12 @@ export async function registerRoutes(
 
       const debtors = (await storage.getDebtors(portfolioId)).filter((debtor) => debtor.organizationId === orgId);
 
+      const normalizeSsn = (s: any): string | null => {
+        if (s === null || s === undefined) return null;
+        const digits = String(s).replace(/\D/g, "");
+        return digits.length > 0 ? digits : null;
+      };
+
       for (const record of records) {
         try {
           const mappedData: any = {};
@@ -3135,11 +3171,18 @@ export async function registerRoutes(
             }
           }
 
+          if (mappedData.accountNumber !== undefined && mappedData.accountNumber !== null) {
+            mappedData.accountNumber = String(mappedData.accountNumber).trim() || null;
+          }
+          if (mappedData.ssn !== undefined) {
+            mappedData.ssn = normalizeSsn(mappedData.ssn);
+          }
+
           let matchedDebtor = null;
           if (mappedData.accountNumber) {
             matchedDebtor = debtors.find((d) => d.accountNumber === mappedData.accountNumber);
           } else if (mappedData.ssn) {
-            matchedDebtor = debtors.find((d) => d.ssn === mappedData.ssn);
+            matchedDebtor = debtors.find((d) => normalizeSsn(d.ssn) === mappedData.ssn);
           }
 
           if (!matchedDebtor) {
