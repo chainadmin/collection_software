@@ -715,6 +715,28 @@ export async function runMigrations() {
       END $$;
     `);
 
+    // Enforce per-org collector username uniqueness (cross-tenant isolation).
+    // Best-effort: if there are pre-existing duplicates, the index creation
+    // will fail and we'll log a warning so an admin can resolve manually.
+    try {
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS collectors_org_username_unique
+        ON collectors (organization_id, lower(username))
+      `);
+    } catch (err: any) {
+      console.warn(
+        "[Migrate] Could not create collectors_org_username_unique index (likely duplicate usernames within an org):",
+        err?.message || err
+      );
+    }
+
+    // Drop legacy global unique constraint on collectors.username if it exists,
+    // since usernames are now unique per organization, not globally.
+    try {
+      await db.execute(sql`ALTER TABLE collectors DROP CONSTRAINT IF EXISTS collectors_username_key`);
+    } catch (err: any) {
+      console.warn("[Migrate] Could not drop legacy collectors_username_key:", err?.message || err);
+    }
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

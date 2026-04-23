@@ -13,7 +13,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  collectorLogin: (username: string, password: string) => Promise<boolean>;
+  collectorLogin: (username: string, password: string, agencyCode: string) => Promise<boolean>;
   logout: () => Promise<void>;
   setAuthUser: (user: AuthUser) => void;
 }
@@ -95,12 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const collectorLogin = async (username: string, password: string): Promise<boolean> => {
+  const collectorLogin = async (username: string, password: string, agencyCode: string): Promise<boolean> => {
     try {
       const response = await fetch("/api/auth/collector-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, agencyCode }),
       });
 
       if (response.ok) {

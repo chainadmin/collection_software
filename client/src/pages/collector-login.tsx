@@ -13,6 +13,7 @@ export default function CollectorLogin() {
   const { toast } = useToast();
   const { collectorLogin } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [agencyCode, setAgencyCode] = useState(() => localStorage.getItem("collector_agency_code") || "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -21,7 +22,9 @@ export default function CollectorLogin() {
     setIsLoading(true);
 
     try {
-      const success = await collectorLogin(username, password);
+      const trimmedCode = agencyCode.trim().toLowerCase();
+      localStorage.setItem("collector_agency_code", trimmedCode);
+      const success = await collectorLogin(username, password, trimmedCode);
       if (success) {
         toast({
           title: "Welcome!",
@@ -61,10 +64,23 @@ export default function CollectorLogin() {
               <Headphones className="h-5 w-5 text-primary" />
               <CardTitle>Collector Workstation</CardTitle>
             </div>
-            <CardDescription>Sign in with your username and password</CardDescription>
+            <CardDescription>Sign in with your agency code, username, and password</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="agency-code">Agency Code</Label>
+                <Input
+                  id="agency-code"
+                  type="text"
+                  placeholder="e.g. acme-collections"
+                  value={agencyCode}
+                  onChange={(e) => setAgencyCode(e.target.value)}
+                  required
+                  autoComplete="organization"
+                  data-testid="input-agency-code"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input

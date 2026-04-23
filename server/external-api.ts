@@ -64,13 +64,18 @@ export function registerExternalApiRoutes(app: Express) {
   // POST /api/v2/login - Generate or validate token
   app.post("/api/v2/login", async (req, res) => {
     try {
-      const { username, password } = req.body;
+      const { username, password, agencyCode } = req.body;
       
-      if (!username || !password) {
-        return res.status(400).json({ error: "Username and password required" });
+      if (!username || !password || !agencyCode) {
+        return res.status(400).json({ error: "Agency code, username, and password required" });
       }
       
-      const collector = await storage.getCollectorByUsername(username);
+      const organization = await storage.getOrganizationBySlug(String(agencyCode).trim().toLowerCase());
+      if (!organization) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      
+      const collector = await storage.getCollectorByOrgAndUsername(organization.id, username);
       
       if (!collector || collector.password !== password) {
         return res.status(401).json({ error: "Invalid credentials" });

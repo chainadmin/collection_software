@@ -312,6 +312,7 @@ export interface IStorage {
   // Helper methods for external API
   getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined>;
   getCollectorByUsername(username: string): Promise<Collector | undefined>;
+  getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined>;
 
   // Global Admins
   getGlobalAdmins(): Promise<GlobalAdmin[]>;
@@ -2483,6 +2484,12 @@ export class MemStorage implements IStorage {
 
   async getCollectorByUsername(username: string): Promise<Collector | undefined> {
     return Array.from(this.collectors.values()).find((c) => c.username === username);
+  }
+
+  async getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined> {
+    return Array.from(this.collectors.values()).find(
+      (c) => c.organizationId === organizationId && c.username === username
+    );
   }
 
   // Global Admin methods

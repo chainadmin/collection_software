@@ -1131,6 +1131,14 @@ export class DatabaseStorage implements IStorage {
     return collector;
   }
 
+  async getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined> {
+    const [collector] = await db
+      .select()
+      .from(collectors)
+      .where(and(eq(collectors.organizationId, organizationId), eq(collectors.username, username)));
+    return collector;
+  }
+
   // Global Admins
   async getGlobalAdmins(): Promise<GlobalAdmin[]> {
     return await db.select().from(globalAdmins);

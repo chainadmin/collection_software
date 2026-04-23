@@ -533,27 +533,31 @@ export async function registerRoutes(
 
   app.post("/api/auth/collector-login", async (req, res) => {
     try {
-      const { username, password } = req.body;
+      const { username, password, agencyCode } = req.body;
 
-      if (!username || !password) {
-        return res.status(400).json({ error: "Username and password are required" });
+      if (!username || !password || !agencyCode) {
+        return res.status(400).json({ error: "Agency code, username, and password are required" });
       }
 
-      const collector = await storage.getCollectorByUsername(username);
+      const organization = await storage.getOrganizationBySlug(String(agencyCode).trim().toLowerCase());
+      if (!organization) {
+        return res.status(401).json({ error: "Invalid agency code, username, or password" });
+      }
+
+      const collector = await storage.getCollectorByOrgAndUsername(organization.id, username);
       if (!collector) {
-        return res.status(401).json({ error: "Invalid username or password" });
+        return res.status(401).json({ error: "Invalid agency code, username, or password" });
       }
 
       if (!await verifyPassword(password, collector.password)) {
-        return res.status(401).json({ error: "Invalid username or password" });
+        return res.status(401).json({ error: "Invalid agency code, username, or password" });
       }
 
       if (collector.status !== "active") {
         return res.status(403).json({ error: "Your account is not active" });
       }
 
-      const organization = await storage.getOrganization(collector.organizationId);
-      if (!organization || !organization.isActive) {
+      if (!organization.isActive) {
         return res.status(403).json({ error: "Your organization is not active" });
       }
 
@@ -1504,6 +1508,14 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const body = { ...req.body };
+      if (!body.username || !String(body.username).trim()) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+      body.username = String(body.username).trim();
+      const existing = await storage.getCollectorByOrgAndUsername(orgId, body.username);
+      if (existing) {
+        return res.status(409).json({ error: "A collector with that username already exists in your organization" });
+      }
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
       }
@@ -1528,6 +1540,18 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const body = { ...req.body };
+      if (body.username !== undefined) {
+        body.username = String(body.username).trim();
+        if (!body.username) {
+          return res.status(400).json({ error: "Username cannot be empty" });
+        }
+        if (body.username !== existing.username) {
+          const dup = await storage.getCollectorByOrgAndUsername(existing.organizationId, body.username);
+          if (dup && dup.id !== existing.id) {
+            return res.status(409).json({ error: "A collector with that username already exists in your organization" });
+          }
+        }
+      }
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
       }
