@@ -13,7 +13,20 @@ import { FileDown, Search, Users, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
-import type { Debtor, Portfolio, Collector } from "@shared/schema";
+import type { Debtor, Portfolio, Collector, AccountStatus } from "@shared/schema";
+
+const KEEP_STATUS_VALUE = "__keep__";
+
+const SYSTEM_STATUS_OPTIONS = [
+  { code: "newbiz", label: "New Business" },
+  { code: "1st_message", label: "1st Message" },
+  { code: "final", label: "Final" },
+  { code: "promise", label: "Promise" },
+  { code: "payments_pending", label: "Payments Pending" },
+  { code: "in_payment", label: "In Payment" },
+  { code: "paid", label: "Paid in Full" },
+  { code: "closed", label: "Closed" },
+];
 
 export default function DropAccounts() {
   const { toast } = useToast();
@@ -22,6 +35,7 @@ export default function DropAccounts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [selectedCollector, setSelectedCollector] = useState<string>("");
+  const [targetStatus, setTargetStatus] = useState<string>(KEEP_STATUS_VALUE);
   const [dropNotes, setDropNotes] = useState("");
   const [dropQuantity, setDropQuantity] = useState<string>("");
 
@@ -37,15 +51,27 @@ export default function DropAccounts() {
     queryKey: ["/api/collectors"],
   });
 
+  const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
+    queryKey: ["/api/account-statuses"],
+  });
+
+  const statusOptions = [
+    ...SYSTEM_STATUS_OPTIONS,
+    ...customStatuses
+      .filter((cs) => !SYSTEM_STATUS_OPTIONS.some((s) => s.code === cs.code))
+      .map((cs) => ({ code: cs.code, label: cs.label })),
+  ];
+
   const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin" && c.role !== "auditor");
 
   const dropAccountsMutation = useMutation({
-    mutationFn: async (data: { 
-      name: string; 
-      portfolioId?: string; 
+    mutationFn: async (data: {
+      name: string;
+      portfolioId?: string;
       notes?: string;
       collectorId: string;
       debtorIds: string[];
+      status?: string;
     }) => {
       const response = await apiRequest("POST", "/api/drop-batches", {
         name: data.name,
@@ -54,8 +80,8 @@ export default function DropAccounts() {
         totalAccounts: data.debtorIds.length,
       });
       const batch = await response.json() as { id: string };
-      
-      const results = { success: 0, failed: 0 };
+
+      const results = { success: 0, failed: 0, statusFailed: 0 };
       for (const debtorId of data.debtorIds) {
         try {
           await apiRequest("POST", "/api/drop-items", {
@@ -63,10 +89,29 @@ export default function DropAccounts() {
             debtorId,
             collectorId: data.collectorId,
           });
-          await apiRequest("PATCH", `/api/debtors/${debtorId}`, { 
-            assignedCollectorId: data.collectorId 
-          });
-          results.success++;
+          const patchBody: Record<string, unknown> = {
+            assignedCollectorId: data.collectorId,
+          };
+          if (data.status) {
+            patchBody.status = data.status;
+          }
+          try {
+            await apiRequest("PATCH", `/api/debtors/${debtorId}`, patchBody);
+            results.success++;
+          } catch {
+            if (data.status) {
+              try {
+                await apiRequest("PATCH", `/api/debtors/${debtorId}`, {
+                  assignedCollectorId: data.collectorId,
+                });
+                results.statusFailed++;
+              } catch {
+                results.failed++;
+              }
+            } else {
+              results.failed++;
+            }
+          }
         } catch {
           results.failed++;
         }
@@ -124,33 +169,50 @@ export default function DropAccounts() {
     }
 
     const batchName = `Drop ${new Date().toISOString().split("T")[0]} - ${selectedAccounts.size} accounts`;
+    const statusToApply = targetStatus !== KEEP_STATUS_VALUE ? targetStatus : undefined;
     const results = await dropAccountsMutation.mutateAsync({
       name: batchName,
       portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
       notes: dropNotes || undefined,
       collectorId: selectedCollector,
       debtorIds: Array.from(selectedAccounts),
+      status: statusToApply,
     });
 
     queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
     queryClient.invalidateQueries({ queryKey: ["/api/drop-batches"] });
     queryClient.invalidateQueries({ queryKey: ["/api/work-queue"] });
-    
+
     const collector = collectors.find((c) => c.id === selectedCollector);
-    if (results.failed > 0) {
-      toast({ 
-        title: "Partial Success", 
-        description: `${results.success} accounts assigned to ${collector?.name || "collector"}. ${results.failed} failed.`,
-        variant: "destructive"
+    const statusLabel = statusToApply
+      ? statusOptions.find((s) => s.code === statusToApply)?.label || statusToApply
+      : null;
+    const statusSuffix = statusLabel ? ` and set to "${statusLabel}"` : "";
+
+    if (results.failed > 0 || results.statusFailed > 0) {
+      const parts: string[] = [
+        `${results.success} accounts assigned to ${collector?.name || "collector"}${statusSuffix}.`,
+      ];
+      if (results.statusFailed > 0) {
+        parts.push(`${results.statusFailed} assigned but status update failed.`);
+      }
+      if (results.failed > 0) {
+        parts.push(`${results.failed} failed.`);
+      }
+      toast({
+        title: "Partial Success",
+        description: parts.join(" "),
+        variant: "destructive",
       });
     } else {
-      toast({ 
-        title: "Accounts Dropped", 
-        description: `${results.success} accounts assigned to ${collector?.name || "collector"}'s work queue.`
+      toast({
+        title: "Accounts Dropped",
+        description: `${results.success} accounts assigned to ${collector?.name || "collector"}'s work queue${statusSuffix}.`,
       });
     }
     setSelectedAccounts(new Set());
     setDropNotes("");
+    setTargetStatus(KEEP_STATUS_VALUE);
   };
 
   const selectedTotal = Array.from(selectedAccounts).reduce((sum, id) => {
@@ -272,6 +334,25 @@ export default function DropAccounts() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Set status to</Label>
+              <Select value={targetStatus} onValueChange={setTargetStatus}>
+                <SelectTrigger data-testid="select-target-status">
+                  <SelectValue placeholder="Keep current status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={KEEP_STATUS_VALUE}>Keep current status</SelectItem>
+                  {statusOptions.map((s) => (
+                    <SelectItem key={s.code} value={s.code}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optionally move every dropped account to this status.
+              </p>
             </div>
             <Textarea 
               placeholder="Optional notes for this drop..."
