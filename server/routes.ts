@@ -2918,19 +2918,25 @@ export async function registerRoutes(
   app.post("/api/import/debtors", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { portfolioId, clientId, records, mappings, fileNumberStart } = req.body as { portfolioId: string; clientId: string; records: any[]; mappings: Record<string, string>; fileNumberStart?: number };
-      
-      if (!portfolioId || !clientId || !records || !mappings) {
-        return res.status(400).json({ error: "Missing required fields: portfolioId, clientId, records, mappings" });
+      const { portfolioId, clientId, records, mappings, fileNumberStart } = req.body as { portfolioId: string; clientId?: string | null; records: any[]; mappings: Record<string, string>; fileNumberStart?: number };
+
+      if (!portfolioId || !records || !mappings) {
+        return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });
       }
 
       const portfolio = await storage.getPortfolio(portfolioId);
-      const client = await storage.getClient(clientId);
       if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
         return res.status(403).json({ error: "Invalid portfolio for organization" });
       }
-      if (!client || !validateOrgOwnership(client.organizationId, orgId)) {
-        return res.status(403).json({ error: "Invalid client for organization" });
+
+      // Resolve effective clientId: explicit > portfolio's existing clientId > null.
+      // Validate org ownership only when a client is actually being used.
+      let effectiveClientId: string | null = (clientId && clientId.trim()) ? clientId : (portfolio.clientId ?? null);
+      if (effectiveClientId) {
+        const client = await storage.getClient(effectiveClientId);
+        if (!client || !validateOrgOwnership(client.organizationId, orgId)) {
+          return res.status(403).json({ error: "Invalid client for organization" });
+        }
       }
       
       const normalizeSsn = (s: any): string | null => {
@@ -3051,7 +3057,7 @@ export async function registerRoutes(
 
           const newDebtor = await storage.createDebtor({
             portfolioId,
-            clientId,
+            clientId: effectiveClientId,
             linkedAccountId,
             accountNumber: mappedData.accountNumber || `AUTO-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             firstName: mappedData.firstName || "Unknown",

@@ -324,10 +324,6 @@ export default function Portfolios() {
 
   const handleRunImport = () => {
     if (!newPortfolioId) return;
-    if (!importClientId) {
-      toast({ title: "Client required", description: "Please choose a client for these accounts.", variant: "destructive" });
-      return;
-    }
     if (!importFile || csvData.length === 0) {
       toast({ title: "File required", description: "Please upload a CSV file to import.", variant: "destructive" });
       return;
@@ -346,7 +342,7 @@ export default function Portfolios() {
     });
     importDebtorsMutation.mutate({
       portfolioId: newPortfolioId,
-      clientId: importClientId,
+      clientId: importClientId || null,
       records,
       mappings: columnMappings,
     });
@@ -616,15 +612,15 @@ export default function Portfolios() {
           {wizardStep === "import" && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Client *</Label>
+                <Label>Client (optional)</Label>
                 <Select value={importClientId} onValueChange={setImportClientId}>
                   <SelectTrigger data-testid="select-import-client">
-                    <SelectValue placeholder="Select a client" />
+                    <SelectValue placeholder="Select a client (optional)" />
                   </SelectTrigger>
                   <SelectContent>
                     {!clients || clients.length === 0 ? (
                       <SelectItem value="none" disabled>
-                        No clients available — create one in Clients first
+                        No clients available — you can set one later in Edit Portfolio
                       </SelectItem>
                     ) : (
                       clients.map((client) => (
@@ -635,6 +631,9 @@ export default function Portfolios() {
                     )}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  You can set or change the client anytime via Edit Portfolio.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -717,7 +716,6 @@ export default function Portfolios() {
                   onClick={handleRunImport}
                   disabled={
                     importDebtorsMutation.isPending ||
-                    !importClientId ||
                     !importFile ||
                     csvColumns.length === 0
                   }
