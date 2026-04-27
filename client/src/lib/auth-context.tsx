@@ -85,6 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         setUser(authUser);
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+        // Admin login clears any leftover collector mode flag from a
+        // previous collector session on this browser, so the admin app
+        // doesn't get redirected to the collector workstation.
+        localStorage.removeItem("appMode");
         return true;
       }
 
@@ -136,6 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    // Clear collector mode flag too so the next login on this browser
+    // (admin or collector) starts from a clean slate.
+    localStorage.removeItem("appMode");
   };
 
   const setAuthUser = (authUser: AuthUser) => {

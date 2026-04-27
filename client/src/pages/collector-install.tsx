@@ -39,7 +39,10 @@ export default function CollectorInstall() {
       const result = await installPrompt.userChoice;
       if (result.outcome === "accepted") {
         setIsInstalled(true);
-        localStorage.setItem("appMode", "collector");
+        // Note: do NOT set appMode here. Installing the PWA shouldn't lock
+        // this browser into collector mode — that would break the admin app
+        // for the same computer/browser. appMode is set when the user
+        // actually logs into the collector workstation.
       }
     } else {
       alert('To install: Click the install icon in your browser address bar, or use your browser menu to "Install App".');

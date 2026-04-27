@@ -2191,6 +2191,7 @@ export async function registerRoutes(
       const status = getAutoRunnerStatus();
       res.json({
         autoRunnerEnabled: org?.autoRunnerEnabled ?? false,
+        autoRunnerHours: org?.autoRunnerHours ?? "7,18",
         isRunning: status.isRunning,
         lastRunTimestamp: status.lastRunTimestamp,
         lastRunResult: status.lastRunResult,
@@ -2208,7 +2209,9 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only admins and managers can trigger auto-runner" });
       }
       console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);
-      const result = await runAutoPayments(orgId);
+      // Manual trigger bypasses the org's autoRunnerEnabled toggle — the
+      // explicit click by an authorized admin/manager is the authorization.
+      const result = await runAutoPayments(orgId, { manualTrigger: true });
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Failed to trigger auto-runner" });

@@ -253,13 +253,40 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payment-runner/auto-status"] });
-      toast({
-        title: "Auto-Run Complete",
-        description: `Processed: ${data.totalProcessed}, Success: ${data.totalSuccess}, Declined: ${data.totalDeclined}, Skipped: ${data.totalSkipped}`,
-      });
+
+      const totalProcessed = data.totalProcessed ?? 0;
+      const totalSuccess = data.totalSuccess ?? 0;
+      const totalDeclined = data.totalDeclined ?? 0;
+      const totalSkipped = data.totalSkipped ?? 0;
+
+      // If everything was skipped, surface the reason (e.g. "No active
+      // merchant configured") instead of just zeros so the user understands
+      // why nothing happened.
+      const skipReasons = Object.values(data.orgResults || {})
+        .filter((r: any) => r?.skipped && r?.skipReason)
+        .map((r: any) => r.skipReason as string);
+      const uniqueSkipReasons = Array.from(new Set(skipReasons));
+
+      if (totalProcessed === 0 && totalSkipped === 0) {
+        toast({
+          title: "No payments to process",
+          description: "There are no pending payments due today or earlier.",
+        });
+      } else if (totalProcessed === 0 && uniqueSkipReasons.length > 0) {
+        toast({
+          title: "Run skipped",
+          description: uniqueSkipReasons.join("; "),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Run Complete",
+          description: `Processed ${totalProcessed} (${totalSuccess} success, ${totalDeclined} declined${totalSkipped > 0 ? `, ${totalSkipped} skipped` : ""}).`,
+        });
+      }
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to trigger auto-runner.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to trigger payment run.", variant: "destructive" });
     },
   });
 

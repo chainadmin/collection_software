@@ -48,7 +48,8 @@ function getEasternDateString(): string {
   return `${y}-${m}-${d}`;
 }
 
-export async function runAutoPayments(singleOrgId?: string): Promise<RunResult> {
+export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean }): Promise<RunResult> {
+  const manualTrigger = options?.manualTrigger === true;
   if (isRunning) {
     console.log("[Auto Runner] Already running, skipping");
     return lastRunResult || {
@@ -115,7 +116,10 @@ export async function runAutoPayments(singleOrgId?: string): Promise<RunResult> 
         continue;
       }
 
-      if (!org.autoRunnerEnabled) {
+      // For scheduled runs, require the org's auto-runner to be enabled.
+      // For manual triggers (admin clicked "Run Now"), bypass this gate —
+      // the explicit click is the authorization.
+      if (!manualTrigger && !org.autoRunnerEnabled) {
         result.orgResults[orgId] = {
           orgName,
           processed: 0,
