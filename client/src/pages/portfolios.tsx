@@ -59,123 +59,26 @@ import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
+import { parseCSV, autoMapColumns, systemFields } from "@/lib/csv-import";
 
-const systemFields: { value: string; label: string }[] = [
-  { value: "skip", label: "-- Skip --" },
-  { value: "accountNumber", label: "Account Number" },
-  { value: "fileNumber", label: "File Number" },
-  { value: "firstName", label: "First Name" },
-  { value: "lastName", label: "Last Name" },
-  { value: "dateOfBirth", label: "Date of Birth" },
-  { value: "ssn", label: "SSN (Full)" },
-  { value: "ssnLast4", label: "SSN Last 4" },
-  { value: "address", label: "Address" },
-  { value: "city", label: "City" },
-  { value: "state", label: "State" },
-  { value: "zipCode", label: "ZIP Code" },
-  { value: "originalBalance", label: "Original Balance" },
-  { value: "currentBalance", label: "Current Balance" },
-  { value: "originalCreditor", label: "Original Creditor" },
-  { value: "clientName", label: "Client Name" },
-  { value: "status", label: "Status" },
-  { value: "lastContactDate", label: "Last Contact Date" },
-  { value: "nextFollowUpDate", label: "Next Follow Up Date" },
-  { value: "chargeOffDate", label: "Charge Off Date" },
-  { value: "phone1", label: "Phone 1" },
-  { value: "phone1Label", label: "Phone 1 Label" },
-  { value: "phone2", label: "Phone 2" },
-  { value: "phone2Label", label: "Phone 2 Label" },
-  { value: "phone3", label: "Phone 3" },
-  { value: "phone3Label", label: "Phone 3 Label" },
-  { value: "email1", label: "Email 1" },
-  { value: "email1Label", label: "Email 1 Label" },
-  { value: "email2", label: "Email 2" },
-  { value: "email2Label", label: "Email 2 Label" },
-  { value: "employerName", label: "Employer Name" },
-  { value: "employerPhone", label: "Employer Phone" },
-  { value: "employerAddress", label: "Employer Address" },
-  { value: "position", label: "Job Position/Title" },
-  { value: "salary", label: "Salary (Annual)" },
-  { value: "ref1Name", label: "Reference 1 Name" },
-  { value: "ref1Relationship", label: "Reference 1 Relationship" },
-  { value: "ref1Phone", label: "Reference 1 Phone" },
-  { value: "ref2Name", label: "Reference 2 Name" },
-  { value: "ref2Relationship", label: "Reference 2 Relationship" },
-  { value: "ref2Phone", label: "Reference 2 Phone" },
-  { value: "phone", label: "Phone (Legacy)" },
-  { value: "email", label: "Email (Legacy)" },
-];
+type ImportResponse = {
+  message?: string;
+  created?: number;
+  updated?: number;
+  linked?: number;
+  errors?: string[];
+};
 
-function parseCSV(text: string): { columns: string[]; data: string[][] } {
-  const lines = text.trim().split("\n");
-  if (lines.length === 0) return { columns: [], data: [] };
-  const columns = lines[0].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-  const data = lines.slice(1).map((line) => {
-    const values: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === "," && !inQuotes) {
-        values.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-    values.push(current.trim());
-    return values;
-  });
-  return { columns, data };
-}
-
-function normalizeHeader(s: string): string {
-  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function autoMapColumns(columns: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lookup: Record<string, string> = {};
-  for (const f of systemFields) {
-    if (f.value === "skip") continue;
-    lookup[normalizeHeader(f.label)] = f.value;
-    lookup[normalizeHeader(f.value)] = f.value;
-  }
-  const aliases: Record<string, string> = {
-    acctnumber: "accountNumber",
-    acctnum: "accountNumber",
-    acct: "accountNumber",
-    account: "accountNumber",
-    fname: "firstName",
-    lname: "lastName",
-    firstname: "firstName",
-    lastname: "lastName",
-    dob: "dateOfBirth",
-    ssn: "ssn",
-    origbal: "originalBalance",
-    origbalance: "originalBalance",
-    originalbalance: "originalBalance",
-    balance: "currentBalance",
-    currbal: "currentBalance",
-    currentbalance: "currentBalance",
-    zip: "zipCode",
-    zipcode: "zipCode",
-    creditor: "originalCreditor",
-    origcreditor: "originalCreditor",
-    phone: "phone1",
-    phone1: "phone1",
-    email: "email1",
-    email1: "email1",
-  };
-  for (const col of columns) {
-    const norm = normalizeHeader(col);
-    const match = lookup[norm] ?? aliases[norm];
-    result[col] = match || "skip";
-  }
-  return result;
-}
+type UpdatePortfolioPayload = {
+  name: string;
+  clientId: string | null;
+  feeScheduleId: string | null;
+  creditorName: string | null;
+  debtType: string | null;
+  status: string;
+  purchasePrice: number;
+  purchaseDate: string;
+};
 
 const editPortfolioSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -299,13 +202,17 @@ export default function Portfolios() {
     },
   });
 
-  const importDebtorsMutation = useMutation({
-    mutationFn: async (vars: {
+  const importDebtorsMutation = useMutation<
+    ImportResponse,
+    Error,
+    {
       portfolioId: string;
       clientId: string;
-      records: any[];
+      records: Record<string, string>[];
       mappings: Record<string, string>;
-    }) => {
+    }
+  >({
+    mutationFn: async (vars) => {
       importStartedRef.current = true;
       const res = await apiRequest("POST", "/api/import/debtors", {
         portfolioId: vars.portfolioId,
@@ -314,7 +221,7 @@ export default function Portfolios() {
         mappings: vars.mappings,
         fileNumberStart: 1,
       });
-      return res.json();
+      return (await res.json()) as ImportResponse;
     },
     onSuccess: (data) => {
       importDoneRef.current = true;
@@ -328,7 +235,7 @@ export default function Portfolios() {
       setShowAddDialog(false);
       resetWizard();
     },
-    onError: (err: any) => {
+    onError: (err) => {
       // Import failed — keep the shell; user may retry.
       importStartedRef.current = false;
       toast({
@@ -340,10 +247,14 @@ export default function Portfolios() {
   });
 
 
-  const updatePortfolioMutation = useMutation({
-    mutationFn: async (vars: { id: string; data: any }) => {
+  const updatePortfolioMutation = useMutation<
+    Portfolio,
+    Error,
+    { id: string; data: UpdatePortfolioPayload }
+  >({
+    mutationFn: async (vars) => {
       const res = await apiRequest("PATCH", `/api/portfolios/${vars.id}`, vars.data);
-      return res.json();
+      return (await res.json()) as Portfolio;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
@@ -952,10 +863,17 @@ export default function Portfolios() {
                           type="number"
                           step="0.01"
                           placeholder="0.00"
-                          defaultValue={field.value ? (field.value / 100).toFixed(2) : "0.00"}
-                          onChange={(e) =>
-                            field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))
+                          value={
+                            field.value === undefined || field.value === null
+                              ? ""
+                              : (field.value / 100).toFixed(2)
                           }
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            field.onChange(
+                              raw === "" ? 0 : Math.round(parseFloat(raw) * 100),
+                            );
+                          }}
                           data-testid="input-edit-purchase-price"
                         />
                       </FormControl>
