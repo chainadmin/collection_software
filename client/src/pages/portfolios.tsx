@@ -221,7 +221,19 @@ export default function Portfolios() {
         mappings: vars.mappings,
         fileNumberStart: 1,
       });
-      return (await res.json()) as ImportResponse;
+      const json = (await res.json()) as ImportResponse;
+      // Persist the chosen client to the portfolio so future imports and
+      // existing client-filtered views (like Admin > Import/Export) can
+      // target it without a manual edit step.
+      try {
+        await apiRequest("PATCH", `/api/portfolios/${vars.portfolioId}`, {
+          clientId: vars.clientId,
+        });
+      } catch {
+        // Non-fatal: import already succeeded. The user can still set the
+        // client later via the Edit Portfolio dialog.
+      }
+      return json;
     },
     onSuccess: (data) => {
       importDoneRef.current = true;
