@@ -100,37 +100,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const collectorLogin = async (username: string, password: string, agencyCode: string): Promise<boolean> => {
-    try {
-      const response = await fetch("/api/auth/collector-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, agencyCode }),
-      });
+    const response = await fetch("/api/auth/collector-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, agencyCode }),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        const authUser: AuthUser = {
-          id: data.collector?.id || data.id,
-          email: data.collector?.email || "",
-          name: data.collector?.name || data.name,
-          role: data.collector?.role || data.role,
-          organizationId: data.organizationId,
-        };
-        setUser(authUser);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
-        localStorage.setItem("appMode", "collector");
-        return true;
-      }
-
-      if (response.status === 403) {
-        const data = await response.json();
-        throw new Error(data.error || "Access denied");
-      }
-
-      return false;
-    } catch (error) {
-      throw error;
+    if (response.ok) {
+      const data = await response.json();
+      const authUser: AuthUser = {
+        id: data.collector?.id || data.id,
+        email: data.collector?.email || "",
+        name: data.collector?.name || data.name,
+        role: data.collector?.role || data.role,
+        organizationId: data.organizationId,
+      };
+      setUser(authUser);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+      localStorage.setItem("appMode", "collector");
+      return true;
     }
+
+    let payload: { code?: string; error?: string } = {};
+    try {
+      payload = await response.json();
+    } catch {
+      // ignore — fall back to a generic message below
+    }
+    const err = new Error(payload.error || "We couldn't sign you in. Please try again.") as Error & {
+      code?: string;
+      status?: number;
+    };
+    err.code = payload.code;
+    err.status = response.status;
+    throw err;
   };
 
   const logout = async () => {

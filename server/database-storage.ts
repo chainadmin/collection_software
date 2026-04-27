@@ -1161,10 +1161,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined> {
+    // Case-insensitive lookup so collectors can sign in regardless of how
+    // their username was originally typed when their account was created.
+    const normalized = String(username ?? "").trim().toLowerCase();
+    if (!normalized) return undefined;
     const [collector] = await db
       .select()
       .from(collectors)
-      .where(and(eq(collectors.organizationId, organizationId), eq(collectors.username, username)));
+      .where(
+        and(
+          eq(collectors.organizationId, organizationId),
+          sql`lower(${collectors.username}) = ${normalized}`,
+        ),
+      );
     return collector;
   }
 

@@ -109,6 +109,34 @@ function normalizeIpAddress(ip: string): string {
   return ip;
 }
 
+// Normalize an agency code that the user may have entered as a slug, a URL
+// (https://app.example.com/login/acme), or a path (/login/acme). Falls back
+// to the raw input, trimmed and lowercased.
+function normalizeAgencyCode(input: unknown): string {
+  if (typeof input !== "string") return "";
+  let s = input.trim();
+  if (!s) return "";
+
+  // Pull a slug out of any /login/<slug> fragment if one is present.
+  const loginMatch = s.match(/\/login\/([^\/?#\s]+)/i);
+  if (loginMatch) {
+    s = loginMatch[1];
+  } else if (/[\/?:#]/.test(s)) {
+    // Looks like a URL or path but has no /login/ — take the last non-empty
+    // path segment so pasting "example.com/acme/" still works.
+    const parts = s.split(/[\/?#]/).filter(Boolean);
+    if (parts.length > 0) {
+      const last = parts[parts.length - 1];
+      // Skip the protocol piece (e.g. "https:") if that's all that remains.
+      if (last && !/^[a-z]+:$/i.test(last)) {
+        s = last;
+      }
+    }
+  }
+
+  return s.trim().toLowerCase();
+}
+
 function getClientIp(req: any): string {
   const forwardedFor = (req.headers["x-forwarded-for"] as string | undefined)
     ?.split(",")[0]
@@ -186,6 +214,7 @@ export async function registerRoutes(
   // Note: These should be minimal - only what's needed before login
   const publicPaths = [
     "/auth/login",
+    "/auth/collector-login",
     "/auth/logout",
     "/auth/session",
     "/auth/signup",
@@ -533,32 +562,36 @@ export async function registerRoutes(
 
   app.post("/api/auth/collector-login", async (req, res) => {
     try {
-      const { username, password, agencyCode } = req.body;
+      const { username, password, agencyCode } = req.body ?? {};
 
       if (!username || !password || !agencyCode) {
-        return res.status(400).json({ error: "Agency code, username, and password are required" });
+        return res.status(400).json({
+          code: "missing_fields",
+          error: "Agency code, username, and password are all required.",
+        });
       }
 
-      const organization = await storage.getOrganizationBySlug(String(agencyCode).trim().toLowerCase());
+      const normalizedCode = normalizeAgencyCode(agencyCode);
+      if (!normalizedCode) {
+        return res.status(400).json({
+          code: "missing_fields",
+          error: "Agency code, username, and password are all required.",
+        });
+      }
+
+      const organization = await storage.getOrganizationBySlug(normalizedCode);
       if (!organization) {
-        return res.status(401).json({ error: "Invalid agency code, username, or password" });
-      }
-
-      const collector = await storage.getCollectorByOrgAndUsername(organization.id, username);
-      if (!collector) {
-        return res.status(401).json({ error: "Invalid agency code, username, or password" });
-      }
-
-      if (!await verifyPassword(password, collector.password)) {
-        return res.status(401).json({ error: "Invalid agency code, username, or password" });
-      }
-
-      if (collector.status !== "active") {
-        return res.status(403).json({ error: "Your account is not active" });
+        return res.status(404).json({
+          code: "org_not_found",
+          error: "We couldn't find an organization with that company code. Double-check the code or ask your administrator.",
+        });
       }
 
       if (!organization.isActive) {
-        return res.status(403).json({ error: "Your organization is not active" });
+        return res.status(403).json({
+          code: "org_inactive",
+          error: "This organization is currently inactive. Please contact your administrator.",
+        });
       }
 
       if (organization.ipRestrictionEnabled) {
@@ -566,7 +599,8 @@ export async function registerRoutes(
 
         if (net.isIP(clientIp) === 0) {
           return res.status(403).json({
-            error: "Access denied. Could not validate your IP address.",
+            code: "ip_invalid",
+            error: "We couldn't validate your IP address. Please try again or contact your administrator.",
           });
         }
 
@@ -574,9 +608,33 @@ export async function registerRoutes(
         if (!isWhitelisted) {
           console.log(`[Collector Login] IP ${clientIp} blocked for org ${organization.id}`);
           return res.status(403).json({
-            error: "Access denied. Your IP address is not authorized.",
+            code: "ip_blocked",
+            error: "Your IP address isn't authorized to access this organization. Ask an admin to whitelist it under Security settings.",
           });
         }
+      }
+
+      const trimmedUsername = String(username).trim();
+      const collector = await storage.getCollectorByOrgAndUsername(organization.id, trimmedUsername);
+      if (!collector) {
+        return res.status(401).json({
+          code: "invalid_credentials",
+          error: "That username and password don't match. Please try again.",
+        });
+      }
+
+      if (!await verifyPassword(password, collector.password)) {
+        return res.status(401).json({
+          code: "invalid_credentials",
+          error: "That username and password don't match. Please try again.",
+        });
+      }
+
+      if (collector.status !== "active") {
+        return res.status(403).json({
+          code: "collector_inactive",
+          error: "Your account has been disabled. Please contact your administrator.",
+        });
       }
 
       req.session.collector = {

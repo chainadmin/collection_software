@@ -482,7 +482,7 @@ export class MemStorage implements IStorage {
       name: "Sarah Johnson",
       email: "sarah.johnson@collectmax.com",
       username: "sjohnson",
-      password: "password123",
+      password: hashPasswordLegacy("password123"),
       role: "manager",
       status: "active",
       avatarInitials: "SJ",
@@ -498,7 +498,7 @@ export class MemStorage implements IStorage {
       name: "Michael Chen",
       email: "michael.chen@collectmax.com",
       username: "mchen",
-      password: "password123",
+      password: hashPasswordLegacy("password123"),
       role: "collector",
       status: "active",
       avatarInitials: "MC",
@@ -514,7 +514,7 @@ export class MemStorage implements IStorage {
       name: "Emily Rodriguez",
       email: "emily.rodriguez@collectmax.com",
       username: "erodriguez",
-      password: "password123",
+      password: hashPasswordLegacy("password123"),
       role: "collector",
       status: "active",
       avatarInitials: "ER",
@@ -2505,8 +2505,10 @@ export class MemStorage implements IStorage {
   }
 
   async getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined> {
+    const normalized = String(username ?? "").trim().toLowerCase();
+    if (!normalized) return undefined;
     return Array.from(this.collectors.values()).find(
-      (c) => c.organizationId === organizationId && c.username === username
+      (c) => c.organizationId === organizationId && c.username.toLowerCase() === normalized
     );
   }
 
