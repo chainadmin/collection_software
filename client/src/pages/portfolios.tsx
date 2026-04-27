@@ -15,6 +15,8 @@ import {
   Upload,
   FileText,
   Pencil,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -61,13 +65,22 @@ import { useToast } from "@/hooks/use-toast";
 import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
 import { parseCSV, autoMapColumns, systemFields } from "@/lib/csv-import";
 
-type ImportResponse = {
-  message?: string;
-  created?: number;
-  updated?: number;
-  linked?: number;
-  errors?: string[];
+type ImportResults = {
+  created: number;
+  updated: number;
+  linked: number;
+  skipped: number;
+  errors: string[];
+  skipReasons: { row: number; reason: string }[];
 };
+
+type ImportResponse = {
+  success?: boolean;
+  message?: string;
+  results?: ImportResults;
+};
+
+const IDENTIFIER_FIELDS = new Set(["accountNumber", "ssn", "fileNumber"]);
 
 type UpdatePortfolioPayload = {
   name: string;
@@ -109,6 +122,7 @@ export default function Portfolios() {
   const [csvColumns, setCsvColumns] = useState<string[]>([]);
   const [csvData, setCsvData] = useState<string[][]>([]);
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
+  const [importResults, setImportResults] = useState<ImportResults | null>(null);
   // Refs avoid stale closures during async create/import vs dialog close.
   const importDoneRef = useRef(false);
   const importStartedRef = useRef(false);
@@ -161,6 +175,7 @@ export default function Portfolios() {
     setCsvColumns([]);
     setCsvData([]);
     setColumnMappings({});
+    setImportResults(null);
   };
 
   const deletePortfolioSilently = async (id: string) => {
@@ -242,12 +257,21 @@ export default function Portfolios() {
       setImportDone(true);
       queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
       queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      const results: ImportResults = data.results ?? {
+        created: 0,
+        updated: 0,
+        linked: 0,
+        skipped: 0,
+        errors: [],
+        skipReasons: [],
+      };
+      setImportResults(results);
       toast({
-        title: "Portfolio Created",
+        title: "Import Complete",
         description: data.message || "Accounts imported successfully.",
       });
-      setShowAddDialog(false);
-      resetWizard();
+      // Keep the dialog open so the user can review per-row results
+      // (created/updated/linked/skipped) and skip reasons inline.
     },
     onError: (err) => {
       // Import failed — keep the shell; user may retry.
@@ -324,15 +348,30 @@ export default function Portfolios() {
     createPortfolioMutation.mutate(name);
   };
 
+  const mappedSystemFields = Object.values(columnMappings).filter(
+    (v) => v && v !== "skip",
+  );
+  const hasIdentifierMapping = mappedSystemFields.some((v) =>
+    IDENTIFIER_FIELDS.has(v),
+  );
+  const hasAnyMapping = mappedSystemFields.length > 0;
+
   const handleRunImport = () => {
     if (!newPortfolioId) return;
     if (!importFile || csvData.length === 0) {
       toast({ title: "File required", description: "Please upload a CSV file to import.", variant: "destructive" });
       return;
     }
-    const hasMapping = Object.values(columnMappings).some((v) => v && v !== "skip");
-    if (!hasMapping) {
+    if (!hasAnyMapping) {
       toast({ title: "Map at least one column", description: "Map at least one CSV column to a system field.", variant: "destructive" });
+      return;
+    }
+    if (!hasIdentifierMapping) {
+      toast({
+        title: "Missing identifier",
+        description: "Map at least one column to Account Number, SSN, or File Number — every row needs an identifier.",
+        variant: "destructive",
+      });
       return;
     }
     const records = csvData.map((row) => {
@@ -664,7 +703,7 @@ export default function Portfolios() {
                 )}
               </div>
 
-              {csvColumns.length > 0 && (
+              {csvColumns.length > 0 && !importResults && (
                 <div className="space-y-2">
                   <Label>Column Mapping</Label>
                   <div className="border rounded-lg overflow-hidden">
@@ -701,33 +740,139 @@ export default function Portfolios() {
                       ))}
                     </div>
                   </div>
+                  {!hasIdentifierMapping && (
+                    <Alert variant="destructive" data-testid="alert-missing-identifier">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Map a row identifier</AlertTitle>
+                      <AlertDescription>
+                        Every row needs at least one of <strong>Account Number</strong>,{" "}
+                        <strong>SSN</strong>, or <strong>File Number</strong> mapped, otherwise
+                        every row will be skipped.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
+
+              {importResults && (
+                <div className="space-y-3" data-testid="import-results-panel">
+                  <Alert
+                    variant={importResults.skipped > 0 ? "destructive" : "default"}
+                    data-testid="alert-import-summary"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertTitle>Import finished</AlertTitle>
+                    <AlertDescription>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge variant="secondary" data-testid="badge-import-created">
+                          {importResults.created} created
+                        </Badge>
+                        <Badge variant="secondary" data-testid="badge-import-updated">
+                          {importResults.updated} updated
+                        </Badge>
+                        <Badge variant="secondary" data-testid="badge-import-linked">
+                          {importResults.linked} linked
+                        </Badge>
+                        <Badge
+                          variant={importResults.skipped > 0 ? "destructive" : "secondary"}
+                          data-testid="badge-import-skipped"
+                        >
+                          {importResults.skipped} skipped
+                        </Badge>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                  {importResults.skipReasons.length > 0 && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Skipped rows</Label>
+                      <div
+                        className="border rounded-lg max-h-48 overflow-y-auto divide-y text-xs"
+                        data-testid="list-skip-reasons"
+                      >
+                        {importResults.skipReasons.slice(0, 100).map((sr, i) => (
+                          <div
+                            key={i}
+                            className="px-3 py-2 flex gap-2"
+                            data-testid={`row-skip-reason-${sr.row}`}
+                          >
+                            <span className="font-mono text-muted-foreground shrink-0">
+                              Row {sr.row}
+                            </span>
+                            <span>{sr.reason}</span>
+                          </div>
+                        ))}
+                        {importResults.skipReasons.length > 100 && (
+                          <div className="px-3 py-2 text-muted-foreground">
+                            …and {importResults.skipReasons.length - 100} more
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {importResults.created === 0 &&
+                    importResults.updated === 0 &&
+                    importResults.skipped > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Nothing was imported. Check that an identifier column (Account Number,
+                        SSN, or File Number) is mapped, then try again.
+                      </p>
+                    )}
                 </div>
               )}
 
               <DialogFooter className="flex justify-between sm:justify-between">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                  data-testid="button-cancel-import"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleRunImport}
-                  disabled={
-                    importDebtorsMutation.isPending ||
-                    !importFile ||
-                    csvColumns.length === 0
-                  }
-                  data-testid="button-run-import"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {importDebtorsMutation.isPending
-                    ? "Importing..."
-                    : `Import ${csvData.length} Account${csvData.length === 1 ? "" : "s"}`}
-                </Button>
+                {importResults ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setImportResults(null);
+                      }}
+                      data-testid="button-import-again"
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Adjust mapping
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setShowAddDialog(false);
+                        resetWizard();
+                      }}
+                      data-testid="button-finish-import"
+                    >
+                      Done
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowAddDialog(false)}
+                      data-testid="button-cancel-import"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleRunImport}
+                      disabled={
+                        importDebtorsMutation.isPending ||
+                        !importFile ||
+                        csvColumns.length === 0 ||
+                        !hasIdentifierMapping
+                      }
+                      data-testid="button-run-import"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      {importDebtorsMutation.isPending
+                        ? "Importing..."
+                        : `Import ${csvData.length} Account${csvData.length === 1 ? "" : "s"}`}
+                    </Button>
+                  </>
+                )}
               </DialogFooter>
             </div>
           )}

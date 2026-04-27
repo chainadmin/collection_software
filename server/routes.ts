@@ -2957,7 +2957,9 @@ export async function registerRoutes(
         created: 0,
         updated: 0,
         linked: 0,
+        skipped: 0,
         errors: [] as string[],
+        skipReasons: [] as { row: number; reason: string }[],
       };
 
       const existingDebtors = await storage.getDebtors(portfolioId);
@@ -2975,9 +2977,11 @@ export async function registerRoutes(
         }
       }
 
-      for (const record of records) {
+      for (let rowIdx = 0; rowIdx < records.length; rowIdx++) {
+        const record = records[rowIdx];
+        const rowNumber = rowIdx + 1;
+        const mappedData: any = {};
         try {
-          const mappedData: any = {};
           
           for (const [csvColumn, systemField] of Object.entries(mappings)) {
             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
@@ -3001,19 +3005,26 @@ export async function registerRoutes(
           if (mappedData.accountNumber !== undefined) {
             mappedData.accountNumber = normalizeText(mappedData.accountNumber);
           }
+          if (mappedData.fileNumber !== undefined) {
+            mappedData.fileNumber = normalizeText(mappedData.fileNumber);
+          }
           if (mappedData.ssn !== undefined) {
             mappedData.ssn = normalizeSsn(mappedData.ssn);
             if (mappedData.ssn) mappedData.ssnLast4 = mappedData.ssn.slice(-4);
           }
 
-          if (!mappedData.accountNumber && !mappedData.ssn) {
-            results.errors.push(`Row missing account number and SSN - skipped`);
+          if (!mappedData.accountNumber && !mappedData.ssn && !mappedData.fileNumber) {
+            const reason = "Row missing account number, SSN, and file number — skipped";
+            results.skipped++;
+            results.errors.push(`Row ${rowNumber}: ${reason}`);
+            results.skipReasons.push({ row: rowNumber, reason });
             continue;
           }
 
           const existingInPortfolio = existingDebtors.find(
             (d) => (mappedData.accountNumber && d.accountNumber === mappedData.accountNumber) ||
-                   (mappedData.ssn && normalizeSsn(d.ssn) === mappedData.ssn)
+                   (mappedData.ssn && normalizeSsn(d.ssn) === mappedData.ssn) ||
+                   (mappedData.fileNumber && d.fileNumber === mappedData.fileNumber)
           );
 
           if (existingInPortfolio) {
@@ -3033,10 +3044,16 @@ export async function registerRoutes(
             }
           }
 
-          // Always auto-generate file number: FN-{YYYY}-{sequential}
-          maxFnSeq++;
-          const seq = maxFnSeq.toString().padStart(6, '0');
-          const autoFileNumber = `FN-${year}-${seq}`;
+          // Use vendor-supplied file number when provided; otherwise
+          // auto-generate as FN-{YYYY}-{sequential}.
+          let resolvedFileNumber: string;
+          if (mappedData.fileNumber) {
+            resolvedFileNumber = mappedData.fileNumber;
+          } else {
+            maxFnSeq++;
+            const seq = maxFnSeq.toString().padStart(6, '0');
+            resolvedFileNumber = `FN-${year}-${seq}`;
+          }
 
           // Collect unmapped columns as custom fields
           const knownFields = new Set([
@@ -3077,7 +3094,7 @@ export async function registerRoutes(
             currentBalance: mappedData.currentBalance || mappedData.originalBalance || 0,
             originalCreditor: mappedData.originalCreditor || null,
             clientName: mappedData.clientName || null,
-            fileNumber: autoFileNumber,
+            fileNumber: resolvedFileNumber,
             status: mappedData.status || "open",
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
@@ -3177,7 +3194,22 @@ export async function registerRoutes(
 
           results.created++;
         } catch (err: any) {
-          results.errors.push(err.message || "Unknown error processing record");
+          let reason = err.message || "Unknown error processing record";
+          // Surface the unique-(portfolio, file_number) violation as a
+          // human-readable skip reason instead of leaking the raw
+          // Postgres error.
+          const code = err?.code || err?.cause?.code;
+          const constraint = err?.constraint || err?.cause?.constraint;
+          if (
+            code === "23505" ||
+            constraint === "debtors_portfolio_file_number_unique" ||
+            /debtors_portfolio_file_number_unique/.test(reason)
+          ) {
+            reason = `Duplicate file number "${mappedData.fileNumber ?? ''}" already exists in this portfolio`;
+          }
+          results.skipped++;
+          results.errors.push(`Row ${rowNumber}: ${reason}`);
+          results.skipReasons.push({ row: rowNumber, reason });
         }
       }
 
@@ -3193,7 +3225,7 @@ export async function registerRoutes(
       res.json({
         success: true,
         results,
-        message: `Import complete: ${results.created} created, ${results.updated} updated, ${results.linked} linked across portfolios`,
+        message: `Import complete: ${results.created} created, ${results.updated} updated, ${results.linked} linked, ${results.skipped} skipped`,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to import debtors" });

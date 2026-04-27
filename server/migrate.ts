@@ -752,6 +752,25 @@ export async function runMigrations() {
       ON "account_statuses" ("organization_id", lower("code"))
     `);
 
+    // Enforce per-portfolio uniqueness of debtor file_number so vendor-supplied
+    // file numbers (and our auto-generated FN-{YYYY}-{seq} values) cannot
+    // produce ambiguous duplicates within the same portfolio. Postgres
+    // treats NULL file_numbers as distinct, so legacy rows with NULL are
+    // unaffected. Best-effort: if pre-existing duplicates exist, the
+    // index creation will fail and we'll log a warning so an admin can
+    // resolve manually.
+    try {
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS "debtors_portfolio_file_number_unique"
+        ON debtors (portfolio_id, file_number)
+      `);
+    } catch (err: any) {
+      console.warn(
+        "[Migrate] Could not create debtors_portfolio_file_number_unique index (likely duplicate file numbers within a portfolio):",
+        err?.message || err
+      );
+    }
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

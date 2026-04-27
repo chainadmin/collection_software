@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -178,7 +178,15 @@ export const debtors = pgTable("debtors", {
   nextFollowUpDate: text("next_follow_up_date"),
   chargeOffDate: text("charge_off_date"), // date account was charged off
   customFields: text("custom_fields"), // JSON bucket for additional imported data
-});
+}, (table) => ({
+  // Vendor file numbers must be unique within a portfolio so re-imports
+  // dedupe instead of producing ambiguous duplicates. Auto-generated
+  // FN-{YYYY}-{seq} values are also unique by construction.
+  fileNumberPerPortfolioIdx: uniqueIndex("debtors_portfolio_file_number_unique").on(
+    table.portfolioId,
+    table.fileNumber,
+  ),
+}));
 
 export const insertDebtorSchema = createInsertSchema(debtors).omit({ id: true });
 export type InsertDebtor = z.infer<typeof insertDebtorSchema>;
