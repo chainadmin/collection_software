@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Search,
@@ -10,8 +10,13 @@ import {
   TrendingUp,
   Download,
   Filter,
+  ArrowRight,
+  ArrowLeft,
+  Upload,
+  FileText,
+  Pencil,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,31 +55,165 @@ import {
 } from "@/components/ui/form";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { formatCurrency, formatCurrencyCompact, formatDate, calculateLiquidationRate } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Portfolio, Collector, PortfolioAssignment, Client, FeeSchedule } from "@shared/schema";
+import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
 
-const addPortfolioSchema = z.object({
+const systemFields: { value: string; label: string }[] = [
+  { value: "skip", label: "-- Skip --" },
+  { value: "accountNumber", label: "Account Number" },
+  { value: "fileNumber", label: "File Number" },
+  { value: "firstName", label: "First Name" },
+  { value: "lastName", label: "Last Name" },
+  { value: "dateOfBirth", label: "Date of Birth" },
+  { value: "ssn", label: "SSN (Full)" },
+  { value: "ssnLast4", label: "SSN Last 4" },
+  { value: "address", label: "Address" },
+  { value: "city", label: "City" },
+  { value: "state", label: "State" },
+  { value: "zipCode", label: "ZIP Code" },
+  { value: "originalBalance", label: "Original Balance" },
+  { value: "currentBalance", label: "Current Balance" },
+  { value: "originalCreditor", label: "Original Creditor" },
+  { value: "clientName", label: "Client Name" },
+  { value: "status", label: "Status" },
+  { value: "lastContactDate", label: "Last Contact Date" },
+  { value: "nextFollowUpDate", label: "Next Follow Up Date" },
+  { value: "chargeOffDate", label: "Charge Off Date" },
+  { value: "phone1", label: "Phone 1" },
+  { value: "phone1Label", label: "Phone 1 Label" },
+  { value: "phone2", label: "Phone 2" },
+  { value: "phone2Label", label: "Phone 2 Label" },
+  { value: "phone3", label: "Phone 3" },
+  { value: "phone3Label", label: "Phone 3 Label" },
+  { value: "email1", label: "Email 1" },
+  { value: "email1Label", label: "Email 1 Label" },
+  { value: "email2", label: "Email 2" },
+  { value: "email2Label", label: "Email 2 Label" },
+  { value: "employerName", label: "Employer Name" },
+  { value: "employerPhone", label: "Employer Phone" },
+  { value: "employerAddress", label: "Employer Address" },
+  { value: "position", label: "Job Position/Title" },
+  { value: "salary", label: "Salary (Annual)" },
+  { value: "ref1Name", label: "Reference 1 Name" },
+  { value: "ref1Relationship", label: "Reference 1 Relationship" },
+  { value: "ref1Phone", label: "Reference 1 Phone" },
+  { value: "ref2Name", label: "Reference 2 Name" },
+  { value: "ref2Relationship", label: "Reference 2 Relationship" },
+  { value: "ref2Phone", label: "Reference 2 Phone" },
+  { value: "phone", label: "Phone (Legacy)" },
+  { value: "email", label: "Email (Legacy)" },
+];
+
+function parseCSV(text: string): { columns: string[]; data: string[][] } {
+  const lines = text.trim().split("\n");
+  if (lines.length === 0) return { columns: [], data: [] };
+  const columns = lines[0].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  const data = lines.slice(1).map((line) => {
+    const values: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === "," && !inQuotes) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    return values;
+  });
+  return { columns, data };
+}
+
+function normalizeHeader(s: string): string {
+  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function autoMapColumns(columns: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  const lookup: Record<string, string> = {};
+  for (const f of systemFields) {
+    if (f.value === "skip") continue;
+    lookup[normalizeHeader(f.label)] = f.value;
+    lookup[normalizeHeader(f.value)] = f.value;
+  }
+  const aliases: Record<string, string> = {
+    acctnumber: "accountNumber",
+    acctnum: "accountNumber",
+    acct: "accountNumber",
+    account: "accountNumber",
+    fname: "firstName",
+    lname: "lastName",
+    firstname: "firstName",
+    lastname: "lastName",
+    dob: "dateOfBirth",
+    ssn: "ssn",
+    origbal: "originalBalance",
+    origbalance: "originalBalance",
+    originalbalance: "originalBalance",
+    balance: "currentBalance",
+    currbal: "currentBalance",
+    currentbalance: "currentBalance",
+    zip: "zipCode",
+    zipcode: "zipCode",
+    creditor: "originalCreditor",
+    origcreditor: "originalCreditor",
+    phone: "phone1",
+    phone1: "phone1",
+    email: "email1",
+    email1: "email1",
+  };
+  for (const col of columns) {
+    const norm = normalizeHeader(col);
+    const match = lookup[norm] ?? aliases[norm];
+    result[col] = match || "skip";
+  }
+  return result;
+}
+
+const editPortfolioSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  purchaseDate: z.string().min(1, "Purchase date is required"),
-  purchasePrice: z.number().min(0, "Purchase price must be positive"),
-  totalFaceValue: z.number().min(0, "Face value must be positive"),
-  totalAccounts: z.number().min(1, "Must have at least 1 account"),
+  clientId: z.string().nullable().optional(),
+  feeScheduleId: z.string().nullable().optional(),
   creditorName: z.string().optional(),
   debtType: z.string().optional(),
   status: z.string().default("active"),
-  clientId: z.string().optional().nullable(),
-  feeScheduleId: z.string().optional().nullable(),
+  purchasePrice: z.number().min(0).default(0),
+  purchaseDate: z.string().min(1, "Purchase date is required"),
 });
 
-type AddPortfolioForm = z.infer<typeof addPortfolioSchema>;
+type EditPortfolioForm = z.infer<typeof editPortfolioSchema>;
 
 export default function Portfolios() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Add wizard state
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [wizardStep, setWizardStep] = useState<"name" | "import">("name");
+  const [newPortfolioName, setNewPortfolioName] = useState("");
+  const [newPortfolioId, setNewPortfolioId] = useState<string | null>(null);
+  const [importDone, setImportDone] = useState(false);
+  const [importClientId, setImportClientId] = useState<string>("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [csvColumns, setCsvColumns] = useState<string[]>([]);
+  const [csvData, setCsvData] = useState<string[][]>([]);
+  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
+  // Refs avoid stale closures during async create/import vs dialog close.
+  const importDoneRef = useRef(false);
+  const importStartedRef = useRef(false);
+  const dialogOpenRef = useRef(false);
+  const newPortfolioIdRef = useRef<string | null>(null);
+
+  // Edit dialog state
+  const [editingPortfolio, setEditingPortfolio] = useState<Portfolio | null>(null);
 
   const { data: portfolios, isLoading } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
@@ -92,36 +231,234 @@ export default function Portfolios() {
     queryKey: ["/api/fee-schedules"],
   });
 
-  const form = useForm<AddPortfolioForm>({
-    resolver: zodResolver(addPortfolioSchema),
+  const editForm = useForm<EditPortfolioForm>({
+    resolver: zodResolver(editPortfolioSchema),
     defaultValues: {
       name: "",
-      purchaseDate: new Date().toISOString().split("T")[0],
-      purchasePrice: 0,
-      totalFaceValue: 0,
-      totalAccounts: 0,
-      creditorName: "",
-      debtType: "credit_card",
-      status: "active",
       clientId: null,
       feeScheduleId: null,
+      creditorName: "",
+      debtType: "",
+      status: "active",
+      purchasePrice: 0,
+      purchaseDate: new Date().toISOString().split("T")[0],
     },
   });
 
-  const addPortfolioMutation = useMutation({
-    mutationFn: async (data: AddPortfolioForm) => {
-      return apiRequest("POST", "/api/portfolios", data);
-    },
-    onSuccess: () => {
+  const resetWizard = () => {
+    setWizardStep("name");
+    setNewPortfolioName("");
+    setNewPortfolioId(null);
+    newPortfolioIdRef.current = null;
+    setImportDone(false);
+    importDoneRef.current = false;
+    importStartedRef.current = false;
+    setImportClientId("");
+    setImportFile(null);
+    setCsvColumns([]);
+    setCsvData([]);
+    setColumnMappings({});
+  };
+
+  const deletePortfolioSilently = async (id: string) => {
+    try {
+      await apiRequest("DELETE", `/api/portfolios/${id}`);
+    } catch {
+      // best-effort cleanup; ignore failures
+    } finally {
       queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
-      setShowAddDialog(false);
-      form.reset();
-      toast({ title: "Portfolio added", description: "Portfolio has been created successfully." });
+    }
+  };
+
+  const createPortfolioMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/portfolios", {
+        name,
+        purchaseDate: new Date().toISOString().split("T")[0],
+        purchasePrice: 0,
+        totalFaceValue: 0,
+        totalAccounts: 0,
+        status: "active",
+      });
+      return (await res.json()) as Portfolio;
+    },
+    onSuccess: (portfolio) => {
+      // Race guard: if user closed the dialog before create finished,
+      // immediately delete the orphan shell and DO NOT mutate wizard state.
+      if (!dialogOpenRef.current) {
+        deletePortfolioSilently(portfolio.id);
+        return;
+      }
+      newPortfolioIdRef.current = portfolio.id;
+      setNewPortfolioId(portfolio.id);
+      setWizardStep("import");
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create portfolio.", variant: "destructive" });
     },
   });
+
+  const importDebtorsMutation = useMutation({
+    mutationFn: async (vars: {
+      portfolioId: string;
+      clientId: string;
+      records: any[];
+      mappings: Record<string, string>;
+    }) => {
+      importStartedRef.current = true;
+      const res = await apiRequest("POST", "/api/import/debtors", {
+        portfolioId: vars.portfolioId,
+        clientId: vars.clientId,
+        records: vars.records,
+        mappings: vars.mappings,
+        fileNumberStart: 1,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      importDoneRef.current = true;
+      setImportDone(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      toast({
+        title: "Portfolio Created",
+        description: data.message || "Accounts imported successfully.",
+      });
+      setShowAddDialog(false);
+      resetWizard();
+    },
+    onError: (err: any) => {
+      // Import failed — keep the shell; user may retry.
+      importStartedRef.current = false;
+      toast({
+        title: "Import Failed",
+        description: err.message || "Could not import accounts.",
+        variant: "destructive",
+      });
+    },
+  });
+
+
+  const updatePortfolioMutation = useMutation({
+    mutationFn: async (vars: { id: string; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/portfolios/${vars.id}`, vars.data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
+      setEditingPortfolio(null);
+      toast({ title: "Portfolio updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update portfolio.", variant: "destructive" });
+    },
+  });
+
+  // Track dialog open state in a ref so async create/import callbacks can
+  // detect close without depending on stale state.
+  useEffect(() => {
+    dialogOpenRef.current = showAddDialog;
+    if (!showAddDialog) {
+      // Use the ref so a late-arriving create-success that happened to flush
+      // setState before this effect ran is still picked up. The create
+      // success handler also short-circuits and deletes the shell directly
+      // when the dialog is closed; this is a defense-in-depth pass.
+      const id = newPortfolioIdRef.current;
+      const wasImported = importDoneRef.current;
+      const importInFlight = importStartedRef.current && !importDoneRef.current;
+      if (id && !wasImported && !importInFlight) {
+        deletePortfolioSilently(id);
+      }
+      resetWizard();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAddDialog]);
+
+  const handleFileSelect = async (file: File | null) => {
+    setImportFile(file);
+    if (!file) {
+      setCsvColumns([]);
+      setCsvData([]);
+      setColumnMappings({});
+      return;
+    }
+    const text = await file.text();
+    const { columns, data } = parseCSV(text);
+    setCsvColumns(columns);
+    setCsvData(data);
+    setColumnMappings(autoMapColumns(columns));
+  };
+
+  const handleSubmitName = () => {
+    const name = newPortfolioName.trim();
+    if (!name) {
+      toast({ title: "Name required", description: "Please enter a portfolio name.", variant: "destructive" });
+      return;
+    }
+    createPortfolioMutation.mutate(name);
+  };
+
+  const handleRunImport = () => {
+    if (!newPortfolioId) return;
+    if (!importClientId) {
+      toast({ title: "Client required", description: "Please choose a client for these accounts.", variant: "destructive" });
+      return;
+    }
+    if (!importFile || csvData.length === 0) {
+      toast({ title: "File required", description: "Please upload a CSV file to import.", variant: "destructive" });
+      return;
+    }
+    const hasMapping = Object.values(columnMappings).some((v) => v && v !== "skip");
+    if (!hasMapping) {
+      toast({ title: "Map at least one column", description: "Map at least one CSV column to a system field.", variant: "destructive" });
+      return;
+    }
+    const records = csvData.map((row) => {
+      const record: Record<string, string> = {};
+      csvColumns.forEach((col, idx) => {
+        record[col] = row[idx] || "";
+      });
+      return record;
+    });
+    importDebtorsMutation.mutate({
+      portfolioId: newPortfolioId,
+      clientId: importClientId,
+      records,
+      mappings: columnMappings,
+    });
+  };
+
+  const openEditDialog = (portfolio: Portfolio) => {
+    editForm.reset({
+      name: portfolio.name,
+      clientId: portfolio.clientId ?? null,
+      feeScheduleId: portfolio.feeScheduleId ?? null,
+      creditorName: portfolio.creditorName ?? "",
+      debtType: portfolio.debtType ?? "",
+      status: portfolio.status,
+      purchasePrice: portfolio.purchasePrice ?? 0,
+      purchaseDate: portfolio.purchaseDate,
+    });
+    setEditingPortfolio(portfolio);
+  };
+
+  const submitEdit = (data: EditPortfolioForm) => {
+    if (!editingPortfolio) return;
+    updatePortfolioMutation.mutate({
+      id: editingPortfolio.id,
+      data: {
+        name: data.name,
+        clientId: data.clientId || null,
+        feeScheduleId: data.feeScheduleId || null,
+        creditorName: data.creditorName || null,
+        debtType: data.debtType || null,
+        status: data.status,
+        purchasePrice: data.purchasePrice ?? 0,
+        purchaseDate: data.purchaseDate,
+      },
+    });
+  };
 
   const filteredPortfolios = portfolios?.filter((portfolio) => {
     const matchesSearch =
@@ -159,26 +496,10 @@ export default function Portfolios() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard
-          title="Total Face Value"
-          value={formatCurrencyCompact(totalFaceValue)}
-          icon={DollarSign}
-        />
-        <StatCard
-          title="Purchase Investment"
-          value={formatCurrencyCompact(totalPurchasePrice)}
-          icon={TrendingUp}
-        />
-        <StatCard
-          title="Total Accounts"
-          value={totalAccounts.toLocaleString()}
-          icon={Users}
-        />
-        <StatCard
-          title="Active Portfolios"
-          value={activePortfolios.toString()}
-          icon={FolderKanban}
-        />
+        <StatCard title="Total Face Value" value={formatCurrencyCompact(totalFaceValue)} icon={DollarSign} />
+        <StatCard title="Purchase Investment" value={formatCurrencyCompact(totalPurchasePrice)} icon={TrendingUp} />
+        <StatCard title="Total Accounts" value={totalAccounts.toLocaleString()} icon={Users} />
+        <StatCard title="Active Portfolios" value={activePortfolios.toString()} icon={FolderKanban} />
       </div>
 
       <Card>
@@ -268,19 +589,33 @@ export default function Portfolios() {
                         {formatDate(portfolio.purchaseDate)}
                       </td>
                       <td className="py-3">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`portfolio-menu-${portfolio.id}`}>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>View Details</DropdownMenuItem>
-                            <DropdownMenuItem>Assign Collectors</DropdownMenuItem>
-                            <DropdownMenuItem>View Accounts</DropdownMenuItem>
-                            <DropdownMenuItem>Export Report</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditDialog(portfolio)}
+                            data-testid={`button-edit-portfolio-${portfolio.id}`}
+                            title="Edit portfolio"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`portfolio-menu-${portfolio.id}`}>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(portfolio)} data-testid={`menu-edit-portfolio-${portfolio.id}`}>
+                                Edit Portfolio
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>View Details</DropdownMenuItem>
+                              <DropdownMenuItem>Assign Collectors</DropdownMenuItem>
+                              <DropdownMenuItem>View Accounts</DropdownMenuItem>
+                              <DropdownMenuItem>Export Report</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -309,24 +644,192 @@ export default function Portfolios() {
         </CardContent>
       </Card>
 
+      {/* Add Portfolio Wizard */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={wizardStep === "import" ? "max-w-3xl" : "max-w-md"}>
           <DialogHeader>
-            <DialogTitle>Add New Portfolio</DialogTitle>
+            <DialogTitle>
+              {wizardStep === "name" ? "Add New Portfolio" : `Import Accounts into "${newPortfolioName}"`}
+            </DialogTitle>
             <DialogDescription>
-              Enter the portfolio details to add it to the system.
+              {wizardStep === "name"
+                ? "Step 1 of 2 — name your portfolio. Totals will be calculated from the imported file."
+                : "Step 2 of 2 — pick the client these accounts belong to, upload your CSV, and map the columns."}
             </DialogDescription>
           </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit((data) => addPortfolioMutation.mutate(data))} className="space-y-4">
+
+          {wizardStep === "name" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Portfolio Name *</Label>
+                <Input
+                  value={newPortfolioName}
+                  onChange={(e) => setNewPortfolioName(e.target.value)}
+                  placeholder="e.g., Chase Q4 2024"
+                  data-testid="input-portfolio-name"
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground">
+                  Face value, account count, and other details will be filled in from your CSV.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSubmitName}
+                  disabled={createPortfolioMutation.isPending || !newPortfolioName.trim()}
+                  data-testid="button-continue-import"
+                >
+                  {createPortfolioMutation.isPending ? "Creating..." : "Continue"}
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {wizardStep === "import" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Client *</Label>
+                <Select value={importClientId} onValueChange={setImportClientId}>
+                  <SelectTrigger data-testid="select-import-client">
+                    <SelectValue placeholder="Select a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {!clients || clients.length === 0 ? (
+                      <SelectItem value="none" disabled>
+                        No clients available — create one in Clients first
+                      </SelectItem>
+                    ) : (
+                      clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>CSV File *</Label>
+                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                  <Input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                    className="hidden"
+                    id="portfolio-import-file"
+                    data-testid="input-portfolio-import-file"
+                  />
+                  <label htmlFor="portfolio-import-file" className="cursor-pointer">
+                    <FileText className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-1">
+                      {importFile ? importFile.name : "Click to select a CSV file"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">CSV files only</p>
+                  </label>
+                </div>
+                {importFile && csvColumns.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {csvColumns.length} columns, {csvData.length} rows detected. Columns auto-mapped where possible — review below.
+                  </p>
+                )}
+              </div>
+
+              {csvColumns.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Column Mapping</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-3 gap-3 px-3 py-2 bg-muted text-xs font-medium">
+                      <span>CSV Column</span>
+                      <span>Sample</span>
+                      <span>Map To</span>
+                    </div>
+                    <div className="divide-y max-h-64 overflow-y-auto">
+                      {csvColumns.map((col, idx) => (
+                        <div key={col} className="grid grid-cols-3 gap-3 px-3 py-2 items-center">
+                          <span className="text-xs font-mono truncate" title={col}>{col}</span>
+                          <span className="text-xs text-muted-foreground truncate">
+                            {csvData[0]?.[idx] || "-"}
+                          </span>
+                          <Select
+                            value={columnMappings[col] || "skip"}
+                            onValueChange={(val) =>
+                              setColumnMappings({ ...columnMappings, [col]: val })
+                            }
+                          >
+                            <SelectTrigger data-testid={`select-mapping-${col}`} className="h-8 text-xs">
+                              <SelectValue placeholder="Select field" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {systemFields.map((field) => (
+                                <SelectItem key={field.value} value={field.value}>
+                                  {field.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <DialogFooter className="flex justify-between sm:justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddDialog(false)}
+                  data-testid="button-cancel-import"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleRunImport}
+                  disabled={
+                    importDebtorsMutation.isPending ||
+                    !importClientId ||
+                    !importFile ||
+                    csvColumns.length === 0
+                  }
+                  data-testid="button-run-import"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {importDebtorsMutation.isPending
+                    ? "Importing..."
+                    : `Import ${csvData.length} Account${csvData.length === 1 ? "" : "s"}`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Portfolio Dialog */}
+      <Dialog open={!!editingPortfolio} onOpenChange={(open) => !open && setEditingPortfolio(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Portfolio</DialogTitle>
+            <DialogDescription>
+              Update optional details. Face value and account count are calculated from imports.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(submitEdit)} className="space-y-4">
               <FormField
-                control={form.control}
+                control={editForm.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Portfolio Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Chase Q4 2024" {...field} data-testid="input-portfolio-name" />
+                      <Input {...field} data-testid="input-edit-portfolio-name" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -334,21 +837,26 @@ export default function Portfolios() {
               />
               <div className="grid grid-cols-2 gap-4">
                 <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="clientId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Client</FormLabel>
-                      <Select onValueChange={(val) => field.onChange(val === "none" ? null : val)} value={field.value || "none"}>
+                      <Select
+                        onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                        value={field.value || "none"}
+                      >
                         <FormControl>
-                          <SelectTrigger data-testid="select-client">
+                          <SelectTrigger data-testid="select-edit-client">
                             <SelectValue placeholder="Select client" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="none">No Client</SelectItem>
                           {clients?.map((client) => (
-                            <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                            <SelectItem key={client.id} value={client.id}>
+                              {client.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -357,24 +865,29 @@ export default function Portfolios() {
                   )}
                 />
                 <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="feeScheduleId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Fee Schedule</FormLabel>
-                      <Select onValueChange={(val) => field.onChange(val === "none" ? null : val)} value={field.value || "none"}>
+                      <Select
+                        onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                        value={field.value || "none"}
+                      >
                         <FormControl>
-                          <SelectTrigger data-testid="select-fee-schedule">
+                          <SelectTrigger data-testid="select-edit-fee-schedule">
                             <SelectValue placeholder="Select fee schedule" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="none">No Fee Schedule</SelectItem>
-                          {feeSchedules?.filter(f => f.isActive).map((fee) => (
-                            <SelectItem key={fee.id} value={fee.id}>
-                              {fee.name} ({(fee.feePercentage || 0) / 100}%)
-                            </SelectItem>
-                          ))}
+                          {feeSchedules
+                            ?.filter((f) => f.isActive)
+                            .map((fee) => (
+                              <SelectItem key={fee.id} value={fee.id}>
+                                {fee.name} ({(fee.feePercentage || 0) / 100}%)
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -384,27 +897,32 @@ export default function Portfolios() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="creditorName"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Creditor Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Chase Bank" {...field} data-testid="input-creditor-name" />
+                        <Input
+                          placeholder="e.g., Chase Bank"
+                          {...field}
+                          value={field.value || ""}
+                          data-testid="input-edit-creditor-name"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                 <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="debtType"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Debt Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-debt-type">
+                          <SelectTrigger data-testid="select-edit-debt-type">
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                         </FormControl>
@@ -424,26 +942,7 @@ export default function Portfolios() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
-                  control={form.control}
-                  name="totalFaceValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Total Face Value ($)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
-                          data-testid="input-face-value"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="purchasePrice"
                   render={({ field }) => (
                     <FormItem>
@@ -453,28 +952,11 @@ export default function Portfolios() {
                           type="number"
                           step="0.01"
                           placeholder="0.00"
-                          onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
-                          data-testid="input-purchase-price"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="totalAccounts"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Total Accounts</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          onChange={(e) => field.onChange(parseInt(e.target.value || "0"))}
-                          data-testid="input-total-accounts"
+                          defaultValue={field.value ? (field.value / 100).toFixed(2) : "0.00"}
+                          onChange={(e) =>
+                            field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))
+                          }
+                          data-testid="input-edit-purchase-price"
                         />
                       </FormControl>
                       <FormMessage />
@@ -482,25 +964,51 @@ export default function Portfolios() {
                   )}
                 />
                 <FormField
-                  control={form.control}
+                  control={editForm.control}
                   name="purchaseDate"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Purchase Date</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} data-testid="input-purchase-date" />
+                        <Input type="date" {...field} data-testid="input-edit-purchase-date" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
+              <FormField
+                control={editForm.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Status</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-status">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="closed">Closed</SelectItem>
+                        <SelectItem value="archived">Archived</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
+                <Button type="button" variant="outline" onClick={() => setEditingPortfolio(null)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={addPortfolioMutation.isPending} data-testid="button-submit-portfolio">
-                  {addPortfolioMutation.isPending ? "Adding..." : "Add Portfolio"}
+                <Button
+                  type="submit"
+                  disabled={updatePortfolioMutation.isPending}
+                  data-testid="button-save-edit-portfolio"
+                >
+                  {updatePortfolioMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </DialogFooter>
             </form>

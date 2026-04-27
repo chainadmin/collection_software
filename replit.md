@@ -67,6 +67,9 @@ Each organization configures its own merchant account credentials (e.g., Authori
 ### Import/Export Features
 The system allows flexible partial imports for accounts, contacts, and payments. It features upsert logic for managing existing records, cross-portfolio linking via SSN, and schema mapping. Comprehensive account data, including multiple phones, emails, employment, and references, can be imported.
 
+### Add Portfolio Wizard
+The Add Portfolio dialog on `/portfolios` is a 2-step wizard. Step 1 collects only the portfolio name and creates the portfolio with zeroed totals (`totalFaceValue=0`, `totalAccounts=0`, `purchasePrice=0`, `purchaseDate=today`). Step 2 collects the client, a CSV file, and column mappings (auto-mapped by header name with manual override), then posts to `/api/import/debtors` which recomputes `totalFaceValue` (sum of `originalBalance`) and `totalAccounts` (count) for that portfolio. If the user closes the dialog after step 1 without completing the import, a `useEffect` cleanup deletes the empty portfolio shell so no zero-balance shells are left behind. Optional fields (client, fee schedule, creditor name, debt type, purchase price, purchase date, status) are edited later via the per-row pencil button which opens an Edit Portfolio dialog (`PATCH /api/portfolios/:id`); face value and account count are not editable from this dialog and continue to be driven by imports.
+
 ### Card Validation
 Client-side card validation uses BIN lookup, issuer detection, and Luhn algorithm validation, providing real-time feedback during payment recording.
 
