@@ -6,7 +6,7 @@
     <title>Debt Manager Pro - Debt Collection Management</title>
     <meta name="description" content="Professional debt collection management software with payment runner, portfolio tracking, and collector seat management" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="manifest" href="/manifest.json" />
+    <link id="app-manifest" rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#2563eb" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -20,20 +20,84 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Pick the right web app manifest based on the page being viewed so
+      // installing from a collector page installs the collector PWA and
+      // installing from anywhere else installs the admin PWA.
+      (function () {
+        try {
+          var path = window.location.pathname || '/';
+          var isCollectorPage =
+            path.indexOf('/collector-login') === 0 ||
+            path.indexOf('/collector-install') === 0;
+          var link = document.getElementById('app-manifest');
+          if (link) {
+            var desired = isCollectorPage ? '/manifest-collector.json' : '/manifest.json';
+            if (link.getAttribute('href') !== desired) {
+              link.setAttribute('href', desired);
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      })();
+
+      // One-time cleanup for users who already installed an earlier broken
+      // version of the PWA: clear stale caches and unregister any obsolete
+      // service workers so the navigation handler can't keep returning a
+      // broken cached shell on launch.
+      (function () {
+        var CLEANUP_KEY = 'sw-cleanup-v6';
+        try {
+          if (localStorage.getItem(CLEANUP_KEY) === '1') return;
+          var tasks = [];
+          if (typeof caches !== 'undefined' && caches.keys) {
+            tasks.push(
+              caches.keys().then(function (names) {
+                return Promise.all(
+                  names
+                    .filter(function (n) { return n !== 'debtmanagerpro-v6'; })
+                    .map(function (n) { return caches.delete(n); })
+                );
+              })
+            );
+          }
+          if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+            var expectedScript = new URL('/sw.js', window.location.origin).href;
+            tasks.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (reg) {
+                  var current = reg.active || reg.installing || reg.waiting;
+                  if (current && current.scriptURL && current.scriptURL !== expectedScript) {
+                    return reg.unregister().catch(function () {});
+                  }
+                  return undefined;
+                }));
+              }).catch(function () {})
+            );
+          }
+          Promise.all(tasks).then(function () {
+            localStorage.setItem(CLEANUP_KEY, '1');
+          }).catch(function () {});
+        } catch (e) {
+          // ignore
+        }
+      })();
+
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-            .then((registration) => {
-              registration.addEventListener('updatefound', () => {
+            .then(function (registration) {
+              registration.addEventListener('updatefound', function () {
                 var newWorker = registration.installing;
                 if (newWorker) {
-                  newWorker.addEventListener('statechange', () => {
-                    if (newWorker.state === 'activated') {
-                      var reloadKey = 'sw-reload-' + Date.now();
-                      if (!sessionStorage.getItem('sw-reloaded')) {
-                        sessionStorage.setItem('sw-reloaded', '1');
-                        window.location.reload();
-                      }
+                  newWorker.addEventListener('statechange', function () {
+                    if (
+                      newWorker.state === 'activated' &&
+                      navigator.serviceWorker.controller &&
+                      !sessionStorage.getItem('sw-reloaded')
+                    ) {
+                      sessionStorage.setItem('sw-reloaded', '1');
+                      window.location.reload();
                     }
                   });
                 }
@@ -41,7 +105,7 @@
               sessionStorage.removeItem('sw-reloaded');
               registration.update();
             })
-            .catch((error) => {
+            .catch(function (error) {
               console.log('SW registration failed:', error);
             });
         });

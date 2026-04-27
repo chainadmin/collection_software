@@ -194,6 +194,24 @@ function AppLayout() {
 function AppContent() {
   const [location] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Keep the active web app manifest aligned with the page being viewed so
+  // installing from a collector page installs the collector PWA and
+  // installing from anywhere else installs the admin PWA.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const link = document.getElementById("app-manifest") as HTMLLinkElement | null;
+    if (!link) return;
+    const isCollectorPage =
+      location.startsWith("/collector-login") ||
+      location.startsWith("/collector-install");
+    const desired = isCollectorPage
+      ? "/manifest-collector.json"
+      : "/manifest.json";
+    if (link.getAttribute("href") !== desired) {
+      link.setAttribute("href", desired);
+    }
+  }, [location]);
   
   const isPublicOnlyRoute = 
     location === "/" || 

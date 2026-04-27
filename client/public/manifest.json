@@ -3,7 +3,7 @@
   "short_name": "DebtManager",
   "description": "Professional debt collection management software",
   "id": "dmp-admin",
-  "start_url": "/login?app=admin",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#09090b",

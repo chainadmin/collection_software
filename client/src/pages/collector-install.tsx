@@ -9,11 +9,8 @@ export default function CollectorInstall() {
   const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
-    const existingManifest = document.querySelector('link[rel="manifest"]');
-    if (existingManifest) {
-      existingManifest.setAttribute("href", "/manifest-collector.json");
-    }
-
+    // The active manifest is kept in sync with the route by AppContent, so
+    // we don't need to swap it here. We just listen for the install prompt.
     const handler = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
@@ -27,9 +24,6 @@ export default function CollectorInstall() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handler);
-      if (existingManifest) {
-        existingManifest.setAttribute("href", "/manifest.json");
-      }
     };
   }, []);
 
