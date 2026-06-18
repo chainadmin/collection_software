@@ -1,6 +1,19 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
+
+// Verify a password against a stored hash. Supports bcrypt hashes (start
+// with "$2") and legacy SHA-256 hashes (64 hex chars), matching the
+// verification logic used by the main app's auth routes.
+async function verifyApiPassword(password: string, hash: string): Promise<boolean> {
+  if (!hash) return false;
+  if (hash.startsWith("$2")) {
+    return bcrypt.compare(password, hash);
+  }
+  const sha256Hash = crypto.createHash("sha256").update(password).digest("hex");
+  return sha256Hash === hash;
+}
 
 interface AuthenticatedRequest extends Request {
   apiToken?: {
@@ -77,8 +90,16 @@ export function registerExternalApiRoutes(app: Express) {
       
       const collector = await storage.getCollectorByOrgAndUsername(organization.id, username);
       
-      if (!collector || collector.password !== password) {
+      if (!collector || !(await verifyApiPassword(password, collector.password))) {
         return res.status(401).json({ error: "Invalid credentials" });
+      }
+      
+      if (collector.status !== "active") {
+        return res.status(403).json({ error: "Your account is not active" });
+      }
+      
+      if (!organization.isActive) {
+        return res.status(403).json({ error: "Your organization is not active" });
       }
       
       const token = crypto.randomBytes(32).toString("hex");

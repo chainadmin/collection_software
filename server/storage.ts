@@ -458,6 +458,8 @@ export class MemStorage implements IStorage {
       firstMonthFree: false,
       seatLimit: 4,
       ipRestrictionEnabled: false,
+      autoRunnerEnabled: false,
+      autoRunnerHours: "7,18",
     });
 
     // Create global super admin
@@ -1028,6 +1030,8 @@ export class MemStorage implements IStorage {
       firstMonthFree: org.firstMonthFree ?? false,
       seatLimit: org.seatLimit ?? 4,
       ipRestrictionEnabled: org.ipRestrictionEnabled ?? false,
+      autoRunnerEnabled: org.autoRunnerEnabled ?? false,
+      autoRunnerHours: org.autoRunnerHours ?? "7,18",
     };
     this.organizations.set(id, newOrg);
     return newOrg;
@@ -2123,7 +2127,9 @@ export class MemStorage implements IStorage {
 
   // Consolidation Companies
   async getConsolidationCompanies(organizationId?: string): Promise<ConsolidationCompany[]> {
-    return Array.from(this.consolidationCompanies.values());
+    let companies = Array.from(this.consolidationCompanies.values());
+    if (organizationId) companies = companies.filter((c) => c.organizationId === organizationId);
+    return companies;
   }
 
   async getConsolidationCompany(id: string): Promise<ConsolidationCompany | undefined> {
@@ -2134,6 +2140,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newCompany: ConsolidationCompany = {
       id,
+      organizationId: company.organizationId,
       name: company.name,
       contactName: company.contactName ?? null,
       phone: company.phone ?? null,
@@ -2288,6 +2295,7 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newItem: RemittanceItem = {
       id,
+      organizationId: item.organizationId,
       remittanceId: item.remittanceId,
       debtorId: item.debtorId,
       paymentId: item.paymentId,

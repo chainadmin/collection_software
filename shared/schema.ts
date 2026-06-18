@@ -630,6 +630,7 @@ export type RecallItem = typeof recallItems.$inferSelect;
 // Consolidation Companies
 export const consolidationCompanies = pgTable("consolidation_companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   contactName: text("contact_name"),
   phone: text("phone"),
@@ -681,6 +682,7 @@ export type WorkQueueItem = typeof workQueueItems.$inferSelect;
 // Remittance Items (individual account payments for remittance)
 export const remittanceItems = pgTable("remittance_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
   remittanceId: varchar("remittance_id").notNull(),
   debtorId: varchar("debtor_id").notNull(),
   paymentId: varchar("payment_id").notNull(),

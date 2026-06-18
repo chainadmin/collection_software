@@ -375,6 +375,7 @@ export async function runMigrations() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "remittance_items" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
         "remittance_id" varchar NOT NULL,
         "debtor_id" varchar NOT NULL,
         "payment_id" varchar NOT NULL,
@@ -488,6 +489,7 @@ export async function runMigrations() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "consolidation_companies" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
         "name" text NOT NULL,
         "contact_name" text,
         "phone" text,
@@ -711,6 +713,12 @@ export async function runMigrations() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'auto_runner_hours') THEN
           ALTER TABLE organizations ADD COLUMN auto_runner_hours text DEFAULT '7,18';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'consolidation_companies' AND column_name = 'organization_id') THEN
+          ALTER TABLE consolidation_companies ADD COLUMN organization_id varchar;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'remittance_items' AND column_name = 'organization_id') THEN
+          ALTER TABLE remittance_items ADD COLUMN organization_id varchar;
         END IF;
       END $$;
     `);

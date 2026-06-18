@@ -1,0 +1,1 @@
+- [Multi-tenant org isolation](org-isolation.md) — per-route getOrgId + validateOrgOwnership; consolidation_cases & work_queue_items have no org column, scope via related company/collector.
