@@ -42,6 +42,7 @@ import TimeClock from "@/pages/admin/reporting/time-clock";
 import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import Clients from "@/pages/admin/clients";
+import Integrations from "@/pages/admin/integrations";
 import SuperAdmin from "@/pages/super-admin";
 import SuperAdminLogin from "@/pages/super-admin-login";
 import Subscribe from "@/pages/subscribe";
@@ -79,6 +80,7 @@ function AppRouter() {
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
       <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />
+      <Route path="/app/admin/integrations" component={Integrations} />
       <Route component={NotFound} />
     </Switch>
   );

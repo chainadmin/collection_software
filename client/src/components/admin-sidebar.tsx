@@ -23,6 +23,7 @@ import {
   DollarSign,
   Server,
   Headphones,
+  Zap,
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -114,6 +115,7 @@ const adminSections: NavSection[] = [
     icon: Settings,
     items: [
       { title: "App Settings", url: "/app/admin/settings", icon: Settings },
+      { title: "Text & Email Integration", url: "/app/admin/integrations", icon: Zap },
       { title: "Collector Options", url: "/app/collectors", icon: UserCog },
       { title: "Fee Schedule", url: "/app/admin/settings/fees", icon: DollarSign },
       { title: "Server Access", url: "/app/admin/settings/server-access", icon: Server },
