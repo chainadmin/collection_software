@@ -254,6 +254,7 @@ export default function EmailTemplates() {
 
       return apiRequest("POST", "/api/campaigns/send", {
         integrationId: sendIntegrationId,
+        templateId: sendTemplate?.id,
         campaignName: sendCampaignName,
         accounts,
       });

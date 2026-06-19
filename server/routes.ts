@@ -4313,15 +4313,27 @@ export async function registerRoutes(
       }
       const orgId = getOrgId(req);
       const collectorId = req.session?.collector?.id || "unknown";
-      const { integrationId, campaignName, accounts } = req.body as { integrationId: string; campaignName: string; accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> };
+      const { integrationId, templateId, campaignName, accounts } = req.body as { integrationId: string; templateId: string; campaignName: string; accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> };
 
-      if (!integrationId || !campaignName || !Array.isArray(accounts) || accounts.length === 0) {
-        return res.status(400).json({ error: "integrationId, campaignName, and accounts are required" });
+      if (!integrationId || !templateId || !campaignName || !Array.isArray(accounts) || accounts.length === 0) {
+        return res.status(400).json({ error: "integrationId, templateId, campaignName, and accounts are required" });
       }
 
       const integration = await storage.getCampaignIntegration(integrationId);
       if (!integration || !validateOrgOwnership(integration.organizationId, orgId)) {
         return res.status(404).json({ error: "Campaign integration not found" });
+      }
+
+      const template = await storage.getEmailTemplate(templateId);
+      if (!template || !validateOrgOwnership(template.organizationId, orgId)) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      // Enforce template/integration channel compatibility: email templates must go
+      // through an email integration, text templates through an sms integration.
+      const requiredIntegrationType = template.templateType === "email" ? "email" : "sms";
+      if (integration.type !== requiredIntegrationType) {
+        return res.status(400).json({ error: `A "${template.templateType}" template must be sent through a "${requiredIntegrationType}" integration` });
       }
 
       const debtors = await Promise.all(accounts.map((a) => storage.getDebtor(a.debtorId)));
@@ -4360,6 +4372,13 @@ export async function registerRoutes(
         campaignLogId: campaignLog.id,
         campaignName,
         campaignType: integration.type,
+        template: {
+          id: template.id,
+          name: template.name,
+          type: template.templateType,
+          subject: template.subject ?? "",
+          body: template.body,
+        },
         accounts: items.map((item) => ({
           fileNumber: item.fileNumber,
           contactValue: item.contactValue,
