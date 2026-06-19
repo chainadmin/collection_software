@@ -277,14 +277,33 @@ function AppContent() {
 }
 
 function App() {
-  // Capture PWA install prompt globally
+  // Capture PWA install prompt globally and broadcast changes so the
+  // usePwaInstall hook stays in sync even if the prompt fired before a
+  // component mounted.
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
       (window as any).__pwaInstallPrompt = e;
+      // Record which app this prompt installs (based on the active manifest)
+      // so a collector page never fires a prompt captured for the admin app.
+      const link = document.getElementById("app-manifest");
+      const href = link?.getAttribute("href") || "/manifest.json";
+      (window as any).__pwaInstallPromptMode = href.includes("collector")
+        ? "collector"
+        : "admin";
+      window.dispatchEvent(new Event("pwa-install-available"));
+    };
+    const installedHandler = () => {
+      (window as any).__pwaInstallPrompt = null;
+      (window as any).__pwaInstallPromptMode = null;
+      window.dispatchEvent(new Event("pwa-installed"));
     };
     window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", installedHandler);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+      window.removeEventListener("appinstalled", installedHandler);
+    };
   }, []);
 
   return (

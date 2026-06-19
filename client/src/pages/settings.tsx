@@ -27,7 +27,6 @@ import {
   GripVertical,
   Settings2,
   Monitor,
-  Download,
   Smartphone,
   Copy,
   ExternalLink,
@@ -48,6 +47,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
+import { InstallButton } from "@/components/install-button";
 import type { ApiToken, AccountStatus } from "@shared/schema";
 
 const SYSTEM_STATUSES = [
@@ -812,31 +812,7 @@ export default function Settings() {
                 <p className="text-sm text-muted-foreground mb-3">
                   Install Debt Manager Pro as a desktop application for quick access from your taskbar.
                 </p>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  data-testid="button-install-pwa"
-                  onClick={() => {
-                    const deferredPrompt = (window as any).__pwaInstallPrompt;
-                    if (deferredPrompt) {
-                      deferredPrompt.prompt();
-                      deferredPrompt.userChoice.then((choiceResult: any) => {
-                        if (choiceResult.outcome === 'accepted') {
-                          (window as any).__pwaInstallPrompt = null;
-                        }
-                      });
-                    } else {
-                      if (window.matchMedia('(display-mode: standalone)').matches) {
-                        alert('App is already installed! Look for it in your applications.');
-                      } else {
-                        alert('To install: Click the install icon in your browser address bar, or use your browser menu to "Install App" or "Add to Home Screen".');
-                      }
-                    }
-                  }}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Install Desktop App
-                </Button>
+                <InstallButton mode="admin" label="Install Desktop App" />
               </div>
             </CardContent>
           </Card>

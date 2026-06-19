@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Link } from "wouter";
+import { InstallButton } from "@/components/install-button";
 import {
   Shield,
   CreditCard,
@@ -337,22 +338,7 @@ export default function Landing() {
                 <li><a href="#pricing" className="hover:text-foreground">Pricing</a></li>
                 <li><Link href="/demo" className="hover:text-foreground">Demo</Link></li>
                 <li>
-                  <button 
-                    onClick={() => {
-                      const deferredPrompt = (window as any).__pwaInstallPrompt;
-                      if (deferredPrompt) {
-                        deferredPrompt.prompt();
-                      } else if (window.matchMedia('(display-mode: standalone)').matches) {
-                        alert('App is already installed!');
-                      } else {
-                        alert('To install: Click the install icon in your browser address bar, or use your browser menu to "Install App".');
-                      }
-                    }}
-                    className="hover:text-foreground cursor-pointer"
-                    data-testid="button-download-app"
-                  >
-                    Download Admin App
-                  </button>
+                  <InstallButton mode="admin" label="Download Admin App" />
                 </li>
                 <li>
                   <Link href="/collector-install" className="hover:text-foreground" data-testid="link-download-collector">
