@@ -38,6 +38,17 @@ import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bi
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -1829,9 +1840,31 @@ export default function Workstation() {
                                     >
                                       <Pencil className="h-3 w-3" />
                                     </Button>
-                                    <Button size="icon" variant="ghost" onClick={() => handleDeleteCustomField(key)} data-testid={`button-delete-custom-field-${key}`}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button size="icon" variant="ghost" data-testid={`button-delete-custom-field-${key}`}>
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Delete this custom field?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This will remove the <strong>{key}</strong> field from this account. This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel data-testid={`button-cancel-delete-custom-field-${key}`}>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => handleDeleteCustomField(key)}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                            data-testid={`button-confirm-delete-custom-field-${key}`}
+                                          >
+                                            Delete
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
                                   </>
                                 )}
                               </div>

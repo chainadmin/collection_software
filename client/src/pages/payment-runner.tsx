@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, addYears, subYears } from "date-fns";
+import { Link } from "wouter";
 import {
   CheckCircle,
   XCircle,
@@ -457,10 +458,10 @@ export default function PaymentRunner() {
                   </p>
                 </div>
                 <Button variant="outline" size="sm" asChild>
-                  <a href="/settings" data-testid="link-merchant-settings">
+                  <Link href="/app/admin/payments/merchants" data-testid="link-merchant-settings">
                     <Settings className="h-4 w-4 mr-2" />
                     Configure Merchants
-                  </a>
+                  </Link>
                 </Button>
               </>
             ) : (

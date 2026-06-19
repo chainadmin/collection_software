@@ -1,5 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -15,7 +26,6 @@ import {
   Building2,
   Bell,
   Shield,
-  CreditCard,
   Users,
   FileText,
   Mail,
@@ -280,60 +290,6 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-medium flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                Payment Processing
-              </CardTitle>
-              <CardDescription>Configure payment gateway settings</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="processorId">Processor ID</Label>
-                <Input
-                  id="processorId"
-                  defaultValue="PROC-12345-ABCDE"
-                  data-testid="input-processor-id"
-                />
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label htmlFor="merchantId">Merchant ID</Label>
-                  <Input
-                    id="merchantId"
-                    defaultValue="MID-67890"
-                    data-testid="input-merchant-id"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="terminalId">Terminal ID</Label>
-                  <Input
-                    id="terminalId"
-                    defaultValue="TID-11111"
-                    data-testid="input-terminal-id"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-2">
-                <div>
-                  <p className="font-medium">ACH Processing</p>
-                  <p className="text-sm text-muted-foreground">Enable ACH bank transfers</p>
-                </div>
-                <Switch defaultChecked data-testid="switch-ach-processing" />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Card Processing</p>
-                  <p className="text-sm text-muted-foreground">Enable credit/debit card payments</p>
-                </div>
-                <Switch defaultChecked data-testid="switch-card-processing" />
-              </div>
-              <div className="pt-2">
-                <Button data-testid="button-save-payment">Save Payment Settings</Button>
-              </div>
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader>
@@ -393,15 +349,36 @@ export default function Settings() {
                         <span className="text-xs text-muted-foreground">(System)</span>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveStatus(status.id)}
-                      disabled={status.isSystem}
-                      data-testid={`button-remove-status-${status.name}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={status.isSystem}
+                          data-testid={`button-remove-status-${status.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete this status?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently remove the <strong>{status.label}</strong> status. This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel data-testid={`button-cancel-remove-status-${status.name}`}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleRemoveStatus(status.id)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            data-testid={`button-confirm-remove-status-${status.name}`}
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 ))}
               </div>

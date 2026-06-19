@@ -22,6 +22,16 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -505,6 +515,7 @@ export default function Collectors() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCollector, setEditingCollector] = useState<Collector | null>(null);
+  const [collectorToDelete, setCollectorToDelete] = useState<Collector | null>(null);
   const [showQrDialog, setShowQrDialog] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -693,7 +704,7 @@ export default function Collectors() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => deleteCollectorMutation.mutate(collector.id)}
+                            onClick={() => setCollectorToDelete(collector)}
                             data-testid={`button-delete-collector-${collector.id}`}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
@@ -783,6 +794,30 @@ export default function Collectors() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!collectorToDelete} onOpenChange={(open) => { if (!open) setCollectorToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this collector?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <strong>{collectorToDelete?.name}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-collector">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (collectorToDelete) deleteCollectorMutation.mutate(collectorToDelete.id);
+                setCollectorToDelete(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-collector"
+            >
+              Remove Collector
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

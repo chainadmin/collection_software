@@ -8,6 +8,17 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -227,15 +238,36 @@ export default function Integrations() {
                             {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : "Never"}
                           </td>
                           <td className="p-2">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => deleteTokenMutation.mutate(token.id)}
-                              disabled={deleteTokenMutation.isPending}
-                              data-testid={`button-revoke-token-${token.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  disabled={deleteTokenMutation.isPending}
+                                  data-testid={`button-revoke-token-${token.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Revoke this API token?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently revoke the <strong>{token.name}</strong> token. Any integration using it will stop working immediately. This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel data-testid={`button-cancel-revoke-token-${token.id}`}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteTokenMutation.mutate(token.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    data-testid={`button-confirm-revoke-token-${token.id}`}
+                                  >
+                                    Revoke
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </td>
                         </tr>
                       ))}
