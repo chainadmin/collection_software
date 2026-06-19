@@ -92,6 +92,12 @@ Organizations can restrict collector login access by IP address:
 - **Multi-Tenant Isolation**: Each organization has its own isolated whitelist; cross-tenant access is prevented via organizationId validation on all CRUD operations
 - **Frontend**: Managed via Admin Settings > Server Access page
 
+### Message Templates & Chain Campaigns
+Admins/managers can create reusable email and text-message templates and send them to accounts through their Chain SMS/email provider.
+- **Templates** (`/app/admin/email/templates`, backed by `/api/email-templates` GET/POST/PATCH/DELETE, role-gated + org-isolated, mirrors the email-settings pattern): each template has a `templateType` of `email` or `text`. Email templates require a subject; text templates hide it. The editor supports clickable merge-variable insertion (e.g. `{{first_name}}`, `{{balance}}`), preview, and confirmed deletes. A per-template **Send** action opens a dialog to pick an active integration, search/multi-select accounts, and post to `/api/campaigns/send`. Contact values are derived by integration type: email uses `debtor.email` (falling back to debtor contacts), SMS pulls a phone from `/api/debtors/:id/contacts` (primary first).
+- **Chain integration management** (Admin → Text & Email Integration, `/app/admin/integrations`, backed by `/api/campaign-integrations`): CRUD for Chain providers (name, type email/sms, provider base URL, API key, active toggle). The API key is write-only — responses return `hasApiKey: boolean` and never the key itself (masked via `maskCampaignIntegration`). On edit, leaving the API-key field blank keeps the existing key; PATCH only overwrites when a non-empty value is supplied.
+- **Campaign history** (`/app/admin/campaigns`, backed by `/api/campaign-logs` and `/api/campaign-logs/:id` which returns `{...log, items}`): lists sent campaigns with type, account count, status, and date; clicking a row opens per-account delivery status. `campaign_logs.status` is `pending|sent|partial|failed`; `campaign_log_items.status` is `queued|sent|delivered|failed|replied|opted-out`.
+
 ### External API v2
 A comprehensive external API is provided for integration with SMS platforms, soft phones, and dialers. It uses Bearer Token authentication with organization-scoped tokens. 
 

@@ -70,6 +70,8 @@ import {
   type InsertCampaignLog,
   type CampaignLogItem,
   type InsertCampaignLogItem,
+  type EmailTemplate,
+  type InsertEmailTemplate,
   type ApiToken,
   type InsertApiToken,
   type CommunicationAttempt,
@@ -314,6 +316,13 @@ export interface IStorage {
   createCampaignLogItem(item: InsertCampaignLogItem): Promise<CampaignLogItem>;
   updateCampaignLogItem(id: string, item: Partial<InsertCampaignLogItem>): Promise<CampaignLogItem | undefined>;
 
+  // Email Templates
+  getEmailTemplates(orgId: string): Promise<EmailTemplate[]>;
+  getEmailTemplate(id: string): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
+  updateEmailTemplate(id: string, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  deleteEmailTemplate(id: string): Promise<boolean>;
+
   // Communication Attempts
   getCommunicationAttempts(debtorId: string): Promise<CommunicationAttempt[]>;
   createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt>;
@@ -383,6 +392,7 @@ export class MemStorage implements IStorage {
   private campaignIntegrations: Map<string, CampaignIntegration>;
   private campaignLogs: Map<string, CampaignLog>;
   private campaignLogItems: Map<string, CampaignLogItem>;
+  private emailTemplates: Map<string, EmailTemplate>;
   private communicationAttempts: Map<string, CommunicationAttempt>;
   private globalAdmins: Map<string, GlobalAdmin>;
   private adminNotifications: Map<string, AdminNotification>;
@@ -423,6 +433,7 @@ export class MemStorage implements IStorage {
     this.campaignIntegrations = new Map();
     this.campaignLogs = new Map();
     this.campaignLogItems = new Map();
+    this.emailTemplates = new Map();
     this.communicationAttempts = new Map();
     this.globalAdmins = new Map();
     this.adminNotifications = new Map();
@@ -2474,6 +2485,46 @@ export class MemStorage implements IStorage {
     const updated = { ...existing, ...item };
     this.campaignLogItems.set(id, updated);
     return updated;
+  }
+
+  // Email Templates
+  async getEmailTemplates(orgId: string): Promise<EmailTemplate[]> {
+    return Array.from(this.emailTemplates.values())
+      .filter((t) => t.organizationId === orgId)
+      .sort((a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime());
+  }
+
+  async getEmailTemplate(id: string): Promise<EmailTemplate | undefined> {
+    return this.emailTemplates.get(id);
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const id = randomUUID();
+    const created: EmailTemplate = {
+      id,
+      organizationId: template.organizationId,
+      name: template.name,
+      subject: template.subject,
+      body: template.body,
+      templateType: template.templateType,
+      isActive: template.isActive ?? true,
+      createdDate: template.createdDate,
+      updatedDate: template.updatedDate ?? null,
+    };
+    this.emailTemplates.set(id, created);
+    return created;
+  }
+
+  async updateEmailTemplate(id: string, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const existing = this.emailTemplates.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...template };
+    this.emailTemplates.set(id, updated);
+    return updated;
+  }
+
+  async deleteEmailTemplate(id: string): Promise<boolean> {
+    return this.emailTemplates.delete(id);
   }
 
   // Communication Attempts

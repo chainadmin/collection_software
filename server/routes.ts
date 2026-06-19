@@ -21,7 +21,7 @@ import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { db } from "./db";
-import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable } from "@shared/schema";
+import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
@@ -4102,12 +4102,108 @@ export async function registerRoutes(
     }
   });
 
+  // Email/Text Templates API (admin/manager only, org-scoped)
+  app.get("/api/email-templates", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage templates" });
+      }
+      const orgId = getOrgId(req);
+      const templates = await storage.getEmailTemplates(orgId);
+      res.json(templates);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch templates" });
+    }
+  });
+
+  app.post("/api/email-templates", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage templates" });
+      }
+      const orgId = getOrgId(req);
+      const { name, subject, body, templateType, isActive } = req.body;
+      if (!name || !body || !templateType) {
+        return res.status(400).json({ error: "name, body, and templateType are required" });
+      }
+      const template = await storage.createEmailTemplate({
+        organizationId: orgId,
+        name,
+        subject: subject ?? "",
+        body,
+        templateType,
+        isActive: isActive ?? true,
+        createdDate: new Date().toISOString(),
+        updatedDate: null,
+      });
+      res.status(201).json(template);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create template" });
+    }
+  });
+
+  app.patch("/api/email-templates/:id", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage templates" });
+      }
+      const orgId = getOrgId(req);
+      const existing = await storage.getEmailTemplate(req.params.id);
+      if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      const { name, subject, body, templateType, isActive } = req.body;
+      const updated = await storage.updateEmailTemplate(req.params.id, {
+        ...(name !== undefined ? { name } : {}),
+        ...(subject !== undefined ? { subject } : {}),
+        ...(body !== undefined ? { body } : {}),
+        ...(templateType !== undefined ? { templateType } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+        updatedDate: new Date().toISOString(),
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update template" });
+    }
+  });
+
+  app.delete("/api/email-templates/:id", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage templates" });
+      }
+      const orgId = getOrgId(req);
+      const existing = await storage.getEmailTemplate(req.params.id);
+      if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      await storage.deleteEmailTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete template" });
+    }
+  });
+
   // Campaign Integrations API
+  // Never expose the stored apiKey back to the client — return a boolean flag instead.
+  const maskCampaignIntegration = (i: CampaignIntegration) => {
+    const { apiKey, ...rest } = i;
+    return { ...rest, hasApiKey: !!apiKey };
+  };
+
   app.get("/api/campaign-integrations", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage campaign integrations" });
+      }
       const orgId = getOrgId(req);
       const integrations = await storage.getCampaignIntegrations(orgId);
-      res.json(integrations);
+      res.json(integrations.map(maskCampaignIntegration));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch campaign integrations" });
     }
@@ -4115,6 +4211,10 @@ export async function registerRoutes(
 
   app.post("/api/campaign-integrations", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage campaign integrations" });
+      }
       const orgId = getOrgId(req);
       const integration = await storage.createCampaignIntegration({
         organizationId: orgId,
@@ -4125,7 +4225,7 @@ export async function registerRoutes(
         isActive: req.body.isActive ?? true,
         createdDate: new Date().toISOString(),
       });
-      res.status(201).json(integration);
+      res.status(201).json(maskCampaignIntegration(integration));
     } catch (error) {
       res.status(500).json({ error: "Failed to create campaign integration" });
     }
@@ -4133,13 +4233,25 @@ export async function registerRoutes(
 
   app.patch("/api/campaign-integrations/:id", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage campaign integrations" });
+      }
       const orgId = getOrgId(req);
       const existing = await storage.getCampaignIntegration(req.params.id);
       if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(404).json({ error: "Campaign integration not found" });
       }
-      const updated = await storage.updateCampaignIntegration(req.params.id, req.body);
-      res.json(updated);
+      const { name, type, apiBaseUrl, apiKey, isActive } = req.body;
+      const updated = await storage.updateCampaignIntegration(req.params.id, {
+        ...(name !== undefined ? { name } : {}),
+        ...(type !== undefined ? { type } : {}),
+        ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}),
+        // Only overwrite apiKey when a non-empty value is supplied so the masked UI can omit it.
+        ...(apiKey ? { apiKey } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+      });
+      res.json(updated ? maskCampaignIntegration(updated) : updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update campaign integration" });
     }
@@ -4147,6 +4259,10 @@ export async function registerRoutes(
 
   app.delete("/api/campaign-integrations/:id", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage campaign integrations" });
+      }
       const orgId = getOrgId(req);
       const existing = await storage.getCampaignIntegration(req.params.id);
       if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
@@ -4161,6 +4277,10 @@ export async function registerRoutes(
 
   app.get("/api/campaign-integrations/:id/campaigns", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can view campaigns" });
+      }
       const orgId = getOrgId(req);
       const integration = await storage.getCampaignIntegration(req.params.id);
       if (!integration || !validateOrgOwnership(integration.organizationId, orgId)) {
@@ -4187,6 +4307,10 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/send", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can send campaigns" });
+      }
       const orgId = getOrgId(req);
       const collectorId = req.session?.collector?.id || "unknown";
       const { integrationId, campaignName, accounts } = req.body as { integrationId: string; campaignName: string; accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> };
@@ -4269,6 +4393,10 @@ export async function registerRoutes(
 
   app.get("/api/campaign-logs", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can view campaign logs" });
+      }
       const orgId = getOrgId(req);
       const logs = await storage.getCampaignLogs(orgId);
       res.json(logs);
@@ -4279,6 +4407,10 @@ export async function registerRoutes(
 
   app.get("/api/campaign-logs/:id", async (req: any, res) => {
     try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can view campaign logs" });
+      }
       const orgId = getOrgId(req);
       const log = await storage.getCampaignLog(req.params.id);
       if (!log || !validateOrgOwnership(log.organizationId, orgId)) {

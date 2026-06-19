@@ -42,6 +42,8 @@ import TimeClock from "@/pages/admin/reporting/time-clock";
 import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import EmailSettings from "@/pages/admin/email/settings";
+import EmailTemplates from "@/pages/admin/email/templates";
+import Campaigns from "@/pages/admin/campaigns";
 import Clients from "@/pages/admin/clients";
 import Integrations from "@/pages/admin/integrations";
 import SuperAdmin from "@/pages/super-admin";
@@ -80,6 +82,8 @@ function AppRouter() {
       <Route path="/app/admin/settings/fees" component={FeeSchedules} />
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
       <Route path="/app/admin/email/settings" component={EmailSettings} />
+      <Route path="/app/admin/email/templates" component={EmailTemplates} />
+      <Route path="/app/admin/campaigns" component={Campaigns} />
       <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />
       <Route path="/app/admin/integrations" component={Integrations} />

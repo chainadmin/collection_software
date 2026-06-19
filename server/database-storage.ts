@@ -36,6 +36,7 @@ import {
   campaignIntegrations,
   campaignLogs,
   campaignLogItems,
+  emailTemplates,
   apiTokens,
   communicationAttempts,
   adminNotifications,
@@ -111,6 +112,8 @@ import {
   type InsertCampaignLog,
   type CampaignLogItem,
   type InsertCampaignLogItem,
+  type EmailTemplate,
+  type InsertEmailTemplate,
   type ApiToken,
   type InsertApiToken,
   type CommunicationAttempt,
@@ -1136,6 +1139,32 @@ export class DatabaseStorage implements IStorage {
   async updateCampaignLogItem(id: string, item: Partial<InsertCampaignLogItem>): Promise<CampaignLogItem | undefined> {
     const [updated] = await db.update(campaignLogItems).set(item).where(eq(campaignLogItems.id, id)).returning();
     return updated;
+  }
+
+  // Email Templates
+  async getEmailTemplates(orgId: string): Promise<EmailTemplate[]> {
+    return await db.select().from(emailTemplates).where(eq(emailTemplates.organizationId, orgId)).orderBy(desc(emailTemplates.createdDate));
+  }
+
+  async getEmailTemplate(id: string): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(emailTemplates).where(eq(emailTemplates.id, id));
+    return template;
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const id = randomUUID();
+    const [created] = await db.insert(emailTemplates).values({ ...template, id }).returning();
+    return created;
+  }
+
+  async updateEmailTemplate(id: string, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const [updated] = await db.update(emailTemplates).set(template).where(eq(emailTemplates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteEmailTemplate(id: string): Promise<boolean> {
+    await db.delete(emailTemplates).where(eq(emailTemplates.id, id));
+    return true;
   }
 
   // Communication Attempts

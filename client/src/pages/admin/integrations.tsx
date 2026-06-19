@@ -22,6 +22,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +37,9 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogTrigger,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   Zap,
   Mail,
@@ -40,6 +50,8 @@ import {
   Trash2,
   Send,
   Phone,
+  MessageSquare,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -55,6 +67,257 @@ type MaskedApiToken = {
   expiresAt: string | null;
   organizationId: string | null;
 };
+
+type MaskedCampaignIntegration = {
+  id: string;
+  name: string;
+  type: string;
+  apiBaseUrl: string;
+  isActive: boolean | null;
+  createdDate: string;
+  hasApiKey: boolean;
+  organizationId: string;
+};
+
+function CampaignIntegrationsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("sms");
+  const [apiBaseUrl, setApiBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+
+  const { data: integrations = [], isLoading } = useQuery<MaskedCampaignIntegration[]>({
+    queryKey: ["/api/campaign-integrations"],
+  });
+
+  const resetForm = () => {
+    setEditingId(null);
+    setName("");
+    setType("sms");
+    setApiBaseUrl("");
+    setApiKey("");
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = { name, type, apiBaseUrl };
+      if (apiKey.trim()) payload.apiKey = apiKey.trim();
+      if (editingId) {
+        return apiRequest("PATCH", `/api/campaign-integrations/${editingId}`, payload);
+      }
+      return apiRequest("POST", "/api/campaign-integrations", { ...payload, apiKey: apiKey.trim() });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-integrations"] });
+      toast({ title: "Saved", description: "Chain integration saved." });
+      setShowForm(false);
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save integration.", variant: "destructive" });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiRequest("PATCH", `/api/campaign-integrations/${id}`, { isActive }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-integrations"] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update integration.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/campaign-integrations/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-integrations"] });
+      toast({ title: "Removed", description: "Chain integration removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to remove integration.", variant: "destructive" });
+    },
+  });
+
+  const openCreate = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const openEdit = (i: MaskedCampaignIntegration) => {
+    setEditingId(i.id);
+    setName(i.name);
+    setType(i.type);
+    setApiBaseUrl(i.apiBaseUrl);
+    setApiKey("");
+    setShowForm(true);
+  };
+
+  const handleSave = () => {
+    if (!name.trim() || !apiBaseUrl.trim()) {
+      toast({ title: "Error", description: "Name and provider base URL are required.", variant: "destructive" });
+      return;
+    }
+    if (!editingId && !apiKey.trim()) {
+      toast({ title: "Error", description: "API key is required.", variant: "destructive" });
+      return;
+    }
+    saveMutation.mutate();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Chain Campaign Integration
+            </CardTitle>
+            <CardDescription>
+              Connect your Chain SMS/email provider to deliver template campaigns to accounts
+            </CardDescription>
+          </div>
+          <Dialog open={showForm} onOpenChange={(o) => { setShowForm(o); if (!o) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button onClick={openCreate} data-testid="button-add-integration">
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{editingId ? "Edit Integration" : "Add Chain Integration"}</DialogTitle>
+                <DialogDescription>
+                  Enter your Chain provider details. The API key is stored securely and never shown again.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    placeholder="e.g., Chain SMS"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    data-testid="input-integration-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Type</Label>
+                  <Select value={type} onValueChange={setType}>
+                    <SelectTrigger data-testid="select-integration-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sms">SMS / Text</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Provider Base URL</Label>
+                  <Input
+                    placeholder="https://api.chainprovider.com"
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    data-testid="input-integration-url"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>API Key {editingId && <span className="text-xs text-muted-foreground">(leave blank to keep current)</span>}</Label>
+                  <Input
+                    type="password"
+                    placeholder={editingId ? "••••••••" : "Enter provider API key"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    data-testid="input-integration-key"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+                <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-integration">
+                  {saveMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {editingId ? "Save Changes" : "Add Integration"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="text-sm text-muted-foreground">Loading...</div>
+        ) : integrations.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
+            No Chain integration yet. Add one to start sending template campaigns.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {integrations.map((i) => (
+              <div
+                key={i.id}
+                className="flex items-center justify-between gap-3 p-3 border rounded-lg"
+                data-testid={`integration-item-${i.id}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium truncate">{i.name}</p>
+                    <Badge variant="secondary" className="text-xs uppercase">{i.type}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{i.apiBaseUrl}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={!!i.isActive}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: i.id, isActive: checked })}
+                      data-testid={`switch-active-${i.id}`}
+                    />
+                    <span className="text-xs text-muted-foreground">{i.isActive ? "Active" : "Inactive"}</span>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(i)} data-testid={`button-edit-integration-${i.id}`}>
+                    <Key className="h-4 w-4" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" data-testid={`button-delete-integration-${i.id}`}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove this integration?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will remove the <strong>{i.name}</strong> Chain integration. Campaigns can no longer be sent through it. This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel data-testid={`button-cancel-delete-integration-${i.id}`}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => deleteMutation.mutate(i.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          data-testid={`button-confirm-delete-integration-${i.id}`}
+                        >
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Integrations() {
   const { toast } = useToast();
@@ -122,7 +385,8 @@ export default function Integrations() {
         </p>
       </div>
 
-      <div className="max-w-3xl">
+      <div className="max-w-3xl space-y-6">
+        <CampaignIntegrationsCard />
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
