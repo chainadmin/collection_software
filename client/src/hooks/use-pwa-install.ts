@@ -98,6 +98,39 @@ export function usePwaInstall(mode?: PwaMode) {
     };
   }, []);
 
+  // Detect "already installed" even from a normal browser tab (not just when
+  // running standalone). getInstalledRelatedApps reports the related app
+  // declared in the active manifest; we scope the result to this button's app.
+  useEffect(() => {
+    let cancelled = false;
+    const nav = navigator as any;
+    if (typeof nav?.getInstalledRelatedApps !== "function") return;
+
+    const expectedId = mode === "collector" ? "dmp-collector" : "dmp-admin";
+    nav
+      .getInstalledRelatedApps()
+      .then((apps: Array<{ id?: string; url?: string; platform?: string }>) => {
+        if (cancelled || !Array.isArray(apps) || apps.length === 0) return;
+        const match = apps.some((app) => {
+          if (app?.id) return app.id === expectedId;
+          if (app?.url)
+            return mode === "collector"
+              ? app.url.includes("collector")
+              : !app.url.includes("collector");
+          // No identifying info — fall back to "an app is installed".
+          return true;
+        });
+        if (match) setInstalled(true);
+      })
+      .catch(() => {
+        /* feature unsupported or blocked — fall back to standalone detection */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
+
   // Only use the captured prompt when it matches the app this button installs.
   // (If we don't know which app it was for, allow it.)
   const modeMatches = !mode || !promptMode || promptMode === mode;

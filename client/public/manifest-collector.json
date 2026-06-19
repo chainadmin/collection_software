@@ -55,5 +55,8 @@
   ],
   "categories": ["business", "finance", "productivity"],
   "screenshots": [],
+  "related_applications": [
+    { "platform": "webapp", "url": "/manifest-collector.json", "id": "dmp-collector" }
+  ],
   "prefer_related_applications": false
 }
