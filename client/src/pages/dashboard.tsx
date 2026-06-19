@@ -72,13 +72,13 @@ export default function Dashboard() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button asChild data-testid="button-add-debtor">
-            <Link href="/debtors?action=add">
+            <Link href="/app/debtors?action=add">
               <Users className="h-4 w-4 mr-2" />
               Add Debtor
             </Link>
           </Button>
           <Button variant="outline" asChild data-testid="button-run-payments">
-            <Link href="/payment-runner">
+            <Link href="/app/payment-runner">
               <CreditCard className="h-4 w-4 mr-2" />
               Run Payments
             </Link>
@@ -139,7 +139,7 @@ export default function Dashboard() {
             </p>
           </div>
           <Button variant="ghost" size="sm" asChild data-testid="link-view-collectors">
-            <Link href="/collectors">
+            <Link href="/app/collectors">
               Manage Team
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
@@ -245,7 +245,7 @@ export default function Dashboard() {
               <Users className="h-10 w-10 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">No collectors found</p>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/collectors?action=add">Add your first collector</Link>
+                <Link href="/app/collectors?action=add">Add your first collector</Link>
               </Button>
             </div>
           )}
@@ -257,7 +257,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
             <CardTitle className="text-lg font-medium">Portfolio Summary</CardTitle>
             <Button variant="ghost" size="sm" asChild data-testid="link-view-portfolios">
-              <Link href="/portfolios">
+              <Link href="/app/portfolios">
                 View All
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Link>
@@ -303,7 +303,7 @@ export default function Dashboard() {
                 <FolderKanban className="h-10 w-10 text-muted-foreground/50 mb-2" />
                 <p className="text-sm text-muted-foreground">No portfolios yet</p>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href="/portfolios?action=add">Add your first portfolio</Link>
+                  <Link href="/app/portfolios?action=add">Add your first portfolio</Link>
                 </Button>
               </div>
             )}
@@ -314,7 +314,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
             <CardTitle className="text-lg font-medium">Recent Payments</CardTitle>
             <Button variant="ghost" size="sm" asChild data-testid="link-view-payments">
-              <Link href="/payment-runner">
+              <Link href="/app/payment-runner">
                 View All
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Link>
@@ -366,7 +366,7 @@ export default function Dashboard() {
         <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
           <CardTitle className="text-lg font-medium">Accounts Requiring Attention</CardTitle>
           <Button variant="ghost" size="sm" asChild data-testid="link-view-debtors">
-            <Link href="/debtors">
+            <Link href="/app/debtors">
               View All
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
@@ -423,7 +423,7 @@ export default function Dashboard() {
                       </td>
                       <td className="py-3">
                         <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/debtors/${debtor.id}`}>
+                          <Link href={`/app/debtors/${debtor.id}`}>
                             <Phone className="h-4 w-4 mr-1" />
                             Work
                           </Link>
@@ -439,7 +439,7 @@ export default function Dashboard() {
               <Users className="h-10 w-10 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">No accounts to display</p>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/debtors?action=add">Add your first debtor</Link>
+                <Link href="/app/debtors?action=add">Add your first debtor</Link>
               </Button>
             </div>
           )}

@@ -1048,12 +1048,14 @@ export default function Workstation() {
                   @{authUser.name}
                 </Badge>
               )}
-              <Link to="/app">
-                <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
-                  <LayoutDashboard className="h-4 w-4 mr-1" />
-                  Back to Admin
-                </Button>
-              </Link>
+              {localStorage.getItem("appMode") !== "collector" && (
+                <Link to="/app">
+                  <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
+                    <LayoutDashboard className="h-4 w-4 mr-1" />
+                    Back to Admin
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 mb-2">

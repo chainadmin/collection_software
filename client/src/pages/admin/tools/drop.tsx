@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileDown, Search, Users, Send } from "lucide-react";
+import { FileDown, Search, Users, Send, Undo2, Home } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
@@ -38,6 +38,12 @@ export default function DropAccounts() {
   const [targetStatus, setTargetStatus] = useState<string>(KEEP_STATUS_VALUE);
   const [dropNotes, setDropNotes] = useState("");
   const [dropQuantity, setDropQuantity] = useState<string>("");
+
+  // "Pull back to house desk" — take accounts off a collector and return them
+  // to the unassigned pool (does NOT change status; that's what Recall is for).
+  const [pullCollector, setPullCollector] = useState<string>("");
+  const [pullSelected, setPullSelected] = useState<Set<string>>(new Set());
+  const [pullQuantity, setPullQuantity] = useState<string>("");
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
@@ -213,6 +219,75 @@ export default function DropAccounts() {
     setSelectedAccounts(new Set());
     setDropNotes("");
     setTargetStatus(KEEP_STATUS_VALUE);
+  };
+
+  const pullBackMutation = useMutation({
+    mutationFn: async (debtorIds: string[]) => {
+      const results = { success: 0, failed: 0 };
+      for (const debtorId of debtorIds) {
+        try {
+          await apiRequest("PATCH", `/api/debtors/${debtorId}`, {
+            assignedCollectorId: null,
+          });
+          results.success++;
+        } catch {
+          results.failed++;
+        }
+      }
+      return results;
+    },
+  });
+
+  const collectorAccounts = debtors.filter(
+    (d) => pullCollector && d.assignedCollectorId === pullCollector,
+  );
+
+  const togglePull = (id: string) => {
+    const next = new Set(pullSelected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPullSelected(next);
+  };
+
+  const togglePullAll = () => {
+    if (pullSelected.size === collectorAccounts.length) {
+      setPullSelected(new Set());
+    } else {
+      setPullSelected(new Set(collectorAccounts.map((d) => d.id)));
+    }
+  };
+
+  const handlePullSelectQuantity = () => {
+    const qty = parseInt(pullQuantity) || 0;
+    if (qty <= 0) return;
+    setPullSelected(new Set(collectorAccounts.slice(0, qty).map((d) => d.id)));
+  };
+
+  const handlePullBack = async () => {
+    if (pullSelected.size === 0) {
+      toast({ title: "Error", description: "Please select accounts to pull back.", variant: "destructive" });
+      return;
+    }
+    const results = await pullBackMutation.mutateAsync(Array.from(pullSelected));
+
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/work-queue"] });
+
+    const collector = collectors.find((c) => c.id === pullCollector);
+    if (results.failed > 0) {
+      toast({
+        title: "Partial Success",
+        description: `${results.success} accounts returned to the house desk. ${results.failed} failed.`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Accounts Returned",
+        description: `${results.success} accounts pulled from ${collector?.name || "collector"} back to the house desk.`,
+      });
+    }
+    setPullSelected(new Set());
+    setPullQuantity("");
   };
 
   const selectedTotal = Array.from(selectedAccounts).reduce((sum, id) => {
@@ -408,6 +483,133 @@ export default function DropAccounts() {
                     <Checkbox 
                       checked={selectedAccounts.has(debtor.id)}
                       onCheckedChange={() => toggleAccount(debtor.id)}
+                    />
+                    <div className="flex-1 grid grid-cols-4 gap-4">
+                      <div>
+                        <p className="font-medium">{debtor.firstName} {debtor.lastName}</p>
+                        <p className="text-xs text-muted-foreground">{debtor.fileNumber}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-mono">{debtor.accountNumber}</p>
+                      </div>
+                      <div>
+                        <Badge variant="outline">{debtor.status}</Badge>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono">{formatCurrency(debtor.currentBalance)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Undo2 className="h-4 w-4" />
+            Pull Accounts Back to House Desk
+          </CardTitle>
+          <CardDescription>
+            Take some accounts off a collector and return them to the unassigned pool. This does not change the account status — use Recall to send accounts back to the client.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Collector</Label>
+              <Select
+                value={pullCollector}
+                onValueChange={(v) => {
+                  setPullCollector(v);
+                  setPullSelected(new Set());
+                  setPullQuantity("");
+                }}
+              >
+                <SelectTrigger data-testid="select-pull-collector">
+                  <SelectValue placeholder="Select a collector" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeCollectors.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Quick Select Quantity</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="# of accounts"
+                  value={pullQuantity}
+                  onChange={(e) => setPullQuantity(e.target.value)}
+                  className="flex-1"
+                  data-testid="input-pull-quantity"
+                />
+                <Button
+                  variant="outline"
+                  onClick={handlePullSelectQuantity}
+                  disabled={!pullCollector || !pullQuantity || parseInt(pullQuantity) <= 0}
+                  data-testid="button-pull-select-quantity"
+                >
+                  Select
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2 flex flex-col justify-end">
+              <Button
+                onClick={handlePullBack}
+                disabled={pullSelected.size === 0 || pullBackMutation.isPending}
+                data-testid="button-pull-back"
+              >
+                <Home className="h-4 w-4 mr-2" />
+                {pullBackMutation.isPending
+                  ? "Returning..."
+                  : `Return ${pullSelected.size} to House Desk`}
+              </Button>
+            </div>
+          </div>
+
+          {pullCollector && (
+            <div className="border rounded-md divide-y max-h-[400px] overflow-auto">
+              <div className="flex items-center justify-between p-2 bg-muted/50">
+                <span className="text-sm font-medium">
+                  {collectorAccounts.length} accounts on this collector
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={togglePullAll}
+                  disabled={collectorAccounts.length === 0}
+                  data-testid="button-pull-select-all"
+                >
+                  {pullSelected.size === collectorAccounts.length && collectorAccounts.length > 0
+                    ? "Deselect All"
+                    : "Select All"}
+                </Button>
+              </div>
+              {collectorAccounts.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>This collector has no assigned accounts</p>
+                </div>
+              ) : (
+                collectorAccounts.map((debtor) => (
+                  <div
+                    key={debtor.id}
+                    className="flex items-center gap-4 p-3 hover-elevate cursor-pointer"
+                    onClick={() => togglePull(debtor.id)}
+                    data-testid={`row-pull-account-${debtor.id}`}
+                  >
+                    <Checkbox
+                      checked={pullSelected.has(debtor.id)}
+                      onCheckedChange={() => togglePull(debtor.id)}
                     />
                     <div className="flex-1 grid grid-cols-4 gap-4">
                       <div>
