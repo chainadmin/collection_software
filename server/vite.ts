@@ -46,9 +46,9 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       if (manifestOverride) {
-        const manifestPattern = /<link rel="manifest" href="\/manifest\.json"\s*\/?>/;
+        const manifestPattern = /<link id="app-manifest"[^>]*href="\/manifest\.json"[^>]*\/?>/;
         if (manifestPattern.test(template)) {
-          template = template.replace(manifestPattern, `<link rel="manifest" href="${manifestOverride}" />`);
+          template = template.replace(manifestPattern, `<link id="app-manifest" rel="manifest" href="${manifestOverride}" />`);
         } else {
           viteLogger.warn(`[collector-install] manifest link not found in index.html — PWA install may not work`);
         }

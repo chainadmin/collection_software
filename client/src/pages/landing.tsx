@@ -341,9 +341,12 @@ export default function Landing() {
                   <InstallButton mode="admin" label="Download Admin App" />
                 </li>
                 <li>
-                  <Link href="/collector-install" className="hover:text-foreground" data-testid="link-download-collector">
+                  {/* Full-document load (not SPA nav) so the server serves the
+                      collector manifest before first paint — required for the
+                      browser to offer the Collector app for install. */}
+                  <a href="/collector-install" className="hover:text-foreground" data-testid="link-download-collector">
                     Download Collector App
-                  </Link>
+                  </a>
                 </li>
               </ul>
             </div>
