@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { processPayment } from "./payment-processor";
+import { sendOrgNotificationEmail } from "./email";
 import type { Payment } from "@shared/schema";
 
 interface RunResult {
@@ -180,6 +181,22 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       result.totalDeclined += orgResult.declined;
 
       console.log(`[Auto Runner] Org "${orgName}": ${orgResult.processed} processed, ${orgResult.success} success, ${orgResult.declined} declined`);
+
+      if (orgResult.processed > 0) {
+        const subject = `Payment Runner Report — ${orgResult.processed} processed (${orgResult.success} approved, ${orgResult.declined} declined)`;
+        const html = `<h2>Automatic Payment Runner Report</h2>
+<p><strong>${orgName}</strong></p>
+<p>Run time: ${startTime.toLocaleString("en-US", { timeZone: "America/New_York" })} ET</p>
+<ul>
+  <li>Payments processed: <strong>${orgResult.processed}</strong></li>
+  <li>Approved: <strong>${orgResult.success}</strong></li>
+  <li>Declined: <strong>${orgResult.declined}</strong></li>
+</ul>`;
+        const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}`;
+        sendOrgNotificationEmail(orgId, subject, html, text).catch((err) => {
+          console.error(`[Auto Runner] Failed to send report email for org ${orgName}:`, err);
+        });
+      }
     }
 
     console.log(`[Auto Runner] Run complete: ${result.totalProcessed} processed, ${result.totalSuccess} success, ${result.totalDeclined} declined, ${result.totalSkipped} skipped`);
