@@ -41,6 +41,7 @@ import CollectorReporting from "@/pages/admin/reporting/collectors";
 import TimeClock from "@/pages/admin/reporting/time-clock";
 import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
+import EmailSettings from "@/pages/admin/email/settings";
 import Clients from "@/pages/admin/clients";
 import Integrations from "@/pages/admin/integrations";
 import SuperAdmin from "@/pages/super-admin";
@@ -78,6 +79,7 @@ function AppRouter() {
       <Route path="/app/admin/reporting/time-clock" component={TimeClock} />
       <Route path="/app/admin/settings/fees" component={FeeSchedules} />
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
+      <Route path="/app/admin/email/settings" component={EmailSettings} />
       <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />
       <Route path="/app/admin/integrations" component={Integrations} />

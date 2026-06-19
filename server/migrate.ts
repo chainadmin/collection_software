@@ -708,6 +708,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_settings' AND column_name = 'notification_email') THEN
           ALTER TABLE email_settings ADD COLUMN notification_email text;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_settings' AND column_name = 'postmark_server_token') THEN
+          ALTER TABLE email_settings ADD COLUMN postmark_server_token text;
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'auto_runner_enabled') THEN
           ALTER TABLE organizations ADD COLUMN auto_runner_enabled boolean DEFAULT false;
         END IF;

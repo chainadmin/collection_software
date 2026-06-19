@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { ServerClient } from "postmark";
 import { db } from "./db";
 import { emailSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -21,6 +21,25 @@ export async function getSuperAdminEmailSettings() {
   return settings || null;
 }
 
+export async function getOrgEmailSettings(organizationId: string) {
+  const [settings] = await db
+    .select()
+    .from(emailSettings)
+    .where(eq(emailSettings.organizationId, organizationId))
+    .limit(1);
+  return settings || null;
+}
+
+// Resolve the Postmark server token. The super admin can store it via the
+// dashboard (persisted on the system email-settings row); a POSTMARK_SERVER_TOKEN
+// environment secret is used as a fallback. The token is never returned to clients.
+function resolvePostmarkToken(token?: string | null): string | null {
+  if (token && token.trim()) return token.trim();
+  const envToken = process.env.POSTMARK_SERVER_TOKEN;
+  if (envToken && envToken.trim()) return envToken.trim();
+  return null;
+}
+
 export async function sendEmail(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
   try {
     const settings = await getSuperAdminEmailSettings();
@@ -30,30 +49,27 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
       return { success: false, error: "Email settings not configured or inactive" };
     }
 
-    if (!settings.smtpHost || !settings.smtpUser || !settings.smtpPassword) {
-      console.log("Email not sent - incomplete SMTP configuration");
-      return { success: false, error: "Incomplete SMTP configuration" };
+    const token = resolvePostmarkToken(settings.postmarkServerToken);
+    if (!token) {
+      console.log("Email not sent - missing Postmark server token");
+      return { success: false, error: "Postmark server token is not configured" };
     }
 
-    const transporter = nodemailer.createTransport({
-      host: settings.smtpHost,
-      port: settings.smtpPort || 587,
-      secure: settings.smtpSecure ?? false,
-      auth: {
-        user: settings.smtpUser,
-        pass: settings.smtpPassword,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
+    if (!settings.fromEmail) {
+      console.log("Email not sent - missing verified from address");
+      return { success: false, error: "A verified 'From' email address is required" };
+    }
 
-    await transporter.sendMail({
-      from: `"${settings.fromName || "Debt Manager Pro"}" <${settings.fromEmail || settings.smtpUser}>`,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
+    const client = new ServerClient(token);
+    const fromName = settings.fromName || "Debt Manager Pro";
+
+    await client.sendEmail({
+      From: `${fromName} <${settings.fromEmail}>`,
+      To: options.to,
+      Subject: options.subject,
+      HtmlBody: options.html,
+      TextBody: options.text,
+      MessageStream: "outbound",
     });
 
     console.log(`Email sent successfully to ${options.to}`);
@@ -64,12 +80,8 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
   }
 }
 
-export async function sendNewOrgNotificationEmail(orgName: string, contactName: string, contactEmail: string, contactPhone: string) {
-  const settings = await getSuperAdminEmailSettings();
-  const notificationEmail = settings?.notificationEmail || "support@chainsoftwaregroup.com";
-
-  return sendEmail({
-    to: notificationEmail,
+function newOrgEmailContent(orgName: string, contactName: string, contactEmail: string, contactPhone: string) {
+  return {
     subject: `New Organization Registered: ${orgName}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -101,5 +113,46 @@ export async function sendNewOrgNotificationEmail(orgName: string, contactName: 
       </div>
     `,
     text: `New Organization Registration\n\nCompany: ${orgName}\nContact: ${contactName}\nEmail: ${contactEmail}\nPhone: ${contactPhone || "Not provided"}\nDate: ${new Date().toLocaleString()}`,
+  };
+}
+
+export async function sendNewOrgNotificationEmail(orgName: string, contactName: string, contactEmail: string, contactPhone: string) {
+  const settings = await getSuperAdminEmailSettings();
+  const notificationEmail = settings?.notificationEmail || "support@chainsoftwaregroup.com";
+  const content = newOrgEmailContent(orgName, contactName, contactEmail, contactPhone);
+
+  return sendEmail({
+    to: notificationEmail,
+    subject: content.subject,
+    html: content.html,
+    text: content.text,
   });
+}
+
+// Send an email to an organization's configured notification recipients. The
+// system Postmark transport is used; the recipients come from the org's own
+// email-settings row (tenant isolated). Returns success:false when the org has
+// not configured any recipients.
+export async function sendOrgNotificationEmail(
+  organizationId: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<{ success: boolean; error?: string }> {
+  const orgSettings = await getOrgEmailSettings(organizationId);
+
+  if (!orgSettings?.isActive) {
+    return { success: false, error: "Email notifications are disabled for this organization" };
+  }
+
+  const recipients = (orgSettings.notificationEmail || "")
+    .split(",")
+    .map((addr) => addr.trim())
+    .filter(Boolean);
+
+  if (recipients.length === 0) {
+    return { success: false, error: "No notification recipients configured for this organization" };
+  }
+
+  return sendEmail({ to: recipients.join(","), subject, html, text });
 }

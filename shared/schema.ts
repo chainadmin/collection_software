@@ -479,6 +479,7 @@ export const emailSettings = pgTable("email_settings", {
   smtpUser: text("smtp_user"),
   smtpPassword: text("smtp_password"),
   smtpSecure: boolean("smtp_secure").default(true),
+  postmarkServerToken: text("postmark_server_token"),
   fromEmail: text("from_email"),
   fromName: text("from_name"),
   notificationEmail: text("notification_email"),

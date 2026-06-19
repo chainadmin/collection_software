@@ -19,7 +19,7 @@ import {
 } from "./stripe";
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
-import { getSuperAdminEmailSettings, sendNewOrgNotificationEmail } from "./email";
+import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { db } from "./db";
 import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -981,10 +981,14 @@ export async function registerRoutes(
     try {
       const settings = await getSuperAdminEmailSettings();
       if (settings) {
-        const { smtpPassword, ...safeSettings } = settings;
-        res.json({ ...safeSettings, hasPassword: !!smtpPassword });
+        const { smtpPassword, postmarkServerToken, ...safeSettings } = settings;
+        res.json({
+          ...safeSettings,
+          hasPassword: !!smtpPassword,
+          hasPostmarkToken: !!postmarkServerToken || !!process.env.POSTMARK_SERVER_TOKEN,
+        });
       } else {
-        res.json(null);
+        res.json({ hasPostmarkToken: !!process.env.POSTMARK_SERVER_TOKEN });
       }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch email settings" });
@@ -993,7 +997,7 @@ export async function registerRoutes(
 
   app.post("/api/super-admin/email-settings", async (req, res) => {
     try {
-      const { smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, fromEmail, fromName, notificationEmail, isActive } = req.body;
+      const { smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, postmarkServerToken, fromEmail, fromName, notificationEmail, isActive } = req.body;
 
       const existing = await getSuperAdminEmailSettings();
 
@@ -1011,6 +1015,9 @@ export async function registerRoutes(
         if (smtpPassword) {
           updateData.smtpPassword = smtpPassword;
         }
+        if (postmarkServerToken) {
+          updateData.postmarkServerToken = postmarkServerToken;
+        }
 
         await db.update(emailSettings)
           .set(updateData)
@@ -1023,6 +1030,7 @@ export async function registerRoutes(
           smtpUser,
           smtpPassword: smtpPassword || "",
           smtpSecure: smtpSecure ?? false,
+          postmarkServerToken: postmarkServerToken || "",
           fromEmail,
           fromName,
           notificationEmail,
@@ -1053,6 +1061,60 @@ export async function registerRoutes(
       }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Per-organization email settings (recipient addresses for this org's
+  // notifications/reports). Tenant isolated by organizationId. The system
+  // Postmark transport handles delivery; orgs only choose where mail is sent.
+  app.get("/api/email-settings", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage email settings" });
+      }
+      const orgId = getOrgId(req);
+      const settings = await getOrgEmailSettings(orgId);
+      res.json({
+        notificationEmail: settings?.notificationEmail || "",
+        isActive: settings?.isActive ?? false,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch email settings" });
+    }
+  });
+
+  app.post("/api/email-settings", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage email settings" });
+      }
+      const orgId = getOrgId(req);
+      const { notificationEmail, isActive } = req.body;
+
+      const [existing] = await db
+        .select()
+        .from(emailSettings)
+        .where(eq(emailSettings.organizationId, orgId))
+        .limit(1);
+
+      if (existing) {
+        await db.update(emailSettings)
+          .set({ notificationEmail: notificationEmail ?? "", isActive: isActive ?? false })
+          .where(eq(emailSettings.organizationId, orgId));
+      } else {
+        await db.insert(emailSettings).values({
+          organizationId: orgId,
+          notificationEmail: notificationEmail ?? "",
+          isActive: isActive ?? false,
+        });
+      }
+
+      res.json({ success: true, message: "Email settings saved" });
+    } catch (error) {
+      console.error("Failed to save org email settings:", error);
+      res.status(500).json({ error: "Failed to save email settings" });
     }
   });
 

@@ -193,11 +193,7 @@ export default function SuperAdmin() {
   });
 
   const [emailForm, setEmailForm] = useState({
-    smtpHost: "",
-    smtpPort: "587",
-    smtpUser: "",
-    smtpPassword: "",
-    smtpSecure: false,
+    postmarkServerToken: "",
     fromEmail: "",
     fromName: "Debt Manager Pro",
     notificationEmail: "support@chainsoftwaregroup.com",
@@ -206,15 +202,11 @@ export default function SuperAdmin() {
   const [showPassword, setShowPassword] = useState(false);
 
   const { data: emailSettingsData, isLoading: emailSettingsLoading } = useQuery<{
-    smtpHost: string | null;
-    smtpPort: number | null;
-    smtpUser: string | null;
-    smtpSecure: boolean | null;
     fromEmail: string | null;
     fromName: string | null;
     notificationEmail: string | null;
     isActive: boolean | null;
-    hasPassword: boolean;
+    hasPostmarkToken: boolean;
   } | null>({
     queryKey: ["/api/super-admin/email-settings"],
     enabled: sessionValid,
@@ -224,11 +216,7 @@ export default function SuperAdmin() {
   useEffect(() => {
     if (emailSettingsData) {
       setEmailForm({
-        smtpHost: emailSettingsData.smtpHost || "",
-        smtpPort: String(emailSettingsData.smtpPort || 587),
-        smtpUser: emailSettingsData.smtpUser || "",
-        smtpPassword: "",
-        smtpSecure: emailSettingsData.smtpSecure ?? false,
+        postmarkServerToken: "",
         fromEmail: emailSettingsData.fromEmail || "",
         fromName: emailSettingsData.fromName || "Debt Manager Pro",
         notificationEmail: emailSettingsData.notificationEmail || "support@chainsoftwaregroup.com",
@@ -795,7 +783,7 @@ export default function SuperAdmin() {
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
                     <CardTitle data-testid="text-email-settings-title">Email Notification Settings</CardTitle>
-                    <CardDescription>Configure SMTP settings to send email notifications when new companies register.</CardDescription>
+                    <CardDescription>Emails are delivered through Postmark. Add your Postmark server token and a verified sender address to send notifications when new companies register.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Label htmlFor="email-active">Email Notifications Active</Label>
@@ -816,70 +804,34 @@ export default function SuperAdmin() {
                   </div>
                 ) : (
                 <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="smtp-host">SMTP Host</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="postmark-token">Postmark Server Token</Label>
+                  <div className="relative">
                     <Input
-                      id="smtp-host"
-                      data-testid="input-smtp-host"
-                      placeholder="smtp.office365.com"
-                      value={emailForm.smtpHost}
-                      onChange={(e) => setEmailForm({ ...emailForm, smtpHost: e.target.value })}
+                      id="postmark-token"
+                      data-testid="input-postmark-token"
+                      type={showPassword ? "text" : "password"}
+                      placeholder={emailSettingsData?.hasPostmarkToken ? "Leave blank to keep existing token" : "Enter Postmark server token"}
+                      value={emailForm.postmarkServerToken}
+                      onChange={(e) => setEmailForm({ ...emailForm, postmarkServerToken: e.target.value })}
                     />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0"
+                      onClick={() => setShowPassword(!showPassword)}
+                      data-testid="button-toggle-token"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="smtp-port">SMTP Port</Label>
-                    <Input
-                      id="smtp-port"
-                      data-testid="input-smtp-port"
-                      placeholder="587"
-                      value={emailForm.smtpPort}
-                      onChange={(e) => setEmailForm({ ...emailForm, smtpPort: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="smtp-user">SMTP Username / Email</Label>
-                    <Input
-                      id="smtp-user"
-                      data-testid="input-smtp-user"
-                      placeholder="notifications@yourdomain.com"
-                      value={emailForm.smtpUser}
-                      onChange={(e) => setEmailForm({ ...emailForm, smtpUser: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="smtp-password">SMTP Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="smtp-password"
-                        data-testid="input-smtp-password"
-                        type={showPassword ? "text" : "password"}
-                        placeholder={emailSettingsData?.hasPassword ? "Leave blank to keep existing" : "Enter password"}
-                        value={emailForm.smtpPassword}
-                        onChange={(e) => setEmailForm({ ...emailForm, smtpPassword: e.target.value })}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0"
-                        onClick={() => setShowPassword(!showPassword)}
-                        data-testid="button-toggle-password"
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="smtp-secure"
-                    data-testid="checkbox-smtp-secure"
-                    checked={emailForm.smtpSecure}
-                    onCheckedChange={(checked) => setEmailForm({ ...emailForm, smtpSecure: !!checked })}
-                  />
-                  <Label htmlFor="smtp-secure">Use SSL/TLS (port 465). Leave unchecked for STARTTLS (port 587).</Label>
+                  <p className="text-xs text-muted-foreground" data-testid="text-postmark-token-status">
+                    {emailSettingsData?.hasPostmarkToken
+                      ? "A Postmark server token is configured."
+                      : "No Postmark server token configured yet."}
+                    {" "}Find this in your Postmark account under Servers → API Tokens.
+                  </p>
                 </div>
 
                 <div className="border-t pt-4">

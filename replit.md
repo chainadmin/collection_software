@@ -145,12 +145,12 @@ A comprehensive external API is provided for integration with SMS platforms, sof
 ### Organization Subscription Billing
 - **Stripe**: Used for billing organizations for their Debt Manager Pro subscription via Stripe Checkout. Not used for debtor payments. The subscribe page redirects to Stripe's hosted checkout page; on return, the session is verified and the org is activated. Uses `STRIPE_SECRET_KEY` (server) and `VITE_STRIPE_PUBLISHABLE_KEY` (frontend, currently unused but available). Key file: `server/stripe.ts`.
 
-### Email Notifications (Super Admin)
-- **Nodemailer**: Used to send SMTP-based email notifications from the super admin system account.
-- Super admin configures SMTP settings (host, port, user, password, from email) via the Email Settings tab in the super admin dashboard.
-- Settings are stored in the `email_settings` table with `organizationId = "system-super-admin"`.
-- When a new organization signs up, an email notification is automatically sent to the configured notification email (default: support@chainsoftwaregroup.com).
-- The password is never returned in API GET responses (only `hasPassword: boolean`).
+### Email Delivery (Postmark)
+- **Postmark**: All outbound email is delivered through the Postmark API (`server/email.ts`, `ServerClient`). Nodemailer/SMTP has been replaced.
+- The Postmark server token is resolved from the system `email_settings` row (`postmarkServerToken`, super-admin configurable) with a `POSTMARK_SERVER_TOKEN` environment secret as fallback. The token is never returned in API responses (only `hasPostmarkToken: boolean`).
+- Super admin configures the Postmark server token, From email/name, and notification recipient via the Email Settings tab in the super admin dashboard (`/api/super-admin/email-settings`). A verified From address and active toggle are required to send. Settings are stored in the `email_settings` table with `organizationId = "system-super-admin"`.
+- When a new organization signs up, a notification email is automatically sent to the configured notification email (default: support@chainsoftwaregroup.com).
+- **Per-organization email settings**: Each org admin/manager sets the recipient address(es) for their company's notifications/reports via Admin → Global Settings → Email Settings (`/app/admin/email/settings`, backed by `/api/email-settings`, role-restricted, tenant isolated). Recipients are stored as a comma-separated `notificationEmail` on the org's own `email_settings` row. The `sendOrgNotificationEmail(orgId, ...)` helper sends to those recipients via the shared Postmark transport, only when the org's `isActive` toggle is on.
 
 ### Debt Collection Merchant Gateways (Configured per organization)
 - **Authorize.net**: Supported processor type for debtor payments.
