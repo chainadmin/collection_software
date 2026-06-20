@@ -1,4 +1,8 @@
-const CACHE_NAME = 'debtmanagerpro-v6';
+// CACHE_NAME carries a per-deploy version token. In production the server
+// replaces __SW_VERSION__ with a hash that changes on every build, so each
+// deploy ships a byte-different service worker and the browser treats it as a
+// real update. In dev the literal placeholder is fine as a stable cache name.
+const CACHE_NAME = 'debtmanagerpro-__SW_VERSION__';
 const APP_SHELL = [
   '/',
   '/favicon.png'
@@ -14,7 +18,11 @@ self.addEventListener('install', (event) => {
       });
     })
   );
-  self.skipWaiting();
+  // NOTE: we intentionally do NOT call skipWaiting() here. A new worker waits
+  // until the page tells it to activate (via the SKIP_WAITING message below) or
+  // until every tab/window using the old worker is closed. This lets the app
+  // show a "new version available" prompt instead of reloading mid-task, while
+  // still updating automatically the next time the app is fully relaunched.
 });
 
 self.addEventListener('activate', (event) => {
@@ -29,6 +37,14 @@ self.addEventListener('activate', (event) => {
       );
     }).then(() => self.clients.claim())
   );
+});
+
+// Allow the page to activate a waiting worker on demand (the "Reload to update"
+// action posts this message).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 function isHtmlResponse(response) {
@@ -57,8 +73,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Always fetch manifests fresh so the right one is used per page.
-  if (url.pathname === '/manifest.json' || url.pathname === '/manifest-collector.json') {
+  // Always fetch the service worker and manifests fresh.
+  if (
+    url.pathname === '/sw.js' ||
+    url.pathname === '/manifest.json' ||
+    url.pathname === '/manifest-collector.json'
+  ) {
     event.respondWith(fetch(event.request));
     return;
   }

@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { AppRefreshHelp } from "@/components/app-refresh-help";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -108,6 +109,7 @@ export default function Login() {
             ← Back to home
           </Link>
         </p>
+        <AppRefreshHelp />
       </div>
     </div>
   );

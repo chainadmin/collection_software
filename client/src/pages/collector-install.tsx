@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Link } from "wouter";
 import { Headphones } from "lucide-react";
 import { InstallButton } from "@/components/install-button";
+import { AppRefreshHelp } from "@/components/app-refresh-help";
 
 export default function CollectorInstall() {
   return (
@@ -35,6 +36,7 @@ export default function CollectorInstall() {
             Back to home
           </Link>
         </p>
+        <AppRefreshHelp />
       </div>
     </div>
   );
