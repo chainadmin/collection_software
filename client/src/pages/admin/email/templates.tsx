@@ -60,14 +60,89 @@ type MaskedCampaignIntegration = {
   organizationId: string;
 };
 
-const MERGE_VARS = [
-  "{{first_name}}",
-  "{{last_name}}",
-  "{{account_number}}",
-  "{{balance}}",
-  "{{payment_date}}",
-  "{{company_name}}",
+type MergeVarGroup = { label: string; vars: string[] };
+
+// Full set of merge variables supported by the Chain two-way integration.
+// All use {{...}} syntax, are case-sensitive, and work in email and text alike.
+const MERGE_VAR_GROUPS: MergeVarGroup[] = [
+  {
+    label: "Consumer",
+    vars: [
+      "{{firstName}}", "{{lastName}}", "{{fullName}}", "{{consumerName}}",
+      "{{email}}", "{{phone}}", "{{consumerId}}",
+      "{{address}}", "{{consumerAddress}}", "{{city}}", "{{consumerCity}}",
+      "{{state}}", "{{consumerState}}", "{{zip}}", "{{zipCode}}",
+      "{{fullAddress}}", "{{consumerFullAddress}}", "{{ssnLast4}}",
+    ],
+  },
+  {
+    label: "Account",
+    vars: [
+      "{{accountId}}", "{{accountNumber}}", "{{fileNumber}}", "{{filenumber}}",
+      "{{creditor}}", "{{balance}}", "{{balence}}", "{{balanceCents}}",
+      "{{dueDate}}", "{{dueDateIso}}",
+    ],
+  },
+  {
+    label: "Settlement offers",
+    vars: [
+      "{{balance50%}}", "{{balance60%}}", "{{balance70%}}",
+      "{{balance80%}}", "{{balance90%}}", "{{balance100%}}",
+    ],
+  },
+  {
+    label: "Agency",
+    vars: ["{{agencyName}}", "{{agencyEmail}}", "{{agencyPhone}}", "{{COMPANY_LOGO}}"],
+  },
+  {
+    label: "Links",
+    vars: [
+      "{{consumerPortalLink}}", "{{appDownloadLink}}",
+      "{{unsubscribeLink}}", "{{unsubscribeUrl}}", "{{unsubscribeButton}}",
+    ],
+  },
+  {
+    label: "Date",
+    vars: ["{{todays date}}"],
+  },
 ];
+
+// Illustrative values so the preview shows how a finished message reads.
+// Real values are resolved live (from the DMP account) when Chain sends.
+const SAMPLE_VALUES: Record<string, string> = {
+  firstName: "Jordan", lastName: "Miller", fullName: "Jordan Miller", consumerName: "Jordan Miller",
+  email: "jordan.miller@example.com", phone: "(555) 123-4567", consumerId: "CON-10482",
+  address: "123 Main St", consumerAddress: "123 Main St", city: "Austin", consumerCity: "Austin",
+  state: "TX", consumerState: "TX", zip: "78701", zipCode: "78701",
+  fullAddress: "123 Main St, Austin, TX 78701", consumerFullAddress: "123 Main St, Austin, TX 78701",
+  ssnLast4: "6789",
+  accountId: "ACC-55213", accountNumber: "4012-8899", fileNumber: "FN-2026-000142",
+  filenumber: "FN-2026-000142", creditor: "First National Bank",
+  balance: "$1,234.56", balence: "$1,234.56", balanceCents: "123456",
+  dueDate: "07/15/2026", dueDateIso: "2026-07-15",
+  "balance50%": "$617.28", "balance60%": "$740.74", "balance70%": "$864.19",
+  "balance80%": "$987.65", "balance90%": "$1,111.10", "balance100%": "$1,234.56",
+  agencyName: "DebtFlow Pro Recovery", agencyEmail: "support@example.com",
+  agencyPhone: "(800) 555-0199", COMPANY_LOGO: "[company logo]",
+  consumerPortalLink: "https://pay.example.com/jm", appDownloadLink: "https://example.com/app",
+  unsubscribeLink: "https://example.com/unsubscribe", unsubscribeUrl: "https://example.com/unsubscribe",
+  unsubscribeButton: "[Unsubscribe]",
+  "todays date": new Date().toLocaleDateString(),
+};
+
+function renderWithSampleValues(text: string, custom: string[]): string {
+  if (!text) return text;
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
+    const name = String(rawName).trim();
+    if (Object.prototype.hasOwnProperty.call(SAMPLE_VALUES, name)) {
+      return SAMPLE_VALUES[name];
+    }
+    if (custom.includes(name)) {
+      return `[${name}]`;
+    }
+    return match;
+  });
+}
 
 const blankForm = { name: "", subject: "", body: "", templateType: "email" };
 
@@ -177,8 +252,26 @@ export default function EmailTemplates() {
   // ---- Send campaign ----
   const { data: debtors = [] } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
-    enabled: !!sendTemplate,
+    enabled: !!sendTemplate || showEditor,
   });
+
+  // Any non-standard CSV import column becomes a usable {{column_name}} variable.
+  const customVarNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const d of debtors) {
+      const raw = (d as any).customFields;
+      if (!raw) continue;
+      try {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (parsed && typeof parsed === "object") {
+          for (const key of Object.keys(parsed)) names.add(key);
+        }
+      } catch {
+        // ignore malformed custom field JSON
+      }
+    }
+    return Array.from(names).sort();
+  }, [debtors]);
 
   const requiredIntegrationType = sendTemplate?.templateType === "email" ? "email" : "sms";
   const compatibleIntegrations = integrations.filter(
@@ -358,21 +451,46 @@ export default function EmailTemplates() {
                   data-testid="input-template-body"
                 />
               </div>
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-xs font-medium mb-2">Click to insert a variable:</p>
-                <div className="flex flex-wrap gap-2">
-                  {MERGE_VARS.map((v) => (
-                    <Badge
-                      key={v}
-                      variant="secondary"
-                      className="font-mono text-xs cursor-pointer hover-elevate"
-                      onClick={() => insertVariable(v)}
-                      data-testid={`badge-var-${v.replace(/[{}]/g, "")}`}
-                    >
-                      {v}
-                    </Badge>
-                  ))}
-                </div>
+              <div className="p-3 bg-muted rounded-lg space-y-3 max-h-[260px] overflow-y-auto">
+                <p className="text-xs font-medium">Click to insert a variable:</p>
+                {MERGE_VAR_GROUPS.map((group) => (
+                  <div key={group.label} className="space-y-1.5">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{group.label}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {group.vars.map((v) => (
+                        <Badge
+                          key={v}
+                          variant="secondary"
+                          className="font-mono text-xs cursor-pointer hover-elevate"
+                          onClick={() => insertVariable(v)}
+                          data-testid={`badge-var-${v.replace(/[^a-zA-Z0-9]/g, "")}`}
+                        >
+                          {v}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {customVarNames.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Custom import columns
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {customVarNames.map((name) => (
+                        <Badge
+                          key={name}
+                          variant="secondary"
+                          className="font-mono text-xs cursor-pointer hover-elevate"
+                          onClick={() => insertVariable(`{{${name}}}`)}
+                          data-testid={`badge-var-${name.replace(/[^a-zA-Z0-9]/g, "")}`}
+                        >
+                          {`{{${name}}}`}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -462,12 +580,17 @@ export default function EmailTemplates() {
           <DialogHeader>
             <DialogTitle>{previewTemplate?.name}</DialogTitle>
             {previewTemplate?.templateType === "email" && (
-              <DialogDescription>Subject: {previewTemplate?.subject}</DialogDescription>
+              <DialogDescription>
+                Subject: {renderWithSampleValues(previewTemplate?.subject || "", customVarNames)}
+              </DialogDescription>
             )}
           </DialogHeader>
-          <div className="py-2">
+          <div className="py-2 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Preview with sample data. Real values are filled in from each account when the message is sent.
+            </p>
             <pre className="text-sm whitespace-pre-wrap break-words bg-muted p-3 rounded-lg max-h-[400px] overflow-y-auto">
-              {previewTemplate?.body}
+              {renderWithSampleValues(previewTemplate?.body || "", customVarNames)}
             </pre>
           </div>
         </DialogContent>

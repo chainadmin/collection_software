@@ -55,6 +55,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { useOrganization } from "@/lib/organization-context";
 import { apiRequest } from "@/lib/queryClient";
 
 type MaskedApiToken = {
@@ -177,10 +178,10 @@ function CampaignIntegrationsCard() {
           <div>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <MessageSquare className="h-5 w-5" />
-              Chain Campaign Integration
+              DebtFlow Pro → Chain (outbound)
             </CardTitle>
             <CardDescription>
-              Connect your Chain SMS/email provider to deliver template campaigns to accounts
+              Store your Chain provider's URL and External API Key so DebtFlow Pro can send your email and text campaigns through Chain.
             </CardDescription>
           </div>
           <Dialog open={showForm} onOpenChange={(o) => { setShowForm(o); if (!o) resetForm(); }}>
@@ -255,7 +256,7 @@ function CampaignIntegrationsCard() {
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : integrations.length === 0 ? (
           <div className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
-            No Chain integration yet. Add one to start sending template campaigns.
+            No outbound Chain provider yet. Add one to send your template campaigns through Chain.
           </div>
         ) : (
           <div className="space-y-2">
@@ -322,7 +323,10 @@ function CampaignIntegrationsCard() {
 export default function Integrations() {
   const { toast } = useToast();
   const { user: authUser } = useAuth();
+  const { organization } = useOrganization();
   const queryClient = useQueryClient();
+
+  const companyCode = organization?.slug || "";
 
   const [newTokenName, setNewTokenName] = useState("");
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
@@ -373,28 +377,39 @@ export default function Integrations() {
 
   const getIntegrationInfoText = () => {
     const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    return `DebtFlow Pro API Integration Info\n\nBase URL: ${baseUrl}/api/v2\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nCollector Login:\n  POST ${baseUrl}/api/v2/login\n  Body: { "username": "...", "password": "..." }\n\nKey Endpoints:\n  GET  /api/v2/accounts?ssn=XXX\n  POST /api/v2/softphone/initiate\n  POST /api/v2/softphone/result\n  POST /api/v2/send_text\n  POST /api/v2/send_email_c2c\n  GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
+    return `DebtFlow Pro API Integration Info\n\nAPI URL: ${baseUrl}/api/v2\n\nCompany-level login (use in Chain):\n  Username: ${companyCode || "<your company code>"}\n  Password: <the API key you generated>\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nLogin endpoint:\n  POST ${baseUrl}/api/v2/login\n  Body: { "username": "${companyCode || "<company code>"}", "password": "<API key>" }\n\nKey Endpoints:\n  GET  /api/v2/accounts?ssn=XXX\n  POST /api/v2/softphone/initiate\n  POST /api/v2/softphone/result\n  POST /api/v2/send_text\n  POST /api/v2/send_email_c2c\n  GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
   };
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Text & Email Integration</h1>
+        <h1 className="text-2xl font-semibold">Connect Chain</h1>
         <p className="text-sm text-muted-foreground">
-          Connect SMS platforms, softphones, and dialers to DebtFlow Pro via the API v2
+          Set up the two-way connection between DebtFlow Pro and Chain (and other SMS/dialer platforms).
         </p>
       </div>
 
       <div className="max-w-3xl space-y-6">
-        <CampaignIntegrationsCard />
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="py-4 space-y-2 text-sm">
+            <p className="font-medium">How the connection works</p>
+            <p className="text-muted-foreground">
+              <strong>Chain → DebtFlow Pro:</strong> Chain reads your accounts and posts payments and notes back to DebtFlow Pro. Set this up below using your company code and an API key.
+            </p>
+            <p className="text-muted-foreground">
+              <strong>DebtFlow Pro → Chain:</strong> DebtFlow Pro sends your email and text campaigns out through Chain. Set this up in the outbound section.
+            </p>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <Zap className="h-5 w-5" />
-              External Integrations
+              Chain → DebtFlow Pro (inbound)
             </CardTitle>
             <CardDescription>
-              Connect SMS platforms, softphones, and dialers via the API v2
+              Give Chain these three details so it can connect to your DebtFlow Pro account. No collector login is needed.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -406,38 +421,66 @@ export default function Integrations() {
               </div>
             )}
 
-            <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
-              <p className="text-sm font-medium">API Base URL</p>
-              <div className="flex items-center gap-2">
-                <code
-                  className="flex-1 text-xs bg-background p-2 rounded border truncate"
-                  data-testid="text-api-base-url"
-                >
-                  {typeof window !== "undefined" ? `${window.location.origin}/api/v2` : "/api/v2"}
-                </code>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/api/v2`);
-                    toast({ title: "Copied!", description: "API base URL copied to clipboard." });
-                  }}
-                  data-testid="button-copy-api-url"
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
+            <div className="p-4 rounded-lg bg-muted/50 border space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">1. API URL</p>
+                <div className="flex items-center gap-2">
+                  <code
+                    className="flex-1 text-xs bg-background p-2 rounded border truncate"
+                    data-testid="text-api-base-url"
+                  >
+                    {typeof window !== "undefined" ? `${window.location.origin}/api/v2` : "/api/v2"}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/v2`);
+                      toast({ title: "Copied!", description: "API URL copied to clipboard." });
+                    }}
+                    data-testid="button-copy-api-url"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p><strong>Authentication:</strong> Bearer Token</p>
-                <p><strong>Header:</strong> <code className="bg-background px-1 rounded">Authorization: Bearer YOUR_TOKEN</code></p>
-                <p><strong>Collector Login:</strong> <code className="bg-background px-1 rounded">POST /api/v2/login</code> with username + password</p>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">2. Username (your company code)</p>
+                <div className="flex items-center gap-2">
+                  <code
+                    className="flex-1 text-xs bg-background p-2 rounded border truncate"
+                    data-testid="text-company-code"
+                  >
+                    {companyCode || "Loading…"}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    disabled={!companyCode}
+                    onClick={() => {
+                      navigator.clipboard.writeText(companyCode);
+                      toast({ title: "Copied!", description: "Company code copied to clipboard." });
+                    }}
+                    data-testid="button-copy-company-code"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-sm font-medium">3. Password (an API key)</p>
+                <p className="text-xs text-muted-foreground">
+                  Generate an API key below and paste it into Chain's password field. The key is shown only once.
+                </p>
               </div>
             </div>
 
             <div className="space-y-3">
               <p className="text-sm font-medium flex items-center gap-2">
                 <Key className="h-4 w-4" />
-                API Tokens
+                API Keys
               </p>
               <div className="flex gap-2">
                 <Input
@@ -559,6 +602,8 @@ export default function Integrations() {
             </div>
           </CardContent>
         </Card>
+
+        <CampaignIntegrationsCard />
 
         {/* One-time token reveal dialog */}
         <Dialog open={showTokenRevealDialog} onOpenChange={(open) => {

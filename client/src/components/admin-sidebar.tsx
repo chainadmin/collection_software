@@ -27,6 +27,7 @@ import {
   Mail,
   FileText,
   Megaphone,
+  MessageSquare,
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -114,14 +115,20 @@ const adminSections: NavSection[] = [
     ],
   },
   {
+    title: "Messaging",
+    icon: MessageSquare,
+    items: [
+      { title: "Message Templates", url: "/app/admin/email/templates", icon: FileText },
+      { title: "Connect Chain", url: "/app/admin/integrations", icon: Zap },
+      { title: "Campaign History", url: "/app/admin/campaigns", icon: Megaphone },
+    ],
+  },
+  {
     title: "Global Settings",
     icon: Settings,
     items: [
       { title: "App Settings", url: "/app/admin/settings", icon: Settings },
       { title: "Email Settings", url: "/app/admin/email/settings", icon: Mail },
-      { title: "Message Templates", url: "/app/admin/email/templates", icon: FileText },
-      { title: "Text & Email Integration", url: "/app/admin/integrations", icon: Zap },
-      { title: "Campaign History", url: "/app/admin/campaigns", icon: Megaphone },
       { title: "Collector Options", url: "/app/collectors", icon: UserCog },
       { title: "Fee Schedule", url: "/app/admin/settings/fees", icon: DollarSign },
       { title: "Server Access", url: "/app/admin/settings/server-access", icon: Server },

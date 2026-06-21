@@ -78,11 +78,69 @@ export function registerExternalApiRoutes(app: Express) {
   app.post("/api/v2/login", async (req, res) => {
     try {
       const { username, password, agencyCode } = req.body;
-      
-      if (!username || !password || !agencyCode) {
-        return res.status(400).json({ error: "Agency code, username, and password required" });
+
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password required" });
       }
-      
+
+      // Company-level authentication (Chain and other org-wide integrations):
+      // Username = company code (org slug), Password = a generated API key.
+      // No collector account is involved. This path is used when no agencyCode
+      // is supplied — Chain's connection form only has username + password.
+      if (!agencyCode) {
+        const org = await storage.getOrganizationBySlug(String(username).trim().toLowerCase());
+        if (!org) {
+          return res.status(401).json({ error: "Invalid credentials" });
+        }
+        if (!org.isActive) {
+          return res.status(403).json({ error: "Your organization is not active" });
+        }
+
+        // The password must be a long-lived API key (created in Settings, prefixed
+        // "dmv2_"). Short-lived session tokens minted by this endpoint are plain
+        // hex with no prefix, so they cannot be exchanged to renew themselves.
+        const suppliedKey = String(password).trim();
+        if (!suppliedKey.startsWith("dmv2_")) {
+          return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        // The key must be valid, active, and belong to this org.
+        // Defense-in-depth: never allow a key from another org to authenticate here.
+        const apiKey = await storage.getApiTokenByToken(suppliedKey);
+        if (
+          !apiKey ||
+          apiKey.organizationId !== org.id ||
+          !apiKey.isActive ||
+          (apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date())
+        ) {
+          return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        await storage.updateApiTokenLastUsed(apiKey.id);
+
+        const sessionTokenValue = crypto.randomBytes(32).toString("hex");
+        const sessionToken = await storage.createApiToken({
+          organizationId: org.id,
+          name: `Chain session token (${org.slug})`,
+          token: sessionTokenValue,
+          isActive: true,
+          permissions: ["all"],
+          createdDate: new Date().toISOString().split("T")[0],
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
+
+        return res.json({
+          success: true,
+          token: sessionTokenValue,
+          expiresAt: sessionToken.expiresAt,
+          organization: {
+            id: org.id,
+            name: org.name,
+            code: org.slug,
+          },
+        });
+      }
+
       const organization = await storage.getOrganizationBySlug(String(agencyCode).trim().toLowerCase());
       if (!organization) {
         return res.status(401).json({ error: "Invalid credentials" });
