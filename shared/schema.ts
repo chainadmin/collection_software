@@ -703,7 +703,7 @@ export const campaignIntegrations = pgTable("campaign_integrations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
-  type: text("type").notNull(), // sms | email
+  type: text("type").notNull(), // sms | email | both (legacy; one provider now handles both channels)
   apiBaseUrl: text("api_base_url").notNull(),
   apiKey: text("api_key").notNull(),
   isActive: boolean("is_active").default(true),

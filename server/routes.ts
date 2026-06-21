@@ -4219,7 +4219,8 @@ export async function registerRoutes(
       const integration = await storage.createCampaignIntegration({
         organizationId: orgId,
         name: req.body.name,
-        type: req.body.type,
+        // One provider handles both channels; "both" kept for the not-null column.
+        type: req.body.type || "both",
         apiBaseUrl: req.body.apiBaseUrl,
         apiKey: req.body.apiKey,
         isActive: req.body.isActive ?? true,
@@ -4242,10 +4243,10 @@ export async function registerRoutes(
       if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(404).json({ error: "Campaign integration not found" });
       }
-      const { name, type, apiBaseUrl, apiKey, isActive } = req.body;
+      // `type` is intentionally not accepted — one provider handles both channels.
+      const { name, apiBaseUrl, apiKey, isActive } = req.body;
       const updated = await storage.updateCampaignIntegration(req.params.id, {
         ...(name !== undefined ? { name } : {}),
-        ...(type !== undefined ? { type } : {}),
         ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}),
         // Only overwrite apiKey when a non-empty value is supplied so the masked UI can omit it.
         ...(apiKey ? { apiKey } : {}),
@@ -4329,12 +4330,9 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Template not found" });
       }
 
-      // Enforce template/integration channel compatibility: email templates must go
-      // through an email integration, text templates through an sms integration.
-      const requiredIntegrationType = template.templateType === "email" ? "email" : "sms";
-      if (integration.type !== requiredIntegrationType) {
-        return res.status(400).json({ error: `A "${template.templateType}" template must be sent through a "${requiredIntegrationType}" integration` });
-      }
+      // Channel is driven by the template, not the provider — one Chain provider can
+      // send both email and text campaigns.
+      const campaignChannel = template.templateType === "email" ? "email" : "sms";
 
       const debtors = await Promise.all(accounts.map((a) => storage.getDebtor(a.debtorId)));
       if (debtors.some((d) => !d || d.organizationId !== orgId)) {
@@ -4345,7 +4343,7 @@ export async function registerRoutes(
         organizationId: orgId,
         integrationId: integration.id,
         campaignName,
-        campaignType: integration.type,
+        campaignType: campaignChannel,
         totalAccounts: accounts.length,
         status: "pending",
         sentDate: new Date().toISOString(),
@@ -4371,7 +4369,7 @@ export async function registerRoutes(
         organizationId: orgId,
         campaignLogId: campaignLog.id,
         campaignName,
-        campaignType: integration.type,
+        campaignType: campaignChannel,
         template: {
           id: template.id,
           name: template.name,

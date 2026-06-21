@@ -24,13 +24,6 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -39,7 +32,6 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import {
   Zap,
   Mail,
@@ -87,7 +79,6 @@ function CampaignIntegrationsCard() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [type, setType] = useState("sms");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
 
@@ -98,14 +89,13 @@ function CampaignIntegrationsCard() {
   const resetForm = () => {
     setEditingId(null);
     setName("");
-    setType("sms");
     setApiBaseUrl("");
     setApiKey("");
   };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const payload: Record<string, unknown> = { name, type, apiBaseUrl };
+      const payload: Record<string, unknown> = { name, apiBaseUrl };
       if (apiKey.trim()) payload.apiKey = apiKey.trim();
       if (editingId) {
         return apiRequest("PATCH", `/api/campaign-integrations/${editingId}`, payload);
@@ -153,7 +143,6 @@ function CampaignIntegrationsCard() {
   const openEdit = (i: MaskedCampaignIntegration) => {
     setEditingId(i.id);
     setName(i.name);
-    setType(i.type);
     setApiBaseUrl(i.apiBaseUrl);
     setApiKey("");
     setShowForm(true);
@@ -209,18 +198,6 @@ function CampaignIntegrationsCard() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Type</Label>
-                  <Select value={type} onValueChange={setType}>
-                    <SelectTrigger data-testid="select-integration-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sms">SMS / Text</SelectItem>
-                      <SelectItem value="email">Email</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
                   <Label>Provider Base URL</Label>
                   <Input
                     placeholder="https://api.chainprovider.com"
@@ -269,7 +246,6 @@ function CampaignIntegrationsCard() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium truncate">{i.name}</p>
-                    <Badge variant="secondary" className="text-xs uppercase">{i.type}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{i.apiBaseUrl}</p>
                 </div>

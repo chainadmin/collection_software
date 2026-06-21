@@ -273,10 +273,9 @@ export default function EmailTemplates() {
     return Array.from(names).sort();
   }, [debtors]);
 
-  const requiredIntegrationType = sendTemplate?.templateType === "email" ? "email" : "sms";
-  const compatibleIntegrations = integrations.filter(
-    (i) => i.isActive && i.type === requiredIntegrationType
-  );
+  // Channel is driven by the template; any active Chain provider can send it.
+  const sendChannel = sendTemplate?.templateType === "email" ? "email" : "sms";
+  const activeIntegrations = integrations.filter((i) => i.isActive);
   const sendIntegration = integrations.find((i) => i.id === sendIntegrationId);
 
   const filteredDebtors = useMemo(() => {
@@ -299,8 +298,7 @@ export default function EmailTemplates() {
     setSendCampaignName(t.name);
     setSelectedDebtorIds(new Set());
     setAccountSearch("");
-    const want = t.templateType === "email" ? "email" : "sms";
-    const match = integrations.find((i) => i.isActive && i.type === want);
+    const match = integrations.find((i) => i.isActive);
     setSendIntegrationId(match?.id || "");
   };
 
@@ -317,7 +315,8 @@ export default function EmailTemplates() {
     mutationFn: async () => {
       const integration = integrations.find((i) => i.id === sendIntegrationId);
       if (!integration) throw new Error("No integration selected");
-      const wantType = integration.type === "email" ? "email" : "phone";
+      // Contact type follows the template channel, not the provider.
+      const wantType = sendTemplate?.templateType === "email" ? "email" : "phone";
 
       const selected = debtors.filter((d) => selectedDebtorIds.has(d.id));
       const accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> = [];
@@ -628,9 +627,9 @@ export default function EmailTemplates() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {compatibleIntegrations.length === 0 ? (
+            {activeIntegrations.length === 0 ? (
               <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-700 dark:text-yellow-400">
-                No active {requiredIntegrationType === "email" ? "email" : "SMS"} integration configured. Add one under Text &amp; Email Integration first.
+                No active Chain provider configured. Add one under Connect Chain first.
               </div>
             ) : (
               <>
@@ -644,15 +643,15 @@ export default function EmailTemplates() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Integration</Label>
+                    <Label>Chain Provider</Label>
                     <Select value={sendIntegrationId} onValueChange={setSendIntegrationId}>
                       <SelectTrigger data-testid="select-send-integration">
-                        <SelectValue placeholder="Choose integration" />
+                        <SelectValue placeholder="Choose provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        {compatibleIntegrations.map((i) => (
+                        {activeIntegrations.map((i) => (
                           <SelectItem key={i.id} value={i.id}>
-                            {i.name} ({i.type})
+                            {i.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -662,7 +661,7 @@ export default function EmailTemplates() {
 
                 <div className="text-xs text-muted-foreground">
                   Accounts will be contacted by{" "}
-                  <strong>{sendIntegration?.type === "email" ? "email address" : "phone number"}</strong>.
+                  <strong>{sendChannel === "email" ? "email address" : "phone number"}</strong>.
                 </div>
 
                 <div className="relative">
@@ -715,7 +714,7 @@ export default function EmailTemplates() {
               onClick={() => sendMutation.mutate()}
               disabled={
                 sendMutation.isPending ||
-                compatibleIntegrations.length === 0 ||
+                activeIntegrations.length === 0 ||
                 !sendIntegrationId ||
                 selectedDebtorIds.size === 0 ||
                 !sendCampaignName.trim()
