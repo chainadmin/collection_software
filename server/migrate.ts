@@ -763,6 +763,46 @@ export async function runMigrations() {
       ON "account_statuses" ("organization_id", lower("code"))
     `);
 
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "campaign_integrations" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "name" text NOT NULL,
+        "type" text NOT NULL,
+        "api_base_url" text NOT NULL,
+        "api_key" text NOT NULL,
+        "is_active" boolean DEFAULT true,
+        "created_date" text NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "campaign_logs" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "integration_id" varchar NOT NULL,
+        "campaign_name" text NOT NULL,
+        "campaign_type" text NOT NULL,
+        "total_accounts" integer NOT NULL,
+        "status" text NOT NULL DEFAULT 'pending',
+        "sent_date" text NOT NULL,
+        "sent_by" text NOT NULL,
+        "error_message" text
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "campaign_log_items" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "campaign_log_id" varchar NOT NULL,
+        "debtor_id" varchar NOT NULL,
+        "file_number" text NOT NULL,
+        "contact_value" text NOT NULL,
+        "contact_type" text NOT NULL,
+        "status" text NOT NULL DEFAULT 'queued',
+        "external_id" text,
+        "response_text" text
+      )
+    `);
+
     // Enforce per-portfolio uniqueness of debtor file_number so vendor-supplied
     // file numbers (and our auto-generated FN-{YYYY}-{seq} values) cannot
     // produce ambiguous duplicates within the same portfolio. Postgres
