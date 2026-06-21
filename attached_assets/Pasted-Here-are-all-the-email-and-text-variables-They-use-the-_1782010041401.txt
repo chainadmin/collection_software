@@ -1,0 +1,45 @@
+Here are all the email and text variables. They use the same system — any of these work in both email templates and SMS/text templates — and you write them in double curly braces, like {{firstName}}.
+
+Consumer (the person)
+{{firstName}} — first name
+{{lastName}} — last name
+{{fullName}} / {{consumerName}} — full name
+{{email}} — email address
+{{phone}} — phone number
+{{consumerId}} — unique consumer ID
+{{address}} / {{consumerAddress}} — street address
+{{city}} / {{consumerCity}} — city
+{{state}} / {{consumerState}} — state
+{{zip}} / {{zipCode}} — ZIP code
+{{fullAddress}} / {{consumerFullAddress}} — complete formatted address
+{{ssnLast4}} — last 4 of SSN (from CSV import, for identity checks)
+Account (the debt)
+{{accountId}} — unique account ID
+{{accountNumber}} — account number
+{{fileNumber}} / {{filenumber}} — file number (also used by SMAX/DMP)
+{{creditor}} — creditor name
+{{balance}} (or {{balence}}) — formatted balance, e.g. "$1,234.56"
+{{balanceCents}} — balance in cents, e.g. "123456"
+{{dueDate}} — formatted due date (12/31/2023)
+{{dueDateIso}} — ISO due date (2023-12-31)
+Settlement offers (auto-calculated)
+{{balance50%}}, {{balance60%}}, {{balance70%}}, {{balance80%}}, {{balance90%}}, {{balance100%}} — that percentage of the balance
+Your agency
+{{agencyName}} — company name
+{{agencyEmail}} — contact email
+{{agencyPhone}} — contact phone
+{{COMPANY_LOGO}} — company logo (shows as an image)
+Links
+{{consumerPortalLink}} — link to the consumer portal
+{{appDownloadLink}} — link to the mobile app download page
+{{unsubscribeLink}} / {{unsubscribeUrl}} — unsubscribe link
+{{unsubscribeButton}} — formatted unsubscribe button (HTML, email only really)
+Date
+{{todays date}} — today's date
+Custom fields from your CSV (the powerful one)
+Any column in your import that isn't a standard field above automatically becomes a variable using the column name. So a CSV column original_creditor becomes {{original_creditor}}, payment_status becomes {{payment_status}}, etc. A few tips:
+
+Column name = variable name, and it's case-sensitive.
+Use underscores instead of spaces (payment_status, not payment status).
+Empty values just become blank text.
+One nice side effect of the DMP live-sync task (#64): once that's built, {{balance}} in your emails/texts for DMP accounts will reflect the live DMP balance pulled at send/preview time, the same as it does for SMAX today.
