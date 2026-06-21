@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
+import { useAuth } from "@/lib/auth-context";
 
 interface OrganizationContextType {
   organization: Organization | null;
@@ -16,12 +17,24 @@ export const DEFAULT_ORG_ID = "default-org";
 const STORAGE_KEY = "debtflow_organization_id";
 
 export function OrganizationProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [organizationId, setOrganizationIdState] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(STORAGE_KEY) || DEFAULT_ORG_ID;
     }
     return DEFAULT_ORG_ID;
   });
+
+  // Keep the active organization in sync with the logged-in user's org so
+  // org-scoped lookups (like the company code on the integrations page)
+  // resolve to the user's own organization instead of the stale default.
+  useEffect(() => {
+    if (user?.organizationId && user.organizationId !== organizationId) {
+      // The existing [organizationId] effect below persists this to localStorage.
+      setOrganizationIdState(user.organizationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.organizationId]);
 
   const { data: organization, isLoading, refetch } = useQuery<Organization>({
     queryKey: ["/api/organizations", organizationId],
