@@ -382,7 +382,7 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as Control<FieldValues>} />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
@@ -490,7 +490,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as Control<FieldValues>} isEdit />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} isEdit />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
