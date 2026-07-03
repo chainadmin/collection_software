@@ -354,7 +354,7 @@ export default function Integrations() {
 
   const getIntegrationInfoText = () => {
     const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    return `DebtFlow Pro API Integration Info\n\nAPI URL: ${baseUrl}/api/v2\n\nCompany-level login (use in Chain):\n  Username: ${companyCode || "<your company code>"}\n  Password: <the API key you generated>\n\nAuthentication: Bearer Token\nHeader: Authorization: Bearer YOUR_TOKEN_HERE\n\nLogin endpoint:\n  POST ${baseUrl}/api/v2/login\n  Body: { "username": "${companyCode || "<company code>"}", "password": "<API key>" }\n\nKey Endpoints:\n  GET  /api/v2/accounts?ssn=XXX\n  POST /api/v2/softphone/initiate\n  POST /api/v2/softphone/result\n  POST /api/v2/send_text\n  POST /api/v2/send_email_c2c\n  GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
+    return `DebtFlow Pro API Integration Info\n\nChain connection settings (paste exactly as shown):\n  API URL:  ${baseUrl}\n  Username: ${companyCode || "<your company code>"}\n  Password: <the API key you generated>\n\nImportant: enter the API URL as-is. Do NOT add /api/v2 — Chain adds the\n/api/v2/... part automatically. Adding it yourself doubles the path and\nthe connection will fail.\n\nFor developers (direct API access):\n  Base path: ${baseUrl}/api/v2\n  Authentication: Bearer Token\n  Header: Authorization: Bearer YOUR_TOKEN_HERE\n\n  Login endpoint:\n    POST ${baseUrl}/api/v2/login\n    Body: { "username": "${companyCode || "<company code>"}", "password": "<API key>" }\n\n  Key Endpoints:\n    GET  /api/v2/accounts?ssn=XXX\n    POST /api/v2/softphone/initiate\n    POST /api/v2/softphone/result\n    POST /api/v2/send_text\n    POST /api/v2/send_email_c2c\n    GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
   };
 
   return (
@@ -406,13 +406,13 @@ export default function Integrations() {
                     className="flex-1 text-xs bg-background p-2 rounded border truncate"
                     data-testid="text-api-base-url"
                   >
-                    {typeof window !== "undefined" ? `${window.location.origin}/api/v2` : "/api/v2"}
+                    {typeof window !== "undefined" ? window.location.origin : ""}
                   </code>
                   <Button
                     size="icon"
                     variant="outline"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/api/v2`);
+                      navigator.clipboard.writeText(window.location.origin);
                       toast({ title: "Copied!", description: "API URL copied to clipboard." });
                     }}
                     data-testid="button-copy-api-url"
@@ -420,6 +420,11 @@ export default function Integrations() {
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground" data-testid="text-api-url-hint">
+                  Paste this into Chain exactly as shown — do <strong>not</strong> add{" "}
+                  <code className="text-[11px]">/api/v2</code>. Chain adds that part automatically;
+                  adding it yourself doubles the path and the connection fails.
+                </p>
                 {typeof window !== "undefined" &&
                   /(^localhost$|^127\.|\.replit\.dev$|\.repl\.co$)/.test(window.location.hostname) && (
                     <div
