@@ -44,6 +44,7 @@ import {
   Phone,
   MessageSquare,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -419,6 +420,21 @@ export default function Integrations() {
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
+                {typeof window !== "undefined" &&
+                  /(^localhost$|^127\.|\.replit\.dev$|\.repl\.co$)/.test(window.location.hostname) && (
+                    <div
+                      className="flex items-start gap-2 p-2 rounded border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950 text-xs text-amber-800 dark:text-amber-200"
+                      data-testid="warning-dev-api-url"
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>
+                        You are viewing the <strong>development preview</strong>. This URL will not
+                        work in Chain — outside services can't reach it. Publish your app, then open
+                        this page from your published address (e.g. yourapp.replit.app or your custom
+                        domain) and copy the API URL from there.
+                      </span>
+                    </div>
+                  )}
               </div>
 
               <div className="space-y-2">
