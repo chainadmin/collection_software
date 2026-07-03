@@ -1,0 +1,33 @@
+What to do:
+
+Ask DMP support (or check their API docs / the same admin screen where you set the "Provider Base URL") for their API base URL — the address meant for system-to-system connections. It's often a different host than the website, something like https://api.yourcompany.debtmanager.com or similar.
+Put that URL in Chain's DMP "API URL" field — just the base address, no /api/v2/login on the end (Chain adds that automatically).
+Hit Test Connection again. Now that the save fix is deployed, once Test succeeds you can Save and it will stick.
+One thing I can improve on Chain's side: right now this situation shows up as a confusing "Failed to authenticate" message. I can add a check so that when the URL points to a website instead of an API, the Test button says something clear like "This URL appears to be a website, not the DMP API — double-check the API address." Want me to queue that up as a task?
+
+
+Planning API endpoint adjustments (4 seconds)
+That answer pins it down. Two issues with https://debtmanagerpro.com/api/v2:
+
+Don't include /api/v2 — Chain adds that part automatically. With it included, Chain ends up calling .../api/v2/api/v2/login (doubled), which doesn't exist, so the website hands back its normal webpage — exactly the HTML error in your logs.
+The domain itself may or may not be the API host — let me check that right now.
+
+Switching to GET probe
+The POST probe is blocked in Plan mode, but a read-only check will still tell us whether that domain serves an API or a website.
+
+
+2 actions
+I checked the domain directly, and that settles it: debtmanagerpro.com is their public website, not their API. Every address on it — including /api/v2/login — just returns a webpage. So no username or password will ever work against that URL.
+
+What this means for you:
+
+The URL you need is different from their public website. DMP will have a separate address for system-to-system connections — often something specific to your company's DMP account, like the address of the DMP screen where you set up the "Provider Base URL" and the three enable switches, or an address like https://yourcompany.debtmanagerpro.com or https://api.debtmanagerpro.com.
+Ask DMP support one question: "What base URL should an outside system use to reach your API — the one that serves /api/v2/login?" That's the exact address Chain needs.
+When you get it, enter just the base (e.g. https://something.debtmanagerpro.com) — no /api/v2 on the end, since Chain adds that automatically.
+Then hit Test Connection. If the URL is right but credentials are wrong you'll still get "Failed to authenticate" — but at that point it's just a matter of the correct API username/password, which DMP support can also confirm.
+
+Quick recap of where things stand:
+
+✅ Save bug — fixed and merged, DMP settings now persist
+⏳ Test Connection — waiting on the correct API address from DMP
+After that: Save → Import Accounts, and everything else (live balance refresh, payment post-back) is already in place
