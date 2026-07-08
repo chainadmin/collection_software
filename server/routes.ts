@@ -99,6 +99,91 @@ function validateOrgOwnership(resourceOrgId: string | null | undefined, sessionO
   return resourceOrgId === sessionOrgId;
 }
 
+
+function formatMoney(cents: number | null | undefined): string {
+  const amount = (cents ?? 0) / 100;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+}
+
+function formatMessageDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-US");
+}
+
+function buildPaymentArrangementTable(payments: Array<{ paymentDate: string; amount: number; status?: string | null }>, html: boolean): string {
+  const arrangementPayments = payments
+    .filter((p) => ["pending", "scheduled", "queued"].includes((p.status || "pending").toLowerCase()))
+    .sort((a, b) => String(a.paymentDate).localeCompare(String(b.paymentDate)));
+
+  if (arrangementPayments.length === 0) {
+    return html ? "<p>No payment arrangement on file.</p>" : "No payment arrangement on file.";
+  }
+
+  if (!html) {
+    return [
+      "Payment Date | Amount",
+      "-------------|-------",
+      ...arrangementPayments.map((p) => `${formatMessageDate(p.paymentDate)} | ${formatMoney(p.amount)}`),
+    ].join("\n");
+  }
+
+  const rows = arrangementPayments
+    .map((p) => `<tr><td style="padding:6px 10px;border:1px solid #ddd;">${formatMessageDate(p.paymentDate)}</td><td style="padding:6px 10px;border:1px solid #ddd;">${formatMoney(p.amount)}</td></tr>`)
+    .join("");
+  return `<table style="border-collapse:collapse;"><thead><tr><th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Payment Date</th><th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function renderTemplateForDebtor(templateText: string, debtor: any, html: boolean): Promise<string> {
+  const contacts = await storage.getDebtorContacts(debtor.id);
+  const payments = await storage.getPaymentsForDebtor(debtor.id);
+  const primaryPhone = contacts.find((c) => c.type === "phone" && c.isPrimary)?.value || contacts.find((c) => c.type === "phone")?.value || "";
+  const primaryEmail = debtor.email || contacts.find((c) => c.type === "email" && c.isPrimary)?.value || contacts.find((c) => c.type === "email")?.value || "";
+  const customFields = (() => {
+    try { return debtor.customFields ? JSON.parse(debtor.customFields) : {}; } catch { return {}; }
+  })();
+  const fullAddress = [debtor.address, debtor.city, debtor.state, debtor.zipCode].filter(Boolean).join(", ");
+  const values: Record<string, string> = {
+    firstName: debtor.firstName || "",
+    lastName: debtor.lastName || "",
+    fullName: `${debtor.firstName || ""} ${debtor.lastName || ""}`.trim(),
+    consumerName: `${debtor.firstName || ""} ${debtor.lastName || ""}`.trim(),
+    email: primaryEmail,
+    phone: primaryPhone,
+    consumerId: debtor.fileNumber || debtor.accountNumber || "",
+    address: debtor.address || "",
+    consumerAddress: debtor.address || "",
+    city: debtor.city || "",
+    consumerCity: debtor.city || "",
+    state: debtor.state || "",
+    consumerState: debtor.state || "",
+    zip: debtor.zipCode || "",
+    zipCode: debtor.zipCode || "",
+    fullAddress,
+    consumerFullAddress: fullAddress,
+    ssnLast4: debtor.ssnLast4 || "",
+    accountId: debtor.accountNumber || "",
+    accountNumber: debtor.accountNumber || "",
+    fileNumber: debtor.fileNumber || "",
+    filenumber: debtor.fileNumber || "",
+    creditor: debtor.originalCreditor || "",
+    balance: formatMoney(debtor.currentBalance),
+    balence: formatMoney(debtor.currentBalance),
+    balanceCents: String(debtor.currentBalance ?? 0),
+    dueDate: debtor.nextFollowUpDate ? formatMessageDate(debtor.nextFollowUpDate) : "",
+    dueDateIso: debtor.nextFollowUpDate || "",
+    "todays date": formatMessageDate(new Date().toISOString()),
+    "Payment arrangement on file": buildPaymentArrangementTable(payments, html),
+  };
+  for (const pct of [50, 60, 70, 80, 90, 100]) values[`balance${pct}%`] = formatMoney(Math.round((debtor.currentBalance ?? 0) * pct / 100));
+  for (const [key, value] of Object.entries(customFields || {})) values[key] = String(value ?? "");
+  return (templateText || "").replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
+    const name = String(rawName).trim();
+    return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : match;
+  });
+}
+
 function normalizeIpAddress(ip: string): string {
   if (ip.startsWith("::ffff:")) {
     return ip.slice(7);
@@ -4102,16 +4187,21 @@ export async function registerRoutes(
     }
   });
 
-  // Email/Text Templates API (admin/manager only, org-scoped)
+  // Email/Text Templates API (admins/managers manage; enabled collectors can read active templates)
   app.get("/api/email-templates", async (req: any, res) => {
     try {
       const collector = req.session?.collector;
-      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-        return res.status(403).json({ error: "Only admins and managers can manage templates" });
+      if (!collector) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const currentCollector = await storage.getCollector(collector.id);
+      const canManage = collector.role === "admin" || collector.role === "manager";
+      if (!canManage && !currentCollector?.canViewEmail) {
+        return res.status(403).json({ error: "Messaging is not enabled for this collector" });
       }
       const orgId = getOrgId(req);
       const templates = await storage.getEmailTemplates(orgId);
-      res.json(templates);
+      res.json(canManage ? templates : templates.filter((t) => t.isActive));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch templates" });
     }
@@ -4377,10 +4467,16 @@ export async function registerRoutes(
           subject: template.subject ?? "",
           body: template.body,
         },
-        accounts: items.map((item) => ({
-          fileNumber: item.fileNumber,
-          contactValue: item.contactValue,
-          contactType: item.contactType,
+        accounts: await Promise.all(items.map(async (item, idx) => {
+          const debtor = debtors[idx]!;
+          const isEmail = campaignChannel === "email";
+          return {
+            fileNumber: item.fileNumber,
+            contactValue: item.contactValue,
+            contactType: item.contactType,
+            renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
+            renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+          };
         })),
       };
 
@@ -4405,6 +4501,130 @@ export async function registerRoutes(
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
+    }
+  });
+
+
+  app.post("/api/collector/messages/send", async (req: any, res) => {
+    try {
+      const sessionCollector = req.session?.collector;
+      if (!sessionCollector) {
+        return res.status(401).json({ error: "Collector authentication required" });
+      }
+      const orgId = getOrgId(req);
+      const currentCollector = await storage.getCollector(sessionCollector.id);
+      if (!currentCollector || !validateOrgOwnership(currentCollector.organizationId, orgId)) {
+        return res.status(401).json({ error: "Collector authentication required" });
+      }
+      if (currentCollector.role !== "admin" && currentCollector.role !== "manager" && !currentCollector.canViewEmail) {
+        return res.status(403).json({ error: "Messaging is not enabled for this collector" });
+      }
+
+      const { debtorId, templateId, contactValue, contactType, integrationId } = req.body as {
+        debtorId: string;
+        templateId: string;
+        contactValue: string;
+        contactType: "phone" | "email";
+        integrationId?: string;
+      };
+      if (!debtorId || !templateId || !contactValue || !contactType) {
+        return res.status(400).json({ error: "debtorId, templateId, contactValue, and contactType are required" });
+      }
+
+      const debtor = await storage.getDebtor(debtorId);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+      const template = await storage.getEmailTemplate(templateId);
+      if (!template || !template.isActive || !validateOrgOwnership(template.organizationId, orgId)) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      const expectedContactType = template.templateType === "email" ? "email" : "phone";
+      if (contactType !== expectedContactType) {
+        return res.status(400).json({ error: `This template requires a ${expectedContactType} contact` });
+      }
+      const contacts = await storage.getDebtorContacts(debtor.id);
+      const allowedValues = new Set([
+        debtor.email,
+        ...contacts.filter((c) => c.type === contactType && c.isValid !== false).map((c) => c.value),
+      ].filter(Boolean));
+      if (!allowedValues.has(contactValue)) {
+        return res.status(400).json({ error: "Contact value must belong to this account" });
+      }
+
+      const integrations = await storage.getCampaignIntegrations(orgId);
+      const integration = integrationId
+        ? integrations.find((i) => i.id === integrationId && i.isActive)
+        : integrations.find((i) => i.isActive);
+      if (!integration) {
+        return res.status(400).json({ error: "No active Chain provider configured" });
+      }
+
+      const channel = template.templateType === "email" ? "email" : "sms";
+      const campaignLog = await storage.createCampaignLog({
+        organizationId: orgId,
+        integrationId: integration.id,
+        campaignName: `${template.name} - ${debtor.fileNumber || debtor.accountNumber}`,
+        campaignType: channel,
+        totalAccounts: 1,
+        status: "pending",
+        sentDate: new Date().toISOString(),
+        sentBy: currentCollector.id,
+        errorMessage: null,
+      });
+      const item = await storage.createCampaignLogItem({
+        campaignLogId: campaignLog.id,
+        debtorId: debtor.id,
+        fileNumber: debtor.fileNumber || debtor.accountNumber,
+        contactValue,
+        contactType,
+        status: "queued",
+        externalId: null,
+        responseText: null,
+      });
+
+      const isEmail = channel === "email";
+      const payload = {
+        organizationId: orgId,
+        campaignLogId: campaignLog.id,
+        campaignName: campaignLog.campaignName,
+        campaignType: channel,
+        template: {
+          id: template.id,
+          name: template.name,
+          type: template.templateType,
+          subject: template.subject ?? "",
+          body: template.body,
+        },
+        accounts: [{
+          fileNumber: item.fileNumber,
+          contactValue: item.contactValue,
+          contactType: item.contactType,
+          renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
+          renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+        }],
+      };
+
+      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${integration.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!externalResponse.ok) {
+        const errorText = await externalResponse.text();
+        await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
+        await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
+        return res.status(502).json({ error: "External message send failed", details: errorText });
+      }
+
+      await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
+      await storage.updateCampaignLogItem(item.id, { status: "sent" });
+      res.json({ success: true, campaignLogId: campaignLog.id });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to send message" });
     }
   });
 

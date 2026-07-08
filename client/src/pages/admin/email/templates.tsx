@@ -103,7 +103,7 @@ const MERGE_VAR_GROUPS: MergeVarGroup[] = [
   },
   {
     label: "Date",
-    vars: ["{{todays date}}"],
+    vars: ["{{todays date}}", "{{Payment arrangement on file}}"],
   },
 ];
 
@@ -128,6 +128,7 @@ const SAMPLE_VALUES: Record<string, string> = {
   unsubscribeLink: "https://example.com/unsubscribe", unsubscribeUrl: "https://example.com/unsubscribe",
   unsubscribeButton: "[Unsubscribe]",
   "todays date": new Date().toLocaleDateString(),
+  "Payment arrangement on file": "Payment Date | Amount\n07/15/2026 | $100.00\n08/15/2026 | $100.00",
 };
 
 function renderWithSampleValues(text: string, custom: string[]): string {

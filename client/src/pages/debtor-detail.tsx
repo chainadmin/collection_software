@@ -5,6 +5,9 @@ import {
   ArrowLeft,
   Phone,
   Mail,
+  Send,
+  MessageSquare,
+  Loader2,
   Building2,
   CreditCard,
   FileText,
@@ -43,21 +46,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { RecordPaymentDialog } from "@/components/record-payment-dialog";
 import { formatCurrency, formatDate, formatPhone, maskSSN, getInitials, maskAccountNumber } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note, Collector } from "@shared/schema";
+import { useAuth } from "@/lib/auth-context";
+import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note, Collector, EmailTemplate } from "@shared/schema";
 
 export default function DebtorDetail() {
   const [, params] = useRoute("/debtors/:id");
   const { toast } = useToast();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("contact");
   const [showAddNoteDialog, setShowAddNoteDialog] = useState(false);
   const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteType, setNoteType] = useState("general");
+  const [messageDialog, setMessageDialog] = useState<{ contactType: "phone" | "email"; contactValue: string } | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   
   const debtorId = params?.id;
 
@@ -95,8 +103,47 @@ export default function DebtorDetail() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = collectors?.find((c) => c.role === "collector") || collectors?.[0];
+  const currentCollector = collectors?.find((c) => c.id === user?.id) || collectors?.find((c) => c.role === "collector") || collectors?.[0];
   const isCollectorReady = !collectorsLoading && currentCollector;
+
+
+
+  const messagingEnabled = !!currentCollector?.canViewEmail || currentCollector?.role === "admin" || currentCollector?.role === "manager";
+
+  const { data: templates = [] } = useQuery<EmailTemplate[]>({
+    queryKey: ["/api/email-templates"],
+    enabled: messagingEnabled,
+  });
+
+  const availableTemplates = templates.filter((t) =>
+    t.isActive !== false && (messageDialog?.contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
+  );
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async () => {
+      if (!messageDialog || !debtorId || !selectedTemplateId) throw new Error("Choose a template first.");
+      return apiRequest("POST", "/api/collector/messages/send", {
+        debtorId,
+        templateId: selectedTemplateId,
+        contactValue: messageDialog.contactValue,
+        contactType: messageDialog.contactType,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-logs"] });
+      setMessageDialog(null);
+      setSelectedTemplateId("");
+      toast({ title: "Message sent", description: "The template was sent through your Chain delivery system." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Send failed", description: e?.message || "Failed to send message.", variant: "destructive" });
+    },
+  });
+
+  const openMessageDialog = (contactType: "phone" | "email", contactValue: string) => {
+    setSelectedTemplateId("");
+    setMessageDialog({ contactType, contactValue });
+  };
 
   const getCollectorName = (collectorId: string) => {
     const collector = collectors?.find((c) => c.id === collectorId);
@@ -314,8 +361,15 @@ export default function DebtorDetail() {
                           {contact.isPrimary && (
                             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
                           )}
-                          <Button variant="ghost" size="icon" data-testid={`call-${contact.id}`}>
-                            <Phone className="h-4 w-4" />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={!messagingEnabled}
+                            onClick={() => openMessageDialog("phone", contact.value)}
+                            title={messagingEnabled ? "Send text message" : "Messaging is not enabled for your collector account"}
+                            data-testid={`text-${contact.id}`}
+                          >
+                            <MessageSquare className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
@@ -359,7 +413,14 @@ export default function DebtorDetail() {
                           {contact.isPrimary && (
                             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
                           )}
-                          <Button variant="ghost" size="icon" data-testid={`send-email-${contact.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={!messagingEnabled}
+                            onClick={() => openMessageDialog("email", contact.value)}
+                            title={messagingEnabled ? "Send email" : "Messaging is not enabled for your collector account"}
+                            data-testid={`send-email-${contact.id}`}
+                          >
                             <Mail className="h-4 w-4" />
                           </Button>
                         </div>
@@ -632,6 +693,56 @@ export default function DebtorDetail() {
               data-testid="button-save-note"
             >
               {addNoteMutation.isPending ? "Saving..." : "Save Note"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      <Dialog open={!!messageDialog} onOpenChange={(open) => { if (!open) { setMessageDialog(null); setSelectedTemplateId(""); } }}>
+        <DialogContent data-testid="dialog-send-one-off-message">
+          <DialogHeader>
+            <DialogTitle>Send {messageDialog?.contactType === "email" ? "Email" : "Text Message"}</DialogTitle>
+            <DialogDescription>
+              Choose an admin-created template to send to {debtor.firstName} {debtor.lastName}. The message is populated only with this account's information.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Recipient</Label>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{messageDialog?.contactType === "email" ? "Email" : "Text"}</Badge>
+                <span className="text-sm font-mono">{messageDialog?.contactValue}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Template</Label>
+              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                <SelectTrigger data-testid="select-one-off-template">
+                  <SelectValue placeholder="Choose a template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTemplates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {availableTemplates.length === 0 && (
+                <p className="text-xs text-muted-foreground">No active templates are available for this channel.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMessageDialog(null)}>Cancel</Button>
+            <Button
+              onClick={() => sendMessageMutation.mutate()}
+              disabled={!selectedTemplateId || sendMessageMutation.isPending || availableTemplates.length === 0}
+              data-testid="button-send-one-off-message"
+            >
+              {sendMessageMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send
             </Button>
           </DialogFooter>
         </DialogContent>
