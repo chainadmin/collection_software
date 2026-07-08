@@ -296,7 +296,7 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
                 </FormControl>
                 <div className="flex items-center gap-2 pb-0">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <FormLabel className="font-normal">Email / SMS Tab</FormLabel>
+                  <FormLabel className="font-normal">Send Email / Text Messages</FormLabel>
                 </div>
               </FormItem>
             )}
@@ -382,7 +382,7 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as Control<FieldValues>} />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
@@ -490,7 +490,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as Control<FieldValues>} isEdit />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} isEdit />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
