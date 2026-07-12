@@ -1815,6 +1815,11 @@ export class MemStorage implements IStorage {
     const avgCollectionAmount = rangePayments.length > 0
       ? Math.round(rangePayments.reduce((sum, p) => sum + p.amount, 0) / rangePayments.length)
       : 0;
+    const reversedPayments = payments.filter((p) => p.status === "reversed").length;
+    const reversedAccounts = debtors.filter((d) => d.status === "nsf").length;
+    const declinedPayments = payments.filter((p) => p.status === "declined" || p.status === "failed").length;
+    const attemptedPayments = payments.filter((p) => ["processed", "posted", "completed", "declined", "failed", "reversed"].includes(p.status)).length;
+    const declineRate = attemptedPayments > 0 ? Math.round(((declinedPayments + reversedPayments) / attemptedPayments) * 10000) / 100 : 0;
 
     return {
       collectionsToday,
@@ -1825,6 +1830,9 @@ export class MemStorage implements IStorage {
       avgCollectionAmount,
       totalPortfolioValue,
       totalCollected,
+      reversedAccounts,
+      reversedPayments,
+      declineRate,
     };
   }
 

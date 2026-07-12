@@ -374,6 +374,9 @@ export interface DashboardStats {
   avgCollectionAmount: number;
   totalPortfolioValue: number;
   totalCollected: number;
+  reversedAccounts: number;
+  reversedPayments: number;
+  declineRate: number;
 }
 
 // Users table for authentication
