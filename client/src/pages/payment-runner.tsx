@@ -26,6 +26,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/status-badge";
@@ -46,6 +47,7 @@ export default function PaymentRunner() {
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
   const [reverseReason, setReverseReason] = useState("");
+  const [bulkReverseDays, setBulkReverseDays] = useState("7");
 
   const { data: pendingPayments, isLoading: pendingLoading, refetch } = useQuery<PaymentWithDebtor[]>({
     queryKey: ["/api/payments/pending"],
@@ -189,6 +191,40 @@ export default function PaymentRunner() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to reverse payment.", variant: "destructive" });
+    },
+  });
+
+  const reverseDeclinedAccountMutation = useMutation({
+    mutationFn: async (paymentId: string) => {
+      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse-declined-account`, {
+        reason: "Declined payment reversed from payment dashboard",
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Declined Account Reversed", description: `${data.reversedPayments} payment(s) reversed and account marked NSF.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to reverse declined account.", variant: "destructive" });
+    },
+  });
+
+  const bulkReverseDeclinesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/payments/reverse-declines", { days: Number(bulkReverseDays) });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Bulk Reverse Complete", description: `${data.accountsReversed} account(s) marked NSF and ${data.reversedPayments} payment(s) reversed.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to bulk reverse declines.", variant: "destructive" });
     },
   });
 
@@ -735,10 +771,37 @@ export default function PaymentRunner() {
       {declinedPayments.length > 0 && (
         <Card className="border-red-200 dark:border-red-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
-              <XCircle className="h-5 w-5" />
-              Declined Payments
-            </CardTitle>
+            <div>
+              <CardTitle className="text-lg font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
+                <XCircle className="h-5 w-5" />
+                Declined Payments
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Reverse declined accounts to NSF without deleting the account.</p>
+            </div>
+            {canPostOrReverse && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="bulk-reverse-days" className="text-xs text-muted-foreground whitespace-nowrap">Days in decline</Label>
+                <Input
+                  id="bulk-reverse-days"
+                  className="w-20"
+                  type="number"
+                  min="0"
+                  value={bulkReverseDays}
+                  onChange={(e) => setBulkReverseDays(e.target.value)}
+                  data-testid="input-bulk-reverse-days"
+                />
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => bulkReverseDeclinesMutation.mutate()}
+                  disabled={bulkReverseDeclinesMutation.isPending}
+                  data-testid="button-bulk-reverse-declines"
+                >
+                  {bulkReverseDeclinesMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Undo2 className="h-4 w-4 mr-2" />}
+                  Bulk Reverse
+                </Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -761,7 +824,21 @@ export default function PaymentRunner() {
                     <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-red-600 dark:text-red-400">{formatDate(payment.paymentDate)}</p>
                   </div>
-                  {renderPaymentActions(payment, true, false)}
+                  <div className="flex items-center gap-1">
+                    {renderPaymentActions(payment, true, false)}
+                    {canPostOrReverse && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
+                        disabled={reverseDeclinedAccountMutation.isPending}
+                        title="Reverse this declined account to NSF"
+                        data-testid={`button-reverse-declined-account-${payment.id}`}
+                      >
+                        <Undo2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

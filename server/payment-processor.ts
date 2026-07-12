@@ -436,6 +436,7 @@ export async function processPayment(
           notes: `DECLINED: ${result.declineReason}`,
         });
         if (debtor) {
+          await storage.updateDebtor(payment.debtorId, { status: "decline" });
           await storage.createNote({
             debtorId: payment.debtorId,
             collectorId: payment.processedBy || "system",
@@ -470,6 +471,7 @@ export async function processPayment(
           notes: `DECLINED: ${result.declineReason}`,
         });
         if (debtor) {
+          await storage.updateDebtor(payment.debtorId, { status: "decline" });
           await storage.createNote({
             debtorId: payment.debtorId,
             collectorId: payment.processedBy || "system",
@@ -502,6 +504,10 @@ export async function processPayment(
         : payment.notes
       : `DECLINED: ${result.declineReason}`,
   });
+
+  if (debtor) {
+    await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });
+  }
 
   if (!result.success && debtor) {
     await storage.createNote({

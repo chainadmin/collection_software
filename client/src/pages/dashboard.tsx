@@ -9,6 +9,7 @@ import {
   ArrowRight,
   FolderKanban,
   Target,
+  Undo2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,7 +87,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         {statsLoading ? (
           <>
             {[...Array(4)].map((_, i) => (
@@ -122,6 +123,12 @@ export default function Dashboard() {
               value={formatCurrency(stats?.avgCollectionAmount || 0)}
               icon={CreditCard}
               subtitle="Per payment average"
+            />
+            <StatCard
+              title="Reversed / Decline Rate"
+              value={`${(stats?.reversedAccounts || 0).toLocaleString()} acct${(stats?.reversedAccounts || 0) === 1 ? "" : "s"}`}
+              icon={Undo2}
+              subtitle={`${(stats?.declineRate || 0).toFixed(1)}% decline rate • ${stats?.reversedPayments || 0} payments`}
             />
           </>
         )}

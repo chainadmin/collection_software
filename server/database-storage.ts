@@ -644,7 +644,7 @@ export class DatabaseStorage implements IStorage {
     const today = new Date().toISOString().split('T')[0];
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
-    const completedPayments = allPayments.filter(p => p.status === 'processed' || p.status === 'completed');
+    const completedPayments = allPayments.filter(p => p.status === 'processed' || p.status === 'posted' || p.status === 'completed');
     const todayPayments = completedPayments.filter(p => p.paymentDate === today);
     const monthPayments = completedPayments.filter(p => p.paymentDate && p.paymentDate >= monthStart);
 
@@ -658,6 +658,11 @@ export class DatabaseStorage implements IStorage {
     const recoveryRate = totalOriginalBalance > 0 ? (totalCollected / totalOriginalBalance) * 100 : 0;
     const avgCollectionAmount = completedPayments.length > 0 ? totalCollected / completedPayments.length : 0;
     const totalPortfolioValue = allPortfolios.reduce((sum, p) => sum + (p.totalFaceValue || 0), 0);
+    const reversedPayments = allPayments.filter(p => p.status === 'reversed').length;
+    const reversedAccounts = allDebtors.filter(d => d.status === 'nsf').length;
+    const declinedPayments = allPayments.filter(p => p.status === 'declined' || p.status === 'failed').length;
+    const attemptedPayments = allPayments.filter(p => ['processed', 'posted', 'completed', 'declined', 'failed', 'reversed'].includes(p.status)).length;
+    const declineRate = attemptedPayments > 0 ? ((declinedPayments + reversedPayments) / attemptedPayments) * 100 : 0;
 
     return {
       collectionsToday,
@@ -668,6 +673,9 @@ export class DatabaseStorage implements IStorage {
       avgCollectionAmount,
       totalPortfolioValue,
       totalCollected,
+      reversedAccounts,
+      reversedPayments,
+      declineRate,
     };
   }
 
