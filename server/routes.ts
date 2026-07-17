@@ -26,6 +26,70 @@ import { eq } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
 
+type SplitAllocationInput = { collectorId: string; percentage: number; amount?: number };
+
+function parseSplitAllocations(value: unknown): SplitAllocationInput[] {
+  const raw = typeof value === "string" ? JSON.parse(value || "[]") : value;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item: any) => ({
+      collectorId: String(item?.collectorId || "").trim(),
+      percentage: Number(item?.percentage),
+      amount: item?.amount === undefined ? undefined : Number(item.amount),
+    }))
+    .filter((item) => item.collectorId && Number.isFinite(item.percentage) && item.percentage > 0)
+    .slice(0, 3);
+}
+
+function normalizeSplitAllocations(value: unknown, amount: number): SplitAllocationInput[] {
+  const allocations = parseSplitAllocations(value);
+  if (allocations.length === 0) return [];
+  const total = allocations.reduce((sum, item) => sum + item.percentage, 0);
+  if (Math.round(total) !== 100) {
+    throw new Error("Payment split percentages must total 100%");
+  }
+  let allocated = 0;
+  return allocations.map((item, index) => {
+    const splitAmount = index === allocations.length - 1
+      ? amount - allocated
+      : Math.round((amount * item.percentage) / 100);
+    allocated += splitAmount;
+    return { ...item, amount: splitAmount };
+  });
+}
+
+function collectorCreditedAmount(payment: any, collectorId: string): number {
+  try {
+    const allocations = parseSplitAllocations(payment.splitAllocations);
+    const allocated = allocations.find((item) => item.collectorId === collectorId);
+    if (allocated) {
+      return Number(allocated.amount ?? Math.round((payment.amount * allocated.percentage) / 100));
+    }
+  } catch {}
+  return payment.processedBy === collectorId ? payment.amount : 0;
+}
+
+async function defaultSplitForPayment(reqBody: any, debtor: any, amount: number) {
+  if (reqBody.splitAllocations) return normalizeSplitAllocations(reqBody.splitAllocations, amount);
+  if (debtor.splitPaymentsEnabled && debtor.splitPaymentsConfig) return normalizeSplitAllocations(debtor.splitPaymentsConfig, amount);
+  if (debtor.assignedCollectorId) {
+    const owner = await storage.getCollector(debtor.assignedCollectorId);
+    if (owner?.splitPaymentsDefault && owner.splitPaymentsConfig) {
+      return normalizeSplitAllocations(owner.splitPaymentsConfig, amount);
+    }
+    if (owner?.role === "point_caller") {
+      const closerId = String(reqBody.processedBy || "").trim();
+      if (closerId && closerId !== owner.id) {
+        return normalizeSplitAllocations([
+          { collectorId: owner.id, percentage: 50 },
+          { collectorId: closerId, percentage: 50 },
+        ], amount);
+      }
+    }
+  }
+  return [];
+}
+
 async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
@@ -1622,7 +1686,7 @@ export async function registerRoutes(
       
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
-        const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
+        const collectorPayments = orgPayments.filter(p => collectorCreditedAmount(p, collector.id) > 0);
         
         // Payments before start of current month (start of month baseline)
         const beforeMonthPayments = collectorPayments.filter(p => {
@@ -1648,24 +1712,24 @@ export async function registerRoutes(
         });
         
         // Start of month baseline (posted + pending combined)
-        const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
+        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
         const somTotal = somPosted + somPending;
         
         // Current totals (posted + pending combined)
-        const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = allTimePayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
+        const currentPosted = allTimePayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
         const currentTotal = currentPosted + currentPending;
         
         // Declined and reversed (payments removed from pending/posted)
-        const totalDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const totalReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        const totalDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
+        const totalReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
         
         // New money = difference between current total and start of month total
         const newMoney = currentTotal - somTotal;
         
         // Next month pending total
-        const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + p.amount, 0);
+        const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + collectorCreditedAmount(p, collector.id), 0);
         
         return {
           id: collector.id,
@@ -1725,6 +1789,13 @@ export async function registerRoutes(
       if (existing) {
         return res.status(409).json({ error: "A collector with that username already exists in your organization" });
       }
+      if (body.role === "supervisor") {
+        body.canViewEmail = true;
+        body.canViewPaymentRunner = true;
+      }
+      if (body.role === "point_caller" && body.splitPaymentsEnabled === undefined) {
+        body.splitPaymentsEnabled = true;
+      }
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
       }
@@ -1760,6 +1831,10 @@ export async function registerRoutes(
             return res.status(409).json({ error: "A collector with that username already exists in your organization" });
           }
         }
+      }
+      if (body.role === "supervisor") {
+        body.canViewEmail = true;
+        body.canViewPaymentRunner = true;
       }
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
@@ -2264,15 +2339,18 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      const amount = Number(req.body.amount || 0);
+      const splitAllocations = await defaultSplitForPayment(req.body, debtor, amount);
       const payment = await storage.createPayment({
         ...req.body,
+        splitAllocations: splitAllocations.length ? JSON.stringify(splitAllocations) : req.body.splitAllocations,
         debtorId: req.params.id,
         organizationId: orgId,
       });
       
-      if (req.body.amount) {
+      if (amount) {
         await storage.updateDebtor(req.params.id, {
-          currentBalance: debtor.currentBalance - req.body.amount,
+          currentBalance: debtor.currentBalance - amount,
         });
       }
       

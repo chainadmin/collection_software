@@ -504,6 +504,9 @@ export class MemStorage implements IStorage {
       canViewDashboard: true,
       canViewEmail: true,
       canViewPaymentRunner: true,
+      splitPaymentsEnabled: false,
+      splitPaymentsDefault: false,
+      splitPaymentsConfig: null,
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
@@ -520,6 +523,9 @@ export class MemStorage implements IStorage {
       canViewDashboard: false,
       canViewEmail: true,
       canViewPaymentRunner: false,
+      splitPaymentsEnabled: false,
+      splitPaymentsDefault: false,
+      splitPaymentsConfig: null,
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
@@ -536,6 +542,9 @@ export class MemStorage implements IStorage {
       canViewDashboard: false,
       canViewEmail: true,
       canViewPaymentRunner: false,
+      splitPaymentsEnabled: false,
+      splitPaymentsDefault: false,
+      splitPaymentsConfig: null,
     });
 
     const portfolio1Id = randomUUID();
@@ -619,6 +628,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: "2024-12-20",
       chargeOffDate: null,
       customFields: null,
+      splitPaymentsEnabled: false,
+      splitPaymentsConfig: null,
     });
     this.debtors.set(debtor2Id, {
       id: debtor2Id,
@@ -648,6 +659,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: "2025-01-15",
       chargeOffDate: null,
       customFields: null,
+      splitPaymentsEnabled: false,
+      splitPaymentsConfig: null,
     });
     this.debtors.set(debtor3Id, {
       id: debtor3Id,
@@ -677,6 +690,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: null,
       chargeOffDate: null,
       customFields: null,
+      splitPaymentsEnabled: false,
+      splitPaymentsConfig: null,
     });
     this.debtors.set(debtor4Id, {
       id: debtor4Id,
@@ -706,6 +721,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: "2024-12-18",
       chargeOffDate: null,
       customFields: null,
+      splitPaymentsEnabled: false,
+      splitPaymentsConfig: null,
     });
     this.debtors.set(debtor5Id, {
       id: debtor5Id,
@@ -735,6 +752,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: null,
       chargeOffDate: null,
       customFields: null,
+      splitPaymentsEnabled: false,
+      splitPaymentsConfig: null,
     });
 
     this.debtorContacts.set(randomUUID(), {
@@ -856,6 +875,7 @@ export class MemStorage implements IStorage {
       nextPaymentDate: "2025-01-15",
       specificDates: null,
       isRecurring: true,
+      splitAllocations: null,
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
@@ -874,6 +894,7 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      splitAllocations: null,
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
@@ -892,6 +913,7 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      splitAllocations: null,
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
@@ -910,6 +932,7 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      splitAllocations: null,
     });
 
     const batch1Id = randomUUID();
@@ -1192,6 +1215,9 @@ export class MemStorage implements IStorage {
       canViewDashboard: collector.canViewDashboard ?? false,
       canViewEmail: collector.canViewEmail ?? false,
       canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
+      splitPaymentsEnabled: collector.splitPaymentsEnabled ?? false,
+      splitPaymentsDefault: collector.splitPaymentsDefault ?? false,
+      splitPaymentsConfig: collector.splitPaymentsConfig ?? null,
     };
     this.collectors.set(id, newCollector);
     return newCollector;
@@ -1379,6 +1405,8 @@ export class MemStorage implements IStorage {
       nextFollowUpDate: debtor.nextFollowUpDate ?? null,
       chargeOffDate: debtor.chargeOffDate ?? null,
       customFields: debtor.customFields ?? null,
+      splitPaymentsEnabled: debtor.splitPaymentsEnabled ?? false,
+      splitPaymentsConfig: debtor.splitPaymentsConfig ?? null,
     };
     this.debtors.set(id, newDebtor);
     return newDebtor;
@@ -1641,6 +1669,7 @@ export class MemStorage implements IStorage {
       nextPaymentDate: payment.nextPaymentDate ?? null,
       specificDates: payment.specificDates ?? null,
       isRecurring: payment.isRecurring ?? false,
+      splitAllocations: payment.splitAllocations ?? null,
     };
     this.payments.set(id, newPayment);
     return newPayment;

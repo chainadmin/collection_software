@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { PaymentCard } from "@shared/schema";
+import type { Collector, PaymentCard } from "@shared/schema";
 
 interface RecordPaymentDialogProps {
   open: boolean;
@@ -57,6 +57,13 @@ export function RecordPaymentDialog({
   const [cardHolderName, setCardHolderName] = useState("");
   const [cardBillingZip, setCardBillingZip] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [manualSplitEnabled, setManualSplitEnabled] = useState(false);
+  const [splitRows, setSplitRows] = useState([{ collectorId, percentage: 50 }, { collectorId: "", percentage: 50 }]);
+
+  const { data: collectors } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
+    enabled: open,
+  });
 
   const { data: paymentCards } = useQuery<PaymentCard[]>({
     queryKey: ["/api/debtors", debtorId, "cards"],
@@ -76,6 +83,8 @@ export function RecordPaymentDialog({
     setCardCvv("");
     setCardHolderName("");
     setCardBillingZip("");
+    setManualSplitEnabled(false);
+    setSplitRows([{ collectorId, percentage: 50 }, { collectorId: "", percentage: 50 }]);
   };
 
   const addSelectedDate = (date: Date | undefined) => {
@@ -140,6 +149,15 @@ export function RecordPaymentDialog({
         nextPaymentDate = today.toISOString().split("T")[0];
       }
 
+      const splitAllocations = manualSplitEnabled
+        ? splitRows.filter((row) => row.collectorId && row.percentage > 0)
+        : undefined;
+      if (splitAllocations && Math.round(splitAllocations.reduce((sum, row) => sum + row.percentage, 0)) !== 100) {
+        toast({ title: "Error", description: "Split percentages must total 100%.", variant: "destructive" });
+        setIsSubmitting(false);
+        return;
+      }
+
       await apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
         debtorId,
         amount,
@@ -152,6 +170,7 @@ export function RecordPaymentDialog({
         nextPaymentDate,
         specificDates: paymentFrequency === "specific_dates" ? selectedDates.map(d => d.toISOString().split("T")[0]).join(", ") : null,
         cardId: cardIdToUse || null,
+        splitAllocations,
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
@@ -296,6 +315,49 @@ export function RecordPaymentDialog({
               )}
             </>
           )}
+
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Manual Collector Split</Label>
+                <p className="text-xs text-muted-foreground">Split this payment across up to 3 collectors.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={manualSplitEnabled}
+                onChange={(e) => setManualSplitEnabled(e.target.checked)}
+                data-testid="checkbox-manual-payment-split"
+              />
+            </div>
+            {manualSplitEnabled && splitRows.map((row, index) => (
+              <div key={index} className="grid grid-cols-[1fr_90px] gap-2">
+                <Select
+                  value={row.collectorId}
+                  onValueChange={(value) => setSplitRows((rows) => rows.map((item, i) => i === index ? { ...item, collectorId: value } : item))}
+                >
+                  <SelectTrigger data-testid={`select-split-collector-${index}`}>
+                    <SelectValue placeholder="Choose collector" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(collectors || []).map((collector) => (
+                      <SelectItem key={collector.id} value={collector.id}>{collector.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={row.percentage}
+                  onChange={(e) => setSplitRows((rows) => rows.map((item, i) => i === index ? { ...item, percentage: Number(e.target.value || 0) } : item))}
+                  data-testid={`input-split-percentage-${index}`}
+                />
+              </div>
+            ))}
+            {manualSplitEnabled && splitRows.length < 3 && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSplitRows([...splitRows, { collectorId: "", percentage: 0 }])}>Add third collector</Button>
+            )}
+          </div>
           <div>
             <Label>Payment Frequency</Label>
             <Select value={paymentFrequency} onValueChange={setPaymentFrequency}>

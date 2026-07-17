@@ -66,7 +66,7 @@ export const collectors = pgTable("collectors", {
   email: text("email").notNull(),
   username: text("username").notNull(),
   password: text("password").notNull(),
-  role: text("role").notNull().default("collector"), // admin, manager, collector
+  role: text("role").notNull().default("collector"), // admin, manager, collector, supervisor, point_caller
   status: text("status").notNull().default("active"), // active, inactive, suspended
   avatarInitials: text("avatar_initials"),
   goal: integer("goal").default(0), // monthly collection goal in cents
@@ -75,6 +75,9 @@ export const collectors = pgTable("collectors", {
   canViewDashboard: boolean("can_view_dashboard").default(false),
   canViewEmail: boolean("can_view_email").default(false),
   canViewPaymentRunner: boolean("can_view_payment_runner").default(false),
+  splitPaymentsEnabled: boolean("split_payments_enabled").default(false),
+  splitPaymentsDefault: boolean("split_payments_default").default(false),
+  splitPaymentsConfig: text("split_payments_config"), // JSON: [{ collectorId, percentage }] up to 3 collectors
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });
@@ -178,6 +181,8 @@ export const debtors = pgTable("debtors", {
   nextFollowUpDate: text("next_follow_up_date"),
   chargeOffDate: text("charge_off_date"), // date account was charged off
   customFields: text("custom_fields"), // JSON bucket for additional imported data
+  splitPaymentsEnabled: boolean("split_payments_enabled").default(false),
+  splitPaymentsConfig: text("split_payments_config"), // JSON: [{ collectorId, percentage }] up to 3 collectors
 }, (table) => ({
   // Vendor file numbers must be unique within a portfolio so re-imports
   // dedupe instead of producing ambiguous duplicates. Auto-generated
@@ -307,6 +312,7 @@ export const payments = pgTable("payments", {
   nextPaymentDate: text("next_payment_date"),
   specificDates: text("specific_dates"), // JSON array of dates for specific_dates frequency
   isRecurring: boolean("is_recurring").default(false),
+  splitAllocations: text("split_allocations"), // JSON: [{ collectorId, percentage, amount }]
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
