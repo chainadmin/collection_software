@@ -21,6 +21,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = "debtmanager_auth";
+// sessionStorage key that marks an active PWA session. sessionStorage is
+// cleared when the PWA process is fully terminated (icon closed), but survives
+// in-app page navigations and device lock/unlock — so it correctly
+// distinguishes a cold launch from ordinary in-app navigation.
+const PWA_SESSION_KEY = "pwa_cold_launch_cleared";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -28,6 +33,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const validateSession = async () => {
+      // Detect a cold PWA launch: running in standalone display-mode AND the
+      // per-session flag is absent (meaning the app was just opened from the
+      // home screen, not navigated within an existing session).
+      const isStandalone =
+        typeof window !== "undefined" &&
+        window.matchMedia != null &&
+        window.matchMedia("(display-mode: standalone)").matches;
+
+      if (isStandalone && !sessionStorage.getItem(PWA_SESSION_KEY)) {
+        // Mark this session so subsequent in-app navigations are unaffected.
+        sessionStorage.setItem(PWA_SESSION_KEY, "1");
+        // Invalidate the server session silently.
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch {
+          // Ignore network errors — the local state clear below is what matters.
+        }
+        // Clear only the auth hint; preserve appMode (needed for routing to the
+        // correct login page) and collector_agency_code (pre-fills the form).
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
       const stored = localStorage.getItem(AUTH_STORAGE_KEY);
       if (!stored) {
         setIsLoading(false);
