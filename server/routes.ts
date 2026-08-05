@@ -93,6 +93,21 @@ function requireGlobalAdminAuth(req: any, res: any, next: any) {
   next();
 }
 
+// Verify the session's collector is still a live, active admin/manager of the
+// given organization by re-loading the record — a stale session (demoted or
+// disabled collector) must not retain privileged access for its lifetime.
+async function isActiveAdminOrManager(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return !!(
+    live &&
+    live.status === "active" &&
+    live.organizationId === orgId &&
+    (live.role === "admin" || live.role === "manager")
+  );
+}
+
 // Validate that a resource belongs to the authenticated user's organization
 // Returns true if valid, false if the resource doesn't belong to the org
 function validateOrgOwnership(resourceOrgId: string | null | undefined, sessionOrgId: string): boolean {
@@ -2978,13 +2993,9 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const { reason } = req.body;
 
-      // Authorization is derived from the session, never the request body:
-      // only admins/managers of the payment's organization may reverse.
-      const sessionCollector = (req as any).session?.collector;
-      if (
-        !sessionCollector ||
-        (sessionCollector.role !== "admin" && sessionCollector.role !== "manager")
-      ) {
+      // Authorization is derived from the live session collector record,
+      // never the request body — stale/demoted/disabled sessions are rejected.
+      if (!(await isActiveAdminOrManager(req, orgId))) {
         return res.status(403).json({ error: "Only admins and managers can reverse payments" });
       }
 
@@ -3025,7 +3036,10 @@ export async function registerRoutes(
       // Cancel all future scheduled payments for this debtor
       const allPayments = await storage.getPaymentsForDebtor(payment.debtorId);
       const futurePayments = allPayments.filter(
-        (p) => p.status === "pending" && new Date(p.paymentDate) > new Date()
+        (p) =>
+          validateOrgOwnership(p.organizationId, orgId) &&
+          p.status === "pending" &&
+          new Date(p.paymentDate) > new Date()
       );
       
       for (const futurePayment of futurePayments) {
@@ -3055,14 +3069,11 @@ export async function registerRoutes(
   app.post("/api/payments/:id/post", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { collectorId } = req.body;
-      
-      // Check for admin/manager permission
-      if (collectorId) {
-        const collector = await storage.getCollector(collectorId);
-        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-          return res.status(403).json({ error: "Only admins and managers can post payments" });
-        }
+
+      // Authorization is derived from the live session collector record,
+      // never the request body — stale/demoted/disabled sessions are rejected.
+      if (!(await isActiveAdminOrManager(req, orgId))) {
+        return res.status(403).json({ error: "Only admins and managers can post payments" });
       }
 
       const payment = await storage.getPayment(req.params.id);
@@ -3108,14 +3119,11 @@ export async function registerRoutes(
   app.post("/api/payments/post-all-processed", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { collectorId } = req.body;
-      
-      // Check for admin/manager permission
-      if (collectorId) {
-        const collector = await storage.getCollector(collectorId);
-        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-          return res.status(403).json({ error: "Only admins and managers can post payments" });
-        }
+
+      // Authorization is derived from the live session collector record,
+      // never the request body — stale/demoted/disabled sessions are rejected.
+      if (!(await isActiveAdminOrManager(req, orgId))) {
+        return res.status(403).json({ error: "Only admins and managers can post payments" });
       }
 
       const payments = await storage.getPayments();
