@@ -20,6 +20,7 @@ import {
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
+import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSettings } from "./payment-message-automation";
 import { db } from "./db";
 import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -1146,6 +1147,52 @@ export async function registerRoutes(
       }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+
+  app.get("/api/payment-message-automation", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage payment message automation" });
+      }
+      const orgId = getOrgId(req);
+      const organization = await storage.getOrganization(orgId);
+      if (!organization) return res.status(404).json({ error: "Organization not found" });
+      res.json(getPaymentMessageAutomationSettings(organization));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payment message automation settings" });
+    }
+  });
+
+  app.post("/api/payment-message-automation", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can manage payment message automation" });
+      }
+      const orgId = getOrgId(req);
+      const organization = await storage.getOrganization(orgId);
+      if (!organization) return res.status(404).json({ error: "Organization not found" });
+
+      const clean = {
+        enabled: Boolean(req.body.enabled),
+        sendDeclineEmail: Boolean(req.body.sendDeclineEmail),
+        sendDeclineSms: Boolean(req.body.sendDeclineSms),
+        sendReceiptEmail: Boolean(req.body.sendReceiptEmail),
+        sendReceiptSms: Boolean(req.body.sendReceiptSms),
+        callbackPhone: String(req.body.callbackPhone || "").trim(),
+        callbackEmail: String(req.body.callbackEmail || "").trim(),
+        logoUrl: String(req.body.logoUrl || "").trim(),
+      };
+
+      const updated = await storage.updateOrganization(orgId, {
+        settings: mergePaymentMessageAutomationSettings(organization, clean),
+      });
+      res.json(getPaymentMessageAutomationSettings(updated || organization));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save payment message automation settings" });
     }
   });
 
