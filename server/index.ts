@@ -31,6 +31,19 @@ declare module "express-session" {
   }
 }
 
+// In production the server must never fall back to a predictable session
+// secret — forgeable sessions would defeat all authentication.
+function getSessionSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    console.error("FATAL: SESSION_SECRET is not set. Refusing to start in production.");
+    process.exit(1);
+  }
+  console.warn("[startup] SESSION_SECRET not set — using an insecure development-only secret.");
+  return "dev-secret-change-in-production";
+}
+
 app.use(
   session({
     store: new PgSessionStore({
@@ -38,7 +51,7 @@ app.use(
       tableName: "user_sessions",
       pruneInterval: 900,
     }),
-    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
+    secret: getSessionSecret(),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -110,7 +123,14 @@ app.use((req, res, next) => {
     const { runMigrations } = await import("./migrate");
     await runMigrations();
   } catch (error) {
-    console.log("Migration skipped (database may not be available):", error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.env.NODE_ENV === "production") {
+      // Schema drift in production causes confusing runtime failures later —
+      // fail fast and loudly instead of starting in a broken state.
+      console.error("FATAL: Database migration failed at startup:", message);
+      process.exit(1);
+    }
+    console.error("[startup] WARNING: Database migration failed — the schema may be out of date:", message);
   }
 
   app.use("/api", (_req, res, next) => {
@@ -125,8 +145,12 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
+    // Log instead of re-throwing: throwing after responding can crash the
+    // process or trigger duplicate error handling.
+    console.error("[error]", err);
   });
 
   // importantly only setup vite in development and after

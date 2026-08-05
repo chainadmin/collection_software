@@ -431,7 +431,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/organizations", async (req, res) => {
+  app.post("/api/organizations", requireGlobalAdminAuth, async (req, res) => {
     try {
       const organization = await storage.createOrganization({
         ...req.body,
@@ -839,7 +839,7 @@ export async function registerRoutes(
   });
 
   // Super Admin - Get all organizations
-  app.get("/api/super-admin/organizations", async (req, res) => {
+  app.get("/api/super-admin/organizations", requireGlobalAdminAuth, async (req, res) => {
     try {
       console.log("[Super Admin] Fetching organizations...");
       const organizations = await storage.getOrganizations();
@@ -852,7 +852,7 @@ export async function registerRoutes(
   });
 
   // Super Admin - Toggle organization active status
-  app.patch("/api/super-admin/organizations/:id/toggle", async (req, res) => {
+  app.patch("/api/super-admin/organizations/:id/toggle", requireGlobalAdminAuth, async (req, res) => {
     try {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
@@ -887,7 +887,7 @@ export async function registerRoutes(
   });
 
   // Super Admin - Grant one free month and ensure the organization remains connected
-  app.patch("/api/super-admin/organizations/:id/grant-free-month", async (req, res) => {
+  app.patch("/api/super-admin/organizations/:id/grant-free-month", requireGlobalAdminAuth, async (req, res) => {
     try {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
@@ -915,7 +915,7 @@ export async function registerRoutes(
   });
 
   // Super Admin - Create new organization with admin
-  app.post("/api/super-admin/organizations", async (req, res) => {
+  app.post("/api/super-admin/organizations", requireGlobalAdminAuth, async (req, res) => {
     try {
       const { name, slug, email, phone, plan, firstMonthFree, adminName, adminEmail, adminPassword } = req.body;
       
@@ -988,7 +988,7 @@ export async function registerRoutes(
   });
 
   // Super Admin - Create new super admin
-  app.post("/api/super-admin/admins", async (req, res) => {
+  app.post("/api/super-admin/admins", requireGlobalAdminAuth, async (req, res) => {
     try {
       const { username, email, password, name } = req.body;
       
@@ -1021,7 +1021,7 @@ export async function registerRoutes(
   });
 
   // Admin Notifications API (for super admins)
-  app.get("/api/super-admin/notifications", async (_req, res) => {
+  app.get("/api/super-admin/notifications", requireGlobalAdminAuth, async (_req, res) => {
     try {
       const notifications = await storage.getAdminNotifications();
       res.json(notifications);
@@ -1030,7 +1030,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/super-admin/notifications/unread", async (_req, res) => {
+  app.get("/api/super-admin/notifications/unread", requireGlobalAdminAuth, async (_req, res) => {
     try {
       const notifications = await storage.getUnreadAdminNotifications();
       res.json(notifications);
@@ -1039,7 +1039,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/super-admin/notifications/:id/read", async (req, res) => {
+  app.patch("/api/super-admin/notifications/:id/read", requireGlobalAdminAuth, async (req, res) => {
     try {
       const notification = await storage.markAdminNotificationRead(req.params.id);
       if (!notification) {
@@ -1051,7 +1051,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/super-admin/notifications/mark-all-read", async (_req, res) => {
+  app.post("/api/super-admin/notifications/mark-all-read", requireGlobalAdminAuth, async (_req, res) => {
     try {
       await storage.markAllAdminNotificationsRead();
       res.json({ success: true });
@@ -1063,7 +1063,7 @@ export async function registerRoutes(
   // Super Admin Email Settings API
   const SUPER_ADMIN_ORG_ID = "system-super-admin";
 
-  app.get("/api/super-admin/email-settings", async (_req, res) => {
+  app.get("/api/super-admin/email-settings", requireGlobalAdminAuth, async (_req, res) => {
     try {
       const settings = await getSuperAdminEmailSettings();
       if (settings) {
@@ -1081,7 +1081,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/super-admin/email-settings", async (req, res) => {
+  app.post("/api/super-admin/email-settings", requireGlobalAdminAuth, async (req, res) => {
     try {
       const { smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, postmarkServerToken, fromEmail, fromName, notificationEmail, isActive } = req.body;
 
@@ -1131,7 +1131,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/super-admin/email-settings/test", async (req, res) => {
+  app.post("/api/super-admin/email-settings/test", requireGlobalAdminAuth, async (req, res) => {
     try {
       const { sendNewOrgNotificationEmail } = await import("./email");
       const result = await sendNewOrgNotificationEmail(
@@ -2046,6 +2046,11 @@ export async function registerRoutes(
 
   app.get("/api/debtors/:id/contacts", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const contacts = await storage.getDebtorContacts(req.params.id);
       res.json(contacts);
     } catch (error) {
@@ -2056,6 +2061,10 @@ export async function registerRoutes(
   app.post("/api/debtors/:id/contacts", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const contact = await storage.createDebtorContact({
         ...req.body,
         debtorId: req.params.id,
@@ -2091,6 +2100,11 @@ export async function registerRoutes(
 
   app.get("/api/debtors/:id/employment", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const records = await storage.getEmploymentRecords(req.params.id);
       res.json(records);
     } catch (error) {
@@ -2101,6 +2115,10 @@ export async function registerRoutes(
   app.post("/api/debtors/:id/employment", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const record = await storage.createEmploymentRecord({
         ...req.body,
         debtorId: req.params.id,
@@ -2136,6 +2154,11 @@ export async function registerRoutes(
 
   app.get("/api/debtors/:id/references", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const references = await storage.getDebtorReferences(req.params.id);
       res.json(references);
     } catch (error) {
@@ -2146,6 +2169,10 @@ export async function registerRoutes(
   app.post("/api/debtors/:id/references", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
       const reference = await storage.createDebtorReference({
         ...req.body,
         debtorId: req.params.id,
@@ -2396,8 +2423,9 @@ export async function registerRoutes(
 
   app.get("/api/payment-batches/:id", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const batch = await storage.getPaymentBatch(req.params.id);
-      if (!batch) {
+      if (!batch || !validateOrgOwnership(batch.organizationId, orgId)) {
         return res.status(404).json({ error: "Payment batch not found" });
       }
       res.json(batch);
@@ -2453,6 +2481,11 @@ export async function registerRoutes(
 
   app.get("/api/payment-batches/:id/payments", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const batch = await storage.getPaymentBatch(req.params.id);
+      if (!batch || !validateOrgOwnership(batch.organizationId, orgId)) {
+        return res.status(404).json({ error: "Payment batch not found" });
+      }
       const payments = await storage.getPayments(undefined, req.params.id);
       res.json(payments);
     } catch (error) {
@@ -2806,6 +2839,11 @@ export async function registerRoutes(
 
   app.get("/api/time-clock/active/:collectorId", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
+      const collector = await storage.getCollector(req.params.collectorId);
+      if (!collector || !validateOrgOwnership(collector.organizationId, orgId)) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
       const entry = await storage.getActiveTimeClockEntry(req.params.collectorId);
       res.json(entry || null);
     } catch (error) {
@@ -2817,6 +2855,10 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { collectorId } = req.body;
+      const collector = await storage.getCollector(collectorId);
+      if (!collector || !validateOrgOwnership(collector.organizationId, orgId)) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
       const existing = await storage.getActiveTimeClockEntry(collectorId);
       if (existing) {
         return res.status(400).json({ error: "Already clocked in" });
@@ -2934,18 +2976,20 @@ export async function registerRoutes(
   app.post("/api/payments/:id/reverse", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { reason, collectorId } = req.body;
-      
-      // Check for admin/manager permission
-      if (collectorId) {
-        const collector = await storage.getCollector(collectorId);
-        if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-          return res.status(403).json({ error: "Only admins and managers can reverse payments" });
-        }
+      const { reason } = req.body;
+
+      // Authorization is derived from the session, never the request body:
+      // only admins/managers of the payment's organization may reverse.
+      const sessionCollector = (req as any).session?.collector;
+      if (
+        !sessionCollector ||
+        (sessionCollector.role !== "admin" && sessionCollector.role !== "manager")
+      ) {
+        return res.status(403).json({ error: "Only admins and managers can reverse payments" });
       }
 
       const payment = await storage.getPayment(req.params.id);
-      if (!payment) {
+      if (!payment || !validateOrgOwnership(payment.organizationId, orgId)) {
         return res.status(404).json({ error: "Payment not found" });
       }
 
@@ -3750,9 +3794,16 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/drop-batches/:id", async (req, res) => {
+  app.patch("/api/drop-batches/:id", async (req: any, res) => {
     try {
-      const batch = await storage.updateDropBatch(req.params.id, req.body);
+      const orgId = getOrgId(req);
+      const existing = await storage.getDropBatch(req.params.id);
+      if (!existing || !validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(404).json({ error: "Drop batch not found" });
+      }
+      const body = { ...req.body };
+      delete body.organizationId;
+      const batch = await storage.updateDropBatch(req.params.id, body);
       if (!batch) {
         return res.status(404).json({ error: "Drop batch not found" });
       }
@@ -3765,12 +3816,14 @@ export async function registerRoutes(
   // Drop Items API
   app.get("/api/drop-items", async (req, res) => {
     try {
+      const orgId = getOrgId(req);
       const { batchId, collectorId } = req.query;
       const items = await storage.getDropItems(
         batchId as string | undefined,
         collectorId as string | undefined
       );
-      res.json(items);
+      // Only return items belonging to the caller's organization.
+      res.json(items.filter((item) => validateOrgOwnership(item.organizationId, orgId)));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch drop items" });
     }
@@ -3786,6 +3839,18 @@ export async function registerRoutes(
         }
         if (target.role === "auditor") {
           return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
+        }
+      }
+      // The target debtor must belong to the caller's organization.
+      const dropDebtor = await storage.getDebtor(req.body.debtorId);
+      if (!dropDebtor || !validateOrgOwnership(dropDebtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
+      // Any supplied drop batch must also belong to the caller's organization.
+      if (req.body.dropBatchId) {
+        const dropBatch = await storage.getDropBatch(req.body.dropBatchId);
+        if (!dropBatch || !validateOrgOwnership(dropBatch.organizationId, orgId)) {
+          return res.status(404).json({ error: "Drop batch not found" });
         }
       }
       const item = await storage.createDropItem({
