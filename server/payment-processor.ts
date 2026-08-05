@@ -5,6 +5,7 @@ import {
   processDebtorAchPayment,
   type MerchantCredentials,
 } from "./authorizenet";
+import { sendPaymentOutcomeAutomation } from "./payment-message-automation";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -446,6 +447,12 @@ export async function processPayment(
             organizationId: orgId,
           });
         }
+        await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
+          payment,
+          success: false,
+          transactionId: null,
+          declineReason: result.declineReason,
+        });
         return { ...result, updatedPayment };
       }
     } else if (payment.paymentMethod === "ach") {
@@ -481,6 +488,12 @@ export async function processPayment(
             organizationId: orgId,
           });
         }
+        await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
+          payment,
+          success: false,
+          transactionId: null,
+          declineReason: result.declineReason,
+        });
         return { ...result, updatedPayment };
       }
     }
@@ -519,6 +532,13 @@ export async function processPayment(
       organizationId: orgId,
     });
   }
+
+  await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
+    payment,
+    success: result.success,
+    transactionId: result.transactionId,
+    declineReason: result.declineReason,
+  });
 
   return { ...result, updatedPayment };
 }

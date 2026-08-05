@@ -39,8 +39,9 @@ import {
   Smartphone,
   Copy,
   ExternalLink,
+  CreditCard,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
@@ -53,6 +54,28 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { InstallButton } from "@/components/install-button";
 import type { AccountStatus } from "@shared/schema";
+
+type PaymentMessageAutomationSettings = {
+  enabled?: boolean;
+  sendDeclineEmail?: boolean;
+  sendDeclineSms?: boolean;
+  sendReceiptEmail?: boolean;
+  sendReceiptSms?: boolean;
+  callbackPhone?: string;
+  callbackEmail?: string;
+  logoUrl?: string;
+};
+
+const blankPaymentAutomation: PaymentMessageAutomationSettings = {
+  enabled: false,
+  sendDeclineEmail: true,
+  sendDeclineSms: false,
+  sendReceiptEmail: true,
+  sendReceiptSms: false,
+  callbackPhone: "",
+  callbackEmail: "",
+  logoUrl: "",
+};
 
 const SYSTEM_STATUSES = [
   { code: "newbiz", label: "New Business", color: "blue" },
@@ -90,8 +113,34 @@ export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newStatus, setNewStatus] = useState("");
+  const [paymentAutomation, setPaymentAutomation] = useState<PaymentMessageAutomationSettings>(blankPaymentAutomation);
   const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
     queryKey: ["/api/account-statuses"],
+  });
+
+  const { data: savedPaymentAutomation } = useQuery<PaymentMessageAutomationSettings>({
+    queryKey: ["/api/payment-message-automation"],
+  });
+
+  useEffect(() => {
+    if (savedPaymentAutomation) {
+      setPaymentAutomation({ ...blankPaymentAutomation, ...savedPaymentAutomation });
+    }
+  }, [savedPaymentAutomation]);
+
+  const savePaymentAutomationMutation = useMutation({
+    mutationFn: async (payload: PaymentMessageAutomationSettings) => {
+      const res = await apiRequest("POST", "/api/payment-message-automation", payload);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setPaymentAutomation({ ...blankPaymentAutomation, ...data });
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-message-automation"] });
+      toast({ title: "Automation Saved", description: "Payment decline and receipt messaging settings were saved." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err?.message || "Failed to save automation settings.", variant: "destructive" });
+    },
   });
 
   const accountStatuses = [
@@ -244,6 +293,105 @@ export default function Settings() {
               <div className="pt-2">
                 <Button data-testid="button-save-org">Save Changes</Button>
               </div>
+            </CardContent>
+          </Card>
+
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Payment Message Automation
+              </CardTitle>
+              <CardDescription>
+                Automatically send generic Chain email/text notices when debtor payments decline or are approved.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <Label htmlFor="paymentAutomationEnabled">Enable automation</Label>
+                  <p className="text-xs text-muted-foreground">Uses generated system templates; you only enter callback details below.</p>
+                </div>
+                <Switch
+                  id="paymentAutomationEnabled"
+                  checked={!!paymentAutomation.enabled}
+                  onCheckedChange={(checked) => setPaymentAutomation((v) => ({ ...v, enabled: checked }))}
+                  data-testid="switch-payment-message-automation"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="paymentAutomationPhone">Callback Phone</Label>
+                  <Input
+                    id="paymentAutomationPhone"
+                    value={paymentAutomation.callbackPhone || ""}
+                    onChange={(e) => setPaymentAutomation((v) => ({ ...v, callbackPhone: e.target.value }))}
+                    placeholder="(800) 555-0199"
+                    data-testid="input-payment-automation-phone"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="paymentAutomationEmail">Callback Email</Label>
+                  <Input
+                    id="paymentAutomationEmail"
+                    type="email"
+                    value={paymentAutomation.callbackEmail || ""}
+                    onChange={(e) => setPaymentAutomation((v) => ({ ...v, callbackEmail: e.target.value }))}
+                    placeholder="support@example.com"
+                    data-testid="input-payment-automation-email"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="paymentAutomationLogo">Logo URL</Label>
+                <Input
+                  id="paymentAutomationLogo"
+                  value={paymentAutomation.logoUrl || ""}
+                  onChange={(e) => setPaymentAutomation((v) => ({ ...v, logoUrl: e.target.value }))}
+                  placeholder="Optional; defaults to the app logo"
+                  data-testid="input-payment-automation-logo"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3 rounded-lg border p-3">
+                  <p className="text-sm font-medium">Declined payment notice</p>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="declineEmail">Email</Label>
+                    <Switch id="declineEmail" checked={!!paymentAutomation.sendDeclineEmail} onCheckedChange={(checked) => setPaymentAutomation((v) => ({ ...v, sendDeclineEmail: checked }))} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="declineSms">Text message</Label>
+                    <Switch id="declineSms" checked={!!paymentAutomation.sendDeclineSms} onCheckedChange={(checked) => setPaymentAutomation((v) => ({ ...v, sendDeclineSms: checked }))} />
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-lg border p-3">
+                  <p className="text-sm font-medium">Approved payment receipt</p>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="receiptEmail">Email</Label>
+                    <Switch id="receiptEmail" checked={!!paymentAutomation.sendReceiptEmail} onCheckedChange={(checked) => setPaymentAutomation((v) => ({ ...v, sendReceiptEmail: checked }))} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="receiptSms">Text message</Label>
+                    <Switch id="receiptSms" checked={!!paymentAutomation.sendReceiptSms} onCheckedChange={(checked) => setPaymentAutomation((v) => ({ ...v, sendReceiptSms: checked }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                Example decline text: Hello First Name, your payment for the amount and date came back declined with the gateway reason. Please call or email the callback details above to rectify it.
+              </div>
+
+              <Button
+                onClick={() => savePaymentAutomationMutation.mutate(paymentAutomation)}
+                disabled={savePaymentAutomationMutation.isPending}
+                data-testid="button-save-payment-message-automation"
+              >
+                Save Payment Automation
+              </Button>
             </CardContent>
           </Card>
 
