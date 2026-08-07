@@ -29,7 +29,6 @@ import {
   Users,
   FileText,
   Mail,
-  Phone,
   Tag,
   Plus,
   Trash2,
@@ -643,18 +642,16 @@ export default function Settings() {
             <CardHeader>
               <CardTitle className="text-lg font-medium">Support</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>(800) 555-0199</span>
-              </div>
+            <CardContent>
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-muted-foreground" />
-                <span>support@collectmax.com</span>
+                <a
+                  href="mailto:support@chainsoftwaregroup.com"
+                  className="hover:underline"
+                >
+                  support@chainsoftwaregroup.com
+                </a>
               </div>
-              <Button variant="outline" className="w-full mt-2" data-testid="button-contact-support">
-                Contact Support
-              </Button>
             </CardContent>
           </Card>
 
