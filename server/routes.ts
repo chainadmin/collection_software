@@ -3540,7 +3540,7 @@ export async function registerRoutes(
             originalCreditor: mappedData.originalCreditor || null,
             clientName: mappedData.clientName || null,
             fileNumber: resolvedFileNumber,
-            status: mappedData.status || "open",
+            status: mappedData.status || "newbiz",
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
             chargeOffDate: mappedData.chargeOffDate || null,

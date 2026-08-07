@@ -57,6 +57,8 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
     switch (status) {
       case "open":
         return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
+      case "newbiz":
+        return "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300";
       case "in_payment":
         return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
       case "settled":
@@ -71,9 +73,16 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant={buttonVariant} size="default" data-testid="button-account-search">
-          <Search className="h-4 w-4 mr-2" />
-          Search Accounts
+        <Button
+          variant={buttonVariant}
+          size="default"
+          className="h-9 min-w-9 justify-start border-border/80 bg-background px-2.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground sm:w-64 sm:px-3"
+          data-testid="button-account-search"
+          aria-label="Search accounts"
+        >
+          <Search className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">Search accounts</span>
+          <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground lg:inline">Quick find</kbd>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">

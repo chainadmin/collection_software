@@ -65,7 +65,7 @@ const addDebtorSchema = z.object({
   ssnLast4: z.string().max(4).optional(),
   originalBalance: z.number().min(0, "Balance must be positive"),
   currentBalance: z.number().min(0, "Balance must be positive"),
-  status: z.string().default("open"),
+  status: z.string().default("newbiz"),
 });
 
 type AddDebtorForm = z.infer<typeof addDebtorSchema>;
@@ -108,7 +108,7 @@ export default function Debtors() {
       ssnLast4: "",
       originalBalance: 0,
       currentBalance: 0,
-      status: "open",
+      status: "newbiz",
     },
   });
 
@@ -189,6 +189,7 @@ export default function Debtors() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="newbiz">New Business</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
                   <SelectItem value="in_payment">In Payment</SelectItem>
                   <SelectItem value="settled">Settled</SelectItem>
@@ -226,7 +227,7 @@ export default function Debtors() {
                     <tr
                       key={debtor.id}
                       className="border-b last:border-0 hover-elevate cursor-pointer"
-                      onClick={() => setLocation(`/debtors/${debtor.id}`)}
+                      onClick={() => setLocation(`/app/debtors/${debtor.id}`)}
                       data-testid={`debtor-row-${debtor.id}`}
                     >
                       <td className="py-3 pr-4">

@@ -1374,7 +1374,7 @@ export class MemStorage implements IStorage {
       clientId: debtor.clientId ?? null,
       originalBalance: debtor.originalBalance,
       currentBalance: debtor.currentBalance,
-      status: debtor.status ?? "open",
+      status: debtor.status ?? "newbiz",
       lastContactDate: debtor.lastContactDate ?? null,
       nextFollowUpDate: debtor.nextFollowUpDate ?? null,
       chargeOffDate: debtor.chargeOffDate ?? null,
