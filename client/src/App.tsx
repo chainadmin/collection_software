@@ -176,22 +176,23 @@ function AppLayout() {
             } : null}
           />
         )}
-        <SidebarInset className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex h-12 items-center justify-between gap-4 px-4 shrink-0 bg-green-600 dark:bg-green-700 text-white dark:text-white">
+        <SidebarInset className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <header className="relative z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:px-5">
             <div className="flex items-center gap-2">
-              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white dark:text-white" />
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-muted-foreground hover:text-foreground" />
+              <div className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
               <AccountSearch onSelect={handleAccountSelect} />
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-3">
               {authUser && (
-                <span className="text-sm font-medium" data-testid="text-logged-in-user">
+                <span className="hidden max-w-48 truncate text-sm font-medium text-muted-foreground sm:block" data-testid="text-logged-in-user">
                   {authUser.name}
                 </span>
               )}
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-background">
+          <main className="app-scroll-area flex-1 overflow-auto bg-background">
             <AppRouter />
           </main>
         </SidebarInset>
