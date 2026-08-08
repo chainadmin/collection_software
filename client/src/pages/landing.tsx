@@ -307,6 +307,15 @@ export default function Landing() {
           <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
             Start your 14-day free trial and experience the difference professional debt collection software can make.
           </p>
+          <p className="text-primary-foreground/80 mb-8">
+            Contact us at{" "}
+            <a
+              href="mailto:support@chainsoftwaregroup.com"
+              className="font-medium text-primary-foreground underline underline-offset-4 hover:text-primary-foreground/80"
+            >
+              support@chainsoftwaregroup.com
+            </a>
+          </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/signup">
               <Button size="lg" variant="secondary" className="gap-2">
