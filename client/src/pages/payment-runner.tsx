@@ -380,8 +380,12 @@ export default function PaymentRunner() {
   const reversedTotal = reversedPayments.reduce((sum, p) => sum + p.amount, 0);
 
   const activeMerchants = merchants?.filter((m) => m.isActive) || [];
-  const hasNMI = activeMerchants.some((m) => m.processorType === "nmi");
-  const hasUSAePay = activeMerchants.some((m) => m.processorType === "usaepay");
+  const activeProcessorNames = activeMerchants.map((m) => ({
+    nmi: "NMI",
+    usaepay: "USAePay",
+    authorize_net: "Authorize.net",
+    stripe: "Stripe",
+  }[m.processorType] || m.processorType));
 
   const totalPending = pendingPayments?.length || 0;
   const totalPendingAmount = pendingPayments?.reduce((sum, p) => sum + p.amount, 0) || 0;
@@ -490,7 +494,7 @@ export default function PaymentRunner() {
                     Merchant Integration Required
                   </p>
                   <p className="text-sm text-amber-700 dark:text-amber-300">
-                    Connect NMI or USAePay in Settings to enable automatic payment processing
+                    Connect NMI, USAePay, Authorize.net, or Stripe in Settings to enable automatic payment processing
                   </p>
                 </div>
                 <Button variant="outline" size="sm" asChild>
@@ -508,9 +512,7 @@ export default function PaymentRunner() {
                     Merchant Integration Active
                   </p>
                   <p className="text-sm text-green-700 dark:text-green-300">
-                    {hasNMI && "NMI"}
-                    {hasNMI && hasUSAePay && " and "}
-                    {hasUSAePay && "USAePay"}
+                    {activeProcessorNames.join(", ")}
                     {" "}connected - payments will process automatically
                   </p>
                 </div>

@@ -415,7 +415,7 @@ export const merchants = pgTable("merchants", {
   organizationId: varchar("organization_id").notNull(),
   name: text("name").notNull(),
   merchantId: text("merchant_id").notNull(),
-  processorType: text("processor_type").notNull(), // nmi, usaepay, authorize_net
+  processorType: text("processor_type").notNull(), // nmi, usaepay, authorize_net, stripe
   isActive: boolean("is_active").default(true),
   apiKeyRef: text("api_key_ref"), // reference to secrets
   // Authorize.net-specific fields
@@ -428,6 +428,8 @@ export const merchants = pgTable("merchants", {
   // USAePay-specific fields
   usaepaySourceKey: text("usaepay_source_key"),
   usaepayPin: text("usaepay_pin"),
+  // Tenant gateway secret used for debtor card payments (separate from platform SaaS billing)
+  stripeSecretKey: text("stripe_secret_key"),
   // General settings
   testMode: boolean("test_mode").default(true),
   createdDate: text("created_date").notNull(),

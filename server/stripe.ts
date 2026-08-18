@@ -1,5 +1,8 @@
 import Stripe from 'stripe';
 
+// Platform-level Stripe account used only to bill organizations for their DMP
+// subscription. Tenant debtor-payment Stripe keys live on Merchant records and
+// are never used by this module.
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
 let stripeClient: Stripe | null = null;
@@ -36,7 +39,8 @@ export async function createCheckoutSession(
   organizationId: string,
   plan: 'starter' | 'growth' | 'agency',
   successUrl: string,
-  cancelUrl: string
+  cancelUrl: string,
+  customerEmail?: string | null,
 ): Promise<string> {
   const stripe = getStripe();
   const planConfig = PLAN_CONFIG[plan];
@@ -47,7 +51,7 @@ export async function createCheckoutSession(
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
-    mode: 'payment',
+    mode: 'subscription',
     line_items: [
       {
         price_data: {
@@ -57,6 +61,7 @@ export async function createCheckoutSession(
             description: `${planConfig.seats} collector seats, monthly subscription`,
           },
           unit_amount: planConfig.price * 100,
+          recurring: { interval: 'month' },
         },
         quantity: 1,
       },
@@ -65,6 +70,8 @@ export async function createCheckoutSession(
       organizationId,
       plan,
     },
+    subscription_data: { metadata: { organizationId, plan } },
+    customer_email: customerEmail || undefined,
     success_url: successUrl,
     cancel_url: cancelUrl,
   });
@@ -109,6 +116,7 @@ export async function handleWebhookEvent(
   organizationId?: string;
   plan?: string;
   success: boolean;
+  subscriptionStatus?: 'active' | 'past_due' | 'cancelled';
 }> {
   const stripe = getStripe();
   const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
@@ -123,6 +131,23 @@ export async function handleWebhookEvent(
         success: true,
       };
     }
+  }
+
+  const object = event.data.object as any;
+  // Invoice metadata is commonly an empty object. Prefer it only when it
+  // actually contains the organization identifier; otherwise use the metadata
+  // copied onto the Stripe subscription by createCheckoutSession.
+  const objectMetadata = object.metadata || {};
+  const subscriptionMetadata = object.parent?.subscription_details?.metadata || {};
+  const metadata = objectMetadata.organizationId ? objectMetadata : subscriptionMetadata;
+  if (event.type === 'invoice.paid') {
+    return { type: event.type, organizationId: metadata.organizationId, plan: metadata.plan, success: true, subscriptionStatus: 'active' };
+  }
+  if (event.type === 'invoice.payment_failed') {
+    return { type: event.type, organizationId: metadata.organizationId, plan: metadata.plan, success: false, subscriptionStatus: 'past_due' };
+  }
+  if (event.type === 'customer.subscription.deleted') {
+    return { type: event.type, organizationId: metadata.organizationId, plan: metadata.plan, success: false, subscriptionStatus: 'cancelled' };
   }
 
   return {
