@@ -36,6 +36,9 @@ export default function Merchants() {
   const [nmiPassword, setNmiPassword] = useState("");
   const [usaepaySourceKey, setUsaepaySourceKey] = useState("");
   const [usaepayPin, setUsaepayPin] = useState("");
+  const [authorizeNetApiLoginId, setAuthorizeNetApiLoginId] = useState("");
+  const [authorizeNetTransactionKey, setAuthorizeNetTransactionKey] = useState("");
+  const [stripeSecretKey, setStripeSecretKey] = useState("");
   const [testMode, setTestMode] = useState(true);
 
   const { data: merchants = [], isLoading } = useQuery<Merchant[]>({
@@ -92,11 +95,19 @@ export default function Merchants() {
     setNmiPassword("");
     setUsaepaySourceKey("");
     setUsaepayPin("");
+    setAuthorizeNetApiLoginId("");
+    setAuthorizeNetTransactionKey("");
+    setStripeSecretKey("");
     setTestMode(true);
   };
 
   const handleAddMerchant = () => {
-    if (!merchantName || !merchantIdInput) {
+    const hasCredentials =
+      (processorType === "nmi" && nmiSecurityKey) ||
+      (processorType === "usaepay" && usaepaySourceKey) ||
+      (processorType === "authorize_net" && authorizeNetApiLoginId && authorizeNetTransactionKey) ||
+      (processorType === "stripe" && stripeSecretKey);
+    if (!merchantName || !merchantIdInput || !hasCredentials) {
       toast({ title: "Error", description: "Please fill all required fields.", variant: "destructive" });
       return;
     }
@@ -109,6 +120,9 @@ export default function Merchants() {
       nmiPassword: processorType === "nmi" ? nmiPassword : null,
       usaepaySourceKey: processorType === "usaepay" ? usaepaySourceKey : null,
       usaepayPin: processorType === "usaepay" ? usaepayPin : null,
+      authorizeNetApiLoginId: processorType === "authorize_net" ? authorizeNetApiLoginId : null,
+      authorizeNetTransactionKey: processorType === "authorize_net" ? authorizeNetTransactionKey : null,
+      stripeSecretKey: processorType === "stripe" ? stripeSecretKey : null,
       testMode,
     });
   };
@@ -127,7 +141,7 @@ export default function Merchants() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Merchant Accounts</h1>
-          <p className="text-muted-foreground">Manage payment processing accounts</p>
+          <p className="text-muted-foreground">Choose the gateway this company uses for debtor payments. This is separate from your Debt Manager Pro subscription billing.</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
@@ -231,6 +245,27 @@ export default function Merchants() {
                     />
                   </div>
                 </>
+              )}
+
+              {processorType === "authorize_net" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>API Login ID</Label>
+                    <Input value={authorizeNetApiLoginId} onChange={(e) => setAuthorizeNetApiLoginId(e.target.value)} data-testid="input-authorize-login-id" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Transaction Key</Label>
+                    <Input type="password" value={authorizeNetTransactionKey} onChange={(e) => setAuthorizeNetTransactionKey(e.target.value)} data-testid="input-authorize-transaction-key" />
+                  </div>
+                </>
+              )}
+
+              {processorType === "stripe" && (
+                <div className="space-y-2">
+                  <Label>Company Stripe Secret Key</Label>
+                  <Input type="password" placeholder="sk_test_… or sk_live_…" value={stripeSecretKey} onChange={(e) => setStripeSecretKey(e.target.value)} data-testid="input-stripe-secret-key" />
+                  <p className="text-xs text-muted-foreground">Stripe merchant processing supports card payments. Use a restricted key with only PaymentIntent and PaymentMethod permissions when possible.</p>
+                </div>
               )}
 
               <div className="flex items-center gap-2">

@@ -246,9 +246,13 @@ export function startAutoPaymentScheduler() {
         lastOrgTriggerKeys.set(org.id, triggerKey);
 
         console.log(`[Auto Runner] Trigger fired for org "${org.name}" at ${hour}:00 Eastern`);
-        runAutoPayments(org.id).catch((err) => {
+        // Run organizations sequentially. Starting all of them concurrently causes
+        // the global overlap guard to skip every organization after the first.
+        try {
+          await runAutoPayments(org.id);
+        } catch (err) {
           console.error(`[Auto Runner] Scheduled run error for org ${org.id}:`, err);
-        });
+        }
       }
     } catch (err) {
       console.error("[Auto Runner] Scheduler tick error:", err);

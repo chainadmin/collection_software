@@ -6,6 +6,7 @@ import {
   type MerchantCredentials,
 } from "./authorizenet";
 import { sendPaymentOutcomeAutomation } from "./payment-message-automation";
+import Stripe from "stripe";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -32,8 +33,47 @@ function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
         m.authorizeNetApiLoginId &&
         m.authorizeNetTransactionKey) ||
         (m.processorType === "nmi" && m.nmiSecurityKey) ||
-        (m.processorType === "usaepay" && m.usaepaySourceKey))
+        (m.processorType === "usaepay" && m.usaepaySourceKey) ||
+        (m.processorType === "stripe" && m.stripeSecretKey))
   );
+}
+
+async function processStripeCard(
+  secretKey: string,
+  cardData: { cardNumber: string; expirationDate: string; cardCode: string },
+  amount: number,
+  invoiceNumber?: string,
+  customerEmail?: string,
+): Promise<ProcessPaymentResult> {
+  try {
+    const stripe = new Stripe(secretKey);
+    const exp = cardData.expirationDate.replace(/\D/g, "");
+    const paymentMethod = await stripe.paymentMethods.create({
+      type: "card",
+      card: {
+        number: cardData.cardNumber.replace(/\s/g, ""),
+        exp_month: Number(exp.slice(0, 2)),
+        exp_year: Number(`20${exp.slice(-2)}`),
+        cvc: cardData.cardCode,
+      },
+      billing_details: customerEmail ? { email: customerEmail } : undefined,
+    });
+    const intent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: "usd",
+      payment_method: paymentMethod.id,
+      confirm: true,
+      description: invoiceNumber ? `Debt payment ${invoiceNumber}` : "Debt payment",
+      metadata: invoiceNumber ? { invoiceNumber } : undefined,
+      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+    });
+    if (intent.status === "succeeded") {
+      return { success: true, transactionId: intent.id, declineReason: null };
+    }
+    return { success: false, transactionId: intent.id, declineReason: `Stripe payment status: ${intent.status}` };
+  } catch (error: any) {
+    return { success: false, transactionId: null, declineReason: `Stripe error: ${error.message}` };
+  }
 }
 
 async function processNmiCard(
@@ -369,6 +409,19 @@ async function processViaGateway(
         invoiceNumber
       );
     }
+  }
+
+  if (merchant.processorType === "stripe") {
+    if (paymentMethod !== "card" || !cardData) {
+      return { success: false, transactionId: null, declineReason: "Stripe merchant processing currently supports card payments only" };
+    }
+    return processStripeCard(
+      merchant.stripeSecretKey!,
+      cardData,
+      amount,
+      invoiceNumber,
+      customerEmail,
+    );
   }
 
   return {

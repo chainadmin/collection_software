@@ -1870,6 +1870,7 @@ export class MemStorage implements IStorage {
       nmiPassword: merchant.nmiPassword ?? null,
       usaepaySourceKey: merchant.usaepaySourceKey ?? null,
       usaepayPin: merchant.usaepayPin ?? null,
+      stripeSecretKey: merchant.stripeSecretKey ?? null,
       testMode: merchant.testMode ?? true,
       createdDate: merchant.createdDate,
     };

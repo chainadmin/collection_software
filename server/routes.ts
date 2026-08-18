@@ -16,6 +16,7 @@ import {
   verifyCheckoutSession,
   isStripeConfigured,
   getSubscriptionPrices,
+  handleWebhookEvent,
 } from "./stripe";
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
@@ -323,6 +324,7 @@ export async function registerRoutes(
     "/super-admin/login",
     "/billing/status",
     "/billing/prices",
+    "/billing/webhook",
     "/v2/", // External API uses bearer token auth
   ];
   
@@ -1266,6 +1268,27 @@ export async function registerRoutes(
   });
 
   // Organization Billing API (Stripe for Debt Manager Pro subscriptions)
+  app.post("/api/billing/webhook", async (req: any, res) => {
+    try {
+      const signature = req.headers["stripe-signature"];
+      const secret = process.env.STRIPE_WEBHOOK_SECRET;
+      if (!signature || typeof signature !== "string" || !secret) {
+        return res.status(400).json({ error: "Stripe webhook is not configured" });
+      }
+      const event = await handleWebhookEvent(req.rawBody as Buffer, signature, secret);
+      if (event.organizationId && event.subscriptionStatus) {
+        await storage.updateOrganization(event.organizationId, {
+          subscriptionStatus: event.subscriptionStatus,
+          isActive: event.subscriptionStatus !== "cancelled",
+        });
+      }
+      res.json({ received: true });
+    } catch (error) {
+      console.error("Stripe webhook error:", error);
+      res.status(400).json({ error: "Invalid Stripe webhook" });
+    }
+  });
+
   app.get("/api/billing/plans", async (_req, res) => {
     try {
       const prices = getSubscriptionPrices();
@@ -1303,6 +1326,11 @@ export async function registerRoutes(
       const seatLimits: Record<string, number> = { starter: 4, growth: 15, agency: 40 };
 
       if (!isStripeConfigured()) {
+        if (process.env.NODE_ENV === "production") {
+          return res.status(503).json({
+            error: "Platform billing is unavailable because the global Stripe account is not configured",
+          });
+        }
         await storage.updateOrganization(orgId, { 
           isActive: true,
           subscriptionPlan: plan,
@@ -1312,7 +1340,7 @@ export async function registerRoutes(
         });
         return res.json({
           success: true,
-          message: "Subscription activated (demo mode)",
+          message: "Subscription activated (development demo mode)",
           plan,
           transactionId: `DEMO-${Date.now()}`,
         });
@@ -1324,7 +1352,8 @@ export async function registerRoutes(
         orgId,
         plan as 'starter' | 'growth' | 'agency',
         `${baseUrl}/subscribe?session_id={CHECKOUT_SESSION_ID}`,
-        `${baseUrl}/subscribe?canceled=true`
+        `${baseUrl}/subscribe?canceled=true`,
+        organization.email,
       );
 
       res.json({
@@ -2623,6 +2652,23 @@ export async function registerRoutes(
   app.post("/api/merchants", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const processorType = String(req.body.processorType || "");
+      const validProcessors = ["nmi", "usaepay", "authorize_net", "stripe"];
+      if (!validProcessors.includes(processorType)) {
+        return res.status(400).json({ error: "Unsupported payment processor" });
+      }
+      const configured =
+        (processorType === "nmi" && req.body.nmiSecurityKey) ||
+        (processorType === "usaepay" && req.body.usaepaySourceKey) ||
+        (processorType === "authorize_net" && req.body.authorizeNetApiLoginId && req.body.authorizeNetTransactionKey) ||
+        (processorType === "stripe" && req.body.stripeSecretKey);
+      if (!configured) {
+        return res.status(400).json({ error: `Required ${processorType} credentials are missing` });
+      }
+      if (req.body.isActive !== false) {
+        const existingMerchants = await storage.getMerchants(orgId);
+        await Promise.all(existingMerchants.filter((m) => m.isActive).map((m) => storage.updateMerchant(m.id, { isActive: false })));
+      }
       const merchant = await storage.createMerchant({
         ...req.body,
         organizationId: orgId,
@@ -2646,6 +2692,10 @@ export async function registerRoutes(
       }
       const body = { ...req.body };
       delete body.organizationId;
+      if (body.isActive === true) {
+        const merchants = await storage.getMerchants(orgId);
+        await Promise.all(merchants.filter((m) => m.id !== existing.id && m.isActive).map((m) => storage.updateMerchant(m.id, { isActive: false })));
+      }
       const merchant = await storage.updateMerchant(req.params.id, body);
       if (!merchant) {
         return res.status(404).json({ error: "Merchant not found" });

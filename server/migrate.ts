@@ -668,6 +668,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'merchants' AND column_name = 'authorize_net_transaction_key') THEN
           ALTER TABLE merchants ADD COLUMN authorize_net_transaction_key text;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'merchants' AND column_name = 'stripe_secret_key') THEN
+          ALTER TABLE merchants ADD COLUMN stripe_secret_key text;
+        END IF;
       END $$;
     `);
 
