@@ -423,11 +423,20 @@ export function registerExternalApiRoutes(app: Express) {
         success: true,
         data: payments.map((p: any) => ({
           id: p.id,
+          // Keep the provider transaction ID that Chain supplied on the way in.
+          // Older/native DMP payments do not have one, so the immutable DMP
+          // payment ID is the stable fallback used for deduplication.
+          transactionid: p.referenceNumber || p.id,
+          fileNumber: debtor.fileNumber,
+          filenumber: debtor.fileNumber,
           amount: p.amount,
           paymentDate: p.paymentDate,
           paymentMethod: p.paymentMethod,
           status: p.status,
           referenceNumber: p.referenceNumber,
+          processedTimestamp: null,
+          reversalTransactionId: null,
+          reversalStatus: p.status === "reversed" ? "reversed" : null,
           notes: p.notes,
         })),
       });
@@ -863,7 +872,26 @@ export function registerExternalApiRoutes(app: Express) {
   // POST /api/v2/insert_payments_external - Insert payment from external system
   app.post("/api/v2/insert_payments_external", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { fileNumber, amount, paymentMethod, paymentDate, referenceNumber, notes } = req.body;
+      const {
+        fileNumber,
+        amount,
+        paymentMethod,
+        paymentDate,
+        referenceNumber,
+        transactionid,
+        transactionId,
+        paymentToken,
+        paymenttoken,
+        cardToken,
+        cardtoken,
+        cardNumber,
+        cardnumber,
+        card_number,
+        ccNumber,
+        ccnumber,
+        status,
+        notes,
+      } = req.body;
       const orgId = req.apiToken?.organizationId;
       
       if (!fileNumber || !amount) {
@@ -880,20 +908,46 @@ export function registerExternalApiRoutes(app: Express) {
       if (orgId && debtor.organizationId !== orgId) {
         return res.status(404).json({ error: "Account not found" });
       }
+
+      // Chain places the gateway token in its legacy "card number" slot. For
+      // this authenticated integration those fields are opaque credentials,
+      // not PANs, and must never be saved or submitted as raw card numbers.
+      const chainPaymentToken = paymentToken
+        || paymenttoken
+        || cardToken
+        || cardtoken
+        || cardNumber
+        || cardnumber
+        || card_number
+        || ccNumber
+        || ccnumber
+        || null;
+      const normalizedPaymentMethod = chainPaymentToken
+        ? "card"
+        : (paymentMethod || "external");
       
       const payment = await storage.createPayment({
         organizationId: debtor.organizationId,
         debtorId: debtor.id,
         amount: Math.round(amount * 100),
         paymentDate: paymentDate || new Date().toISOString().split("T")[0],
-        paymentMethod: paymentMethod || "external",
-        status: "pending",
+        paymentMethod: normalizedPaymentMethod,
+        status: typeof status === "string" ? status.toLowerCase() : "pending",
+        // Chain already sends `transactionid`. Persist it so getpayments can
+        // return the same identifier instead of creating a duplicate in Chain.
+        referenceNumber: transactionid || transactionId || referenceNumber || null,
+        // The active merchant on this DMP company determines which processor
+        // owns the token; Chain does not need to send a separate gateway name.
+        paymentToken: chainPaymentToken,
         notes: notes || null,
       });
+
+      // Never echo a reusable payment credential back in an API response.
+      const { paymentToken: _paymentToken, ...safePayment } = payment;
       
       res.json({
         success: true,
-        data: payment,
+        data: safePayment,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to insert payment" });
