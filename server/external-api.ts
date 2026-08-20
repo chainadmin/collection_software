@@ -96,9 +96,8 @@ export function registerExternalApiRoutes(app: Express) {
           return res.status(403).json({ error: "Your organization is not active" });
         }
 
-        // The password must be a long-lived API key (created in Settings, prefixed
-        // "dmv2_"). Short-lived session tokens minted by this endpoint are plain
-        // hex with no prefix, so they cannot be exchanged to renew themselves.
+        // The password must be a long-lived API key created in Settings. Requiring
+        // its "dmv2_" prefix prevents legacy session tokens from being exchanged.
         const suppliedKey = String(password).trim();
         if (!suppliedKey.startsWith("dmv2_")) {
           return res.status(401).json({ error: "Invalid credentials" });
@@ -118,21 +117,15 @@ export function registerExternalApiRoutes(app: Express) {
 
         await storage.updateApiTokenLastUsed(apiKey.id);
 
-        const sessionTokenValue = crypto.randomBytes(32).toString("hex");
-        const sessionToken = await storage.createApiToken({
-          organizationId: org.id,
-          name: `Chain session token (${org.slug})`,
-          token: sessionTokenValue,
-          isActive: true,
-          permissions: ["all"],
-          createdDate: new Date().toISOString().split("T")[0],
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        });
-
+        // Chain keeps the token returned by login as its bearer credential. Returning
+        // a new 24-hour session token here forced an otherwise permanent integration
+        // to reconnect every day and also filled the API-key list with expiring keys.
+        // The generated dmv2_ key is already organization-scoped, revocable, and
+        // accepted by authenticateToken, so return that same long-lived credential.
         return res.json({
           success: true,
-          token: sessionTokenValue,
-          expiresAt: sessionToken.expiresAt,
+          token: suppliedKey,
+          expiresAt: apiKey.expiresAt,
           organization: {
             id: org.id,
             name: org.name,
