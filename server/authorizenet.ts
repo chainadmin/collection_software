@@ -271,6 +271,72 @@ export interface AchPaymentData {
   nameOnAccount: string;
 }
 
+/** Charge an Accept.js opaque token against this company's Authorize.Net merchant. */
+export async function processDebtorTokenPayment(
+  merchantCredentials: MerchantCredentials,
+  paymentToken: string,
+  amount: number,
+  invoiceNumber?: string,
+  customerEmail?: string
+): Promise<ChargeResult> {
+  return new Promise((resolve) => {
+    const merchantAuth = new APIContracts.MerchantAuthenticationType();
+    merchantAuth.setName(merchantCredentials.apiLoginId);
+    merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
+
+    const opaqueData = new APIContracts.OpaqueDataType();
+    opaqueData.setDataDescriptor("COMMON.ACCEPT.INAPP.PAYMENT");
+    opaqueData.setDataValue(paymentToken);
+
+    const paymentType = new APIContracts.PaymentType();
+    paymentType.setOpaqueData(opaqueData);
+
+    const orderDetails = new APIContracts.OrderType();
+    orderDetails.setInvoiceNumber(invoiceNumber || `PMT-${Date.now()}`);
+    orderDetails.setDescription("Debt Payment");
+
+    const transactionRequest = new APIContracts.TransactionRequestType();
+    transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
+    transactionRequest.setPayment(paymentType);
+    transactionRequest.setAmount(amount);
+    transactionRequest.setOrder(orderDetails);
+
+    if (customerEmail) {
+      const customer = new APIContracts.CustomerDataType();
+      customer.setEmail(customerEmail);
+      transactionRequest.setCustomer(customer);
+    }
+
+    const createRequest = new APIContracts.CreateTransactionRequest();
+    createRequest.setMerchantAuthentication(merchantAuth);
+    createRequest.setTransactionRequest(transactionRequest);
+
+    const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
+    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === "production";
+    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+    ctrl.execute(() => {
+      const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
+      const transResponse = response.getTransactionResponse();
+      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK && transResponse?.getMessages()) {
+        resolve({
+          success: true,
+          transactionId: transResponse.getTransId(),
+          authCode: transResponse.getAuthCode(),
+          responseCode: transResponse.getResponseCode(),
+        });
+        return;
+      }
+      resolve({
+        success: false,
+        errorMessage: transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
+          || response.getMessages()?.getMessage()?.[0]?.getText()
+          || "Token transaction failed",
+        responseCode: transResponse?.getResponseCode(),
+      });
+    });
+  });
+}
+
 /**
  * Process a debtor card payment using the organization's merchant account
  */

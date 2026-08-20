@@ -2,6 +2,7 @@ import type { Payment, Merchant } from "@shared/schema";
 import type { IStorage } from "./storage";
 import {
   processDebtorCardPayment,
+  processDebtorTokenPayment,
   processDebtorAchPayment,
   type MerchantCredentials,
 } from "./authorizenet";
@@ -71,6 +72,31 @@ async function processStripeCard(
       return { success: true, transactionId: intent.id, declineReason: null };
     }
     return { success: false, transactionId: intent.id, declineReason: `Stripe payment status: ${intent.status}` };
+  } catch (error: any) {
+    return { success: false, transactionId: null, declineReason: `Stripe error: ${error.message}` };
+  }
+}
+
+async function processStripeToken(
+  secretKey: string,
+  paymentToken: string,
+  amount: number,
+  invoiceNumber?: string,
+): Promise<ProcessPaymentResult> {
+  try {
+    const stripe = new Stripe(secretKey);
+    const intent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: "usd",
+      payment_method: paymentToken,
+      confirm: true,
+      description: invoiceNumber ? `Debt payment ${invoiceNumber}` : "Debt payment",
+      metadata: invoiceNumber ? { invoiceNumber } : undefined,
+      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+    });
+    return intent.status === "succeeded"
+      ? { success: true, transactionId: intent.id, declineReason: null }
+      : { success: false, transactionId: intent.id, declineReason: `Stripe payment status: ${intent.status}` };
   } catch (error: any) {
     return { success: false, transactionId: null, declineReason: `Stripe error: ${error.message}` };
   }
@@ -295,6 +321,7 @@ async function processUsaepayAch(
 async function processViaGateway(
   merchant: Merchant,
   paymentMethod: string,
+  paymentToken: string | null,
   cardData: {
     cardNumber: string;
     expirationDate: string;
@@ -320,6 +347,14 @@ async function processViaGateway(
       transactionKey: merchant.authorizeNetTransactionKey!,
       testMode: merchant.testMode ?? true,
     };
+    if (paymentMethod === "card" && paymentToken) {
+      const result = await processDebtorTokenPayment(creds, paymentToken, amount, invoiceNumber, customerEmail);
+      return {
+        success: result.success,
+        transactionId: result.transactionId || null,
+        declineReason: result.errorMessage || null,
+      };
+    }
     if (paymentMethod === "card" && cardData) {
       const result = await processDebtorCardPayment(
         creds,
@@ -359,6 +394,28 @@ async function processViaGateway(
       securityKey: merchant.nmiSecurityKey!,
       testMode: merchant.testMode ?? true,
     };
+    if (paymentMethod === "card" && paymentToken) {
+      try {
+        const params = new URLSearchParams({
+          security_key: creds.securityKey,
+          type: "sale",
+          amount: amount.toFixed(2),
+          payment_token: paymentToken,
+        });
+        if (invoiceNumber) params.set("orderid", invoiceNumber);
+        const response = await fetch("https://secure.nmi.com/api/transact.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+        });
+        const result = new URLSearchParams(await response.text());
+        return result.get("response") === "1"
+          ? { success: true, transactionId: result.get("transactionid"), declineReason: null }
+          : { success: false, transactionId: null, declineReason: result.get("responsetext") || "NMI token transaction declined" };
+      } catch (error: any) {
+        return { success: false, transactionId: null, declineReason: `NMI error: ${error.message}` };
+      }
+    }
     if (paymentMethod === "card" && cardData) {
       return processNmiCard(
         creds,
@@ -388,6 +445,30 @@ async function processViaGateway(
       pin: merchant.usaepayPin || "",
       testMode: merchant.testMode ?? true,
     };
+    if (paymentMethod === "card" && paymentToken) {
+      try {
+        const baseUrl = creds.testMode ? "https://sandbox.usaepay.com/api/v2/transactions" : "https://usaepay.com/api/v2/transactions";
+        const response = await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${Buffer.from(`${creds.sourceKey}:${creds.pin}`).toString("base64")}`,
+          },
+          body: JSON.stringify({
+            command: "cc:sale",
+            amount: amount.toFixed(2),
+            creditcard: { cardref: paymentToken },
+            ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
+          }),
+        });
+        const data = await response.json();
+        return data.result_code === "A" || data.result === "Approved"
+          ? { success: true, transactionId: data.refnum || data.key || null, declineReason: null }
+          : { success: false, transactionId: null, declineReason: data.error || data.result || "USAePay token transaction declined" };
+      } catch (error: any) {
+        return { success: false, transactionId: null, declineReason: `USAePay error: ${error.message}` };
+      }
+    }
     if (paymentMethod === "card" && cardData) {
       return processUsaepayCard(
         creds,
@@ -412,6 +493,9 @@ async function processViaGateway(
   }
 
   if (merchant.processorType === "stripe") {
+    if (paymentMethod === "card" && paymentToken) {
+      return processStripeToken(merchant.stripeSecretKey!, paymentToken, amount, invoiceNumber);
+    }
     if (paymentMethod !== "card" || !cardData) {
       return { success: false, transactionId: null, declineReason: "Stripe merchant processing currently supports card payments only" };
     }
@@ -459,6 +543,7 @@ export async function processPayment(
       declineReason: "No active merchant configured for this organization",
     };
   } else {
+    let gatewayPaymentToken = payment.paymentToken;
     let cardData: {
       cardNumber: string;
       expirationDate: string;
@@ -474,11 +559,19 @@ export async function processPayment(
     if (payment.paymentMethod === "card" && payment.cardId) {
       const card = await storage.getPaymentCard(payment.cardId);
       if (card && card.cardNumber) {
-        cardData = {
-          cardNumber: card.cardNumber,
-          expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-          cardCode: card.cvv || "999",
-        };
+        const normalizedCardNumber = card.cardNumber.replace(/[\s-]/g, "");
+        if (/^\d{13,19}$/.test(normalizedCardNumber)) {
+          cardData = {
+            cardNumber: normalizedCardNumber,
+            expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
+            cardCode: card.cvv || "999",
+          };
+        } else {
+          // Legacy Chain integrations saved their gateway token in the card
+          // number slot. Route opaque values through the active merchant's
+          // token API instead of submitting them as a raw PAN.
+          gatewayPaymentToken = card.cardNumber;
+        }
       } else {
         result = {
           success: false,
@@ -554,6 +647,7 @@ export async function processPayment(
     result = await processViaGateway(
       activeMerchant,
       payment.paymentMethod,
+      gatewayPaymentToken,
       cardData,
       achData,
       payment.amount / 100,

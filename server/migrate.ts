@@ -231,6 +231,7 @@ export async function runMigrations() {
         "payment_method" text NOT NULL,
         "status" text NOT NULL DEFAULT 'pending',
         "reference_number" text,
+        "payment_token" text,
         "processed_by" varchar,
         "notes" text,
         "frequency" text,
@@ -725,6 +726,9 @@ export async function runMigrations() {
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'remittance_items' AND column_name = 'organization_id') THEN
           ALTER TABLE remittance_items ADD COLUMN organization_id varchar;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'payment_token') THEN
+          ALTER TABLE payments ADD COLUMN payment_token text;
         END IF;
       END $$;
     `);

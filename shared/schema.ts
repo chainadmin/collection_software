@@ -299,6 +299,9 @@ export const payments = pgTable("payments", {
   paymentMethod: text("payment_method").notNull(), // ach, card, check, cash
   status: text("status").notNull().default("pending"), // pending, processed, posted, declined, reversed
   referenceNumber: text("reference_number"),
+  // Opaque, reusable payment credential supplied by Chain. Its processor is
+  // inferred from the organization's active merchant configuration.
+  paymentToken: text("payment_token"),
   processedBy: varchar("processed_by"),
   notes: text("notes"),
   // Recurring payment fields
