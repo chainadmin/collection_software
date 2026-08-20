@@ -328,7 +328,7 @@ export interface IStorage {
   createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt>;
 
   // Helper methods for external API
-  getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined>;
+  getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined>;
   getCollectorByUsername(username: string): Promise<Collector | undefined>;
   getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined>;
 
@@ -2564,8 +2564,10 @@ export class MemStorage implements IStorage {
   }
 
   // Helper methods for external API
-  async getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined> {
-    return Array.from(this.debtors.values()).find((d) => d.fileNumber === fileNumber);
+  async getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined> {
+    return Array.from(this.debtors.values()).find(
+      (d) => d.fileNumber === fileNumber && d.organizationId === organizationId,
+    );
   }
 
   async getCollectorByUsername(username: string): Promise<Collector | undefined> {

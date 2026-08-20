@@ -376,7 +376,7 @@ export default function ImportExport() {
                         data-testid="input-file-number-start"
                       />
                       <p className="text-xs text-muted-foreground">
-                        File numbers will be generated as FN-{new Date().getFullYear()}-{fileNumberStart.padStart(6, '0')}, FN-{new Date().getFullYear()}-{(parseInt(fileNumberStart) + 1 || 2).toString().padStart(6, '0')}, etc.
+                        DMP will assign short file numbers starting with {fileNumberStart || "1"}, then {(parseInt(fileNumberStart) + 1 || 2).toString()}, etc. Imported file-number values will not replace these DMP numbers.
                       </p>
                     </div>
                   )}

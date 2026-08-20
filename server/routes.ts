@@ -3398,16 +3398,12 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allDebtors = await storage.getDebtors();
       const orgDebtors = allDebtors.filter((debtor) => debtor.organizationId === orgId);
-      const year = new Date().getFullYear();
-      const prefix = `FN-${year}-`;
-      
       let maxNumber = 0;
       for (const debtor of orgDebtors) {
-        if (debtor.fileNumber && debtor.fileNumber.startsWith(prefix)) {
-          const numPart = parseInt(debtor.fileNumber.substring(prefix.length), 10);
-          if (!isNaN(numPart) && numPart > maxNumber) {
-            maxNumber = numPart;
-          }
+        const match = debtor.fileNumber?.match(/^(?:FN-\d{4}-)?(\d+)$/);
+        if (match) {
+          const numPart = Number.parseInt(match[1], 10);
+          if (numPart > maxNumber) maxNumber = numPart;
         }
       }
       
@@ -3465,16 +3461,15 @@ export async function registerRoutes(
       const existingDebtors = await storage.getDebtors(portfolioId);
       const allDebtors = (await storage.getDebtors()).filter((debtor) => debtor.organizationId === orgId);
 
-      // Compute next file number from existing data so concurrent imports
-      // and skipped rows don't produce colliding FN-{YYYY}-{seq} values.
-      const year = new Date().getFullYear();
-      const fnPrefix = `FN-${year}-`;
+      // Compute the next short numeric file number from existing DMP-generated
+      // values. Legacy FN-{YYYY}-{seq} values are included while determining
+      // the next sequence so upgrades do not reuse an existing number.
       let maxFnSeq = (fileNumberStart || 1) - 1;
       for (const d of allDebtors) {
-        if (d.fileNumber && d.fileNumber.startsWith(fnPrefix)) {
-          const n = parseInt(d.fileNumber.substring(fnPrefix.length), 10);
-          if (!isNaN(n) && n > maxFnSeq) maxFnSeq = n;
-        }
+        const match = d.fileNumber?.match(/^(?:FN-\d{4}-)?(\d+)$/);
+        if (!match) continue;
+        const n = Number.parseInt(match[1], 10);
+        if (n > maxFnSeq) maxFnSeq = n;
       }
 
       for (let rowIdx = 0; rowIdx < records.length; rowIdx++) {
@@ -3528,7 +3523,10 @@ export async function registerRoutes(
           );
 
           if (existingInPortfolio) {
-            await storage.updateDebtor(existingInPortfolio.id, mappedData);
+            // A source file number may help identify a re-imported row, but it
+            // must never replace the DMP-generated consumer file number.
+            const { fileNumber: _sourceFileNumber, ...updates } = mappedData;
+            await storage.updateDebtor(existingInPortfolio.id, updates);
             results.updated++;
             continue;
           }
@@ -3544,16 +3542,11 @@ export async function registerRoutes(
             }
           }
 
-          // Use vendor-supplied file number when provided; otherwise
-          // auto-generate as FN-{YYYY}-{sequential}.
-          let resolvedFileNumber: string;
-          if (mappedData.fileNumber) {
-            resolvedFileNumber = mappedData.fileNumber;
-          } else {
-            maxFnSeq++;
-            const seq = maxFnSeq.toString().padStart(6, '0');
-            resolvedFileNumber = `FN-${year}-${seq}`;
-          }
+          // DMP owns the consumer-facing file number. Always generate a short
+          // numeric value rather than exposing a vendor identifier or the old
+          // FN-{YYYY}-{seq} format, since consumers also use it to sign in.
+          maxFnSeq++;
+          const resolvedFileNumber = maxFnSeq.toString();
 
           // Collect unmapped columns as custom fields
           const knownFields = new Set([

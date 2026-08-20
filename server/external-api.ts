@@ -280,7 +280,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -305,7 +305,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -339,7 +339,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -373,7 +373,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -406,7 +406,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -441,7 +441,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -483,7 +483,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and phoneNumber are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -562,7 +562,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and attemptType are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -605,7 +605,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and content are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -643,7 +643,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber is required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -684,7 +684,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber is required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -766,7 +766,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber, phoneNumber, and message are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -818,7 +818,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and emailAddress are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -870,7 +870,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and amount are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -910,7 +910,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and callbackDate are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -950,7 +950,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -1061,7 +1061,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and phoneNumber are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -1128,7 +1128,7 @@ export function registerExternalApiRoutes(app: Express) {
       
       let debtor;
       if (fileNumber) {
-        debtor = await storage.getDebtorByFileNumber(fileNumber);
+        debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
         if (!debtor) {
           return res.status(404).json({ error: "Account not found" });
         }
@@ -1220,7 +1220,7 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(400).json({ error: "fileNumber and disposition are required" });
       }
       
-      const debtor = await storage.getDebtorByFileNumber(fileNumber);
+      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -1341,7 +1341,7 @@ export function registerExternalApiRoutes(app: Express) {
     try {
       const { filenumber } = req.params;
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(filenumber);
+      const debtor = await storage.getDebtorByFileNumber(filenumber, req.apiToken!.organizationId!);
       
       if (!debtor) {
         return res.status(404).json({ error: "Account not found" });
@@ -1477,7 +1477,7 @@ export function registerExternalApiRoutes(app: Express) {
       
       if (matches.length > 0) {
         const primaryMatch = matches[0];
-        const debtor = await storage.getDebtorByFileNumber(primaryMatch.fileNumber);
+        const debtor = await storage.getDebtorByFileNumber(primaryMatch.fileNumber, req.apiToken!.organizationId!);
         
         if (debtor) {
           await storage.createCommunicationAttempt({
@@ -1554,7 +1554,7 @@ export function registerExternalApiRoutes(app: Express) {
   app.get("/api/v2/campaign/account/:filenumber/contacts", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const orgId = req.apiToken?.organizationId;
-      const debtor = await storage.getDebtorByFileNumber(req.params.filenumber);
+      const debtor = await storage.getDebtorByFileNumber(req.params.filenumber, req.apiToken!.organizationId!);
 
       if (!debtor || debtor.organizationId !== orgId) {
         return res.status(404).json({ error: "Account not found" });
@@ -1642,7 +1642,7 @@ export function registerExternalApiRoutes(app: Express) {
       let contactId = phoneId;
       
       if (!contactId && fileNumber && phoneNumber) {
-        const debtor = await storage.getDebtorByFileNumber(fileNumber);
+        const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
         if (!debtor) {
           return res.status(404).json({ error: "Account not found" });
         }
