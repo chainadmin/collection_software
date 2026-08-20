@@ -1420,8 +1420,13 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const tokens = await storage.getApiTokensByOrg(orgId);
+      // Only user-created integration keys belong in the settings list. Older
+      // versions created an expiring session-token row on every Chain login;
+      // hiding those internal credentials prevents them from looking like API
+      // keys that are being replaced each day.
+      const integrationKeys = tokens.filter((t) => t.token.startsWith("dmv2_"));
       // Return masked tokens — full value only revealed at creation
-      res.json(tokens.map((t) => ({
+      res.json(integrationKeys.map((t) => ({
         id: t.id,
         name: t.name,
         tokenMasked: `${t.token.slice(0, 10)}${"*".repeat(20)}`,
