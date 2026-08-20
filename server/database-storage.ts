@@ -1187,8 +1187,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Helper methods for external API
-  async getDebtorByFileNumber(fileNumber: string): Promise<Debtor | undefined> {
-    const [debtor] = await db.select().from(debtors).where(eq(debtors.fileNumber, fileNumber));
+  async getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined> {
+    const [debtor] = await db.select().from(debtors).where(and(
+      eq(debtors.fileNumber, fileNumber),
+      eq(debtors.organizationId, organizationId),
+    ));
     return debtor;
   }
 
