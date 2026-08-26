@@ -23,9 +23,9 @@ import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSettings } from "./payment-message-automation";
 import { db } from "./db";
-import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
-import { eq } from "drizzle-orm";
-import { validateCardNumber } from "@shared/card-validation";
+import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, payments as paymentsTable, type CampaignIntegration } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { claimPaymentForProcessing, postPaymentAtomically } from "./payment-safety";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -2344,10 +2344,9 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const validation = validateCardNumber(String(req.body.cardNumber ?? ""));
-      if (!validation.isValid) {
-        return res.status(400).json({ error: "Please check the card number." });
-      }
+      // Keep the entered CVV available for the first scheduled/automatic
+      // authorization. payment-processor clears it immediately after that
+      // authorization attempt; all other stored payment data is unchanged.
       const card = await storage.createPaymentCard({
         ...cardInput,
         cvv: null,

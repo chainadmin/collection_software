@@ -564,9 +564,10 @@ export async function processPayment(
           cardData = {
             cardNumber: normalizedCardNumber,
             expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-            // CVV is never read back from storage. Gateways must accept the
-            // stored credential/PAN without retaining verification data.
-            cardCode: "",
+            // The auto runner needs the entered CVV for the initial
+            // authorization. It is cleared from storage as soon as this
+            // authorization attempt completes.
+            cardCode: card.cvv || "",
           };
         } else {
           // Legacy Chain integrations saved their gateway token in the card

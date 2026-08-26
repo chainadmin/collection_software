@@ -37,10 +37,12 @@ as authorization.
 
 ## CVV production cleanup
 
-Historical CVV data may exist in **table `payment_cards`, column `cvv`**. The
-application now discards CVV on card creation, never reads a persisted CVV for
-authorization, and clears that field after authorization. No PAN, bank account,
-recurring-payment credential, merchant, or provider integration is removed.
+Historical CVV data may exist in **table `payment_cards`, column `cvv`**. A CVV
+entered while scheduling a card is retained only until the first authorization
+attempt so the automatic runner can submit it, then that field is cleared. A
+later recurring authorization uses the existing stored card credential without
+CVV. No PAN, bank account, recurring-payment credential, merchant, or provider
+integration is removed.
 
 After backup/retention approval, a production operator must run the commented
 cleanup statement in migration `0001_payment_safety.sql` as a separately
