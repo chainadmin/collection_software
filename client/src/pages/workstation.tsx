@@ -1670,7 +1670,7 @@ export default function Workstation() {
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium capitalize">{card.cardType}</p>
                                   <Badge variant="secondary" className="text-xs font-mono">
-                                    {card.cardNumber || `**** ${card.cardNumberLast4}`}
+                                    **** {card.cardNumberLast4}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground">

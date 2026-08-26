@@ -49,7 +49,9 @@ export function RecordPaymentDialog({
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
-  const [selectedCardId, setSelectedCardId] = useState("");
+  const NEW_CARD_VALUE = "__new_card__";
+
+  const [selectedCardId, setSelectedCardId] = useState(NEW_CARD_VALUE);
   const [cardType, setCardType] = useState("visa");
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
@@ -69,7 +71,7 @@ export function RecordPaymentDialog({
     setPaymentFrequency("one_time");
     setPaymentDate(new Date());
     setSelectedDates([]);
-    setSelectedCardId("");
+    setSelectedCardId(NEW_CARD_VALUE);
     setCardType("visa");
     setCardNumber("");
     setCardExpiry("");
@@ -98,10 +100,10 @@ export function RecordPaymentDialog({
     }
 
     setIsSubmitting(true);
-    let cardIdToUse = selectedCardId;
+    let cardIdToUse = selectedCardId === NEW_CARD_VALUE ? "" : selectedCardId;
 
     try {
-      if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
+      if (paymentMethod === "card" && selectedCardId === NEW_CARD_VALUE && cardNumber) {
         if (cardNumber.length < 13) {
           toast({ title: "Error", description: "Please enter a valid card number.", variant: "destructive" });
           setIsSubmitting(false);
@@ -115,7 +117,7 @@ export function RecordPaymentDialog({
           return;
         }
 
-        const newCard = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
+        const cardResponse = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
           debtorId,
           cardType,
           cardNumber,
@@ -125,7 +127,8 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-        }) as unknown as { id: string };
+        });
+        const newCard = await cardResponse.json() as { id: string };
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
       }
@@ -210,17 +213,17 @@ export function RecordPaymentDialog({
                       <SelectValue placeholder="Enter new card below or select saved" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Enter New Card</SelectItem>
+                      <SelectItem value={NEW_CARD_VALUE}>Enter New Card</SelectItem>
                       {paymentCards.map((card) => (
                         <SelectItem key={card.id} value={card.id}>
-                          {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
+                          {card.cardType.toUpperCase()} **** {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
-              {(!selectedCardId || selectedCardId === "") && (
+              {selectedCardId === NEW_CARD_VALUE && (
                 <>
                   <div>
                     <Label>Card Type</Label>
