@@ -456,7 +456,7 @@ export default function Signup() {
               </li>
               <li className="flex gap-2">
                 <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                Works offline for viewing data
+                Safe offline notice; live account data requires a connection
               </li>
               <li className="flex gap-2">
                 <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />

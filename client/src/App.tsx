@@ -4,6 +4,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { UpdatePrompt } from "@/components/update-prompt";
+import { OfflineNotice } from "@/components/offline-notice";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/admin-sidebar";
@@ -324,6 +325,7 @@ function App() {
             <TooltipProvider>
               <AppContent />
               <UpdatePrompt />
+              <OfflineNotice />
               <Toaster />
             </TooltipProvider>
           </OrganizationProvider>

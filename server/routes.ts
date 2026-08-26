@@ -2387,18 +2387,22 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      const amount = Number(req.body.amount);
+      if (!Number.isSafeInteger(amount) || amount <= 0) {
+        return res.status(400).json({ error: "Payment amount must be a positive whole number of cents" });
+      }
+      if (amount > debtor.currentBalance) {
+        return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
+      }
       const payment = await storage.createPayment({
         ...req.body,
+        amount,
         debtorId: req.params.id,
         organizationId: orgId,
       });
-      
-      if (req.body.amount) {
-        await storage.updateDebtor(req.params.id, {
-          currentBalance: debtor.currentBalance - req.body.amount,
-        });
-      }
-      
+
+      // Scheduling a pending payment must not change the account balance.
+      // The balance is applied exactly once when the processed payment posts.
       res.status(201).json(payment);
     } catch (error) {
       res.status(500).json({ error: "Failed to create payment" });
