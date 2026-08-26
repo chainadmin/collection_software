@@ -27,14 +27,14 @@ import {
   Calculator,
   Plus,
   Filter,
-  ShieldCheck,
-  ShieldAlert,
   LayoutDashboard,
   Trash2,
   Check,
   X,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
+import { formatCardNumber } from "@/lib/bin-lookup";
+import { CardValidationFeedback } from "@/components/card-validation-feedback";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -662,13 +662,13 @@ export default function Workstation() {
   }, [selectedDebtorId]);
 
   const handleCardNumberChange = (value: string) => {
-    const cleaned = value.replace(/\D/g, '');
-    setCardNumber(cleaned);
+    const cleaned = value.replace(/[\s-]/g, '');
+    setCardNumber(formatCardNumber(value));
     
     if (cleaned.length >= 6) {
       const result = lookupBin(cleaned);
       setBinLookupResult(result);
-      if (result.cardBrand) {
+      if (result.network !== "Unknown") {
         const detectedType = getCardTypeFromNumber(cleaned);
         setCardType(detectedType);
       }
@@ -687,13 +687,13 @@ export default function Workstation() {
     if (!binResult.isValid) {
       toast({ 
         title: "Card Validation Failed", 
-        description: binResult.error || "Invalid card number", 
+        description: "Please check the card number.",
         variant: "destructive" 
       });
       return;
     }
     
-    const cardNumberLast4 = cardNumber.slice(-4);
+    const cardNumberLast4 = cardNumber.replace(/\D/g, "").slice(-4);
     const expiryParts = cardExpiry.split("/");
     if (expiryParts.length !== 2) {
       toast({ title: "Error", description: "Please enter expiry as MM/YY.", variant: "destructive" });
@@ -701,7 +701,7 @@ export default function Workstation() {
     }
     addCardMutation.mutate({
       debtorId: selectedDebtorId,
-      cardType: binResult.cardBrand?.toLowerCase() || cardType,
+      cardType: getCardTypeFromNumber(cardNumber) || cardType,
       cardNumber,
       cardNumberLast4,
       expiryMonth: expiryParts[0],
@@ -971,8 +971,8 @@ export default function Workstation() {
     
     // If card payment with new card info, save the card first
     if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
-      if (cardNumber.length < 13) {
-        toast({ title: "Error", description: "Please enter a valid card number.", variant: "destructive" });
+      if (!lookupBin(cardNumber).isValid) {
+        toast({ title: "Error", description: "Please check the card number.", variant: "destructive" });
         return;
       }
       
@@ -987,7 +987,7 @@ export default function Workstation() {
           debtorId: selectedDebtorId,
           cardType,
           cardNumber,
-          cardNumberLast4: cardNumber.slice(-4),
+          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
           expiryMonth,
           expiryYear: `20${expiryYear}`,
           cardholderName: cardHolderName,
@@ -2025,23 +2025,12 @@ export default function Workstation() {
                 placeholder="1234 5678 9012 3456"
                 value={cardNumber}
                 onChange={(e) => handleCardNumberChange(e.target.value)}
-                maxLength={19}
+                inputMode="numeric"
+                autoComplete="cc-number"
+                maxLength={23}
                 data-testid="input-card-number"
               />
-              {binLookupResult && (
-                <div className={`mt-2 flex items-center gap-2 text-sm ${binLookupResult.isValid ? 'text-green-600' : 'text-red-600'}`}>
-                  {binLookupResult.isValid ? (
-                    <ShieldCheck className="h-4 w-4" />
-                  ) : (
-                    <ShieldAlert className="h-4 w-4" />
-                  )}
-                  <span>
-                    {binLookupResult.isValid 
-                      ? `${binLookupResult.cardBrand} - ${binLookupResult.issuer}`
-                      : binLookupResult.error}
-                  </span>
-                </div>
-              )}
+              {binLookupResult && <CardValidationFeedback result={binLookupResult} />}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
