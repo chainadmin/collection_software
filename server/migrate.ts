@@ -78,7 +78,10 @@ export async function runMigrations() {
         "hourly_wage" integer DEFAULT 0,
         "can_view_dashboard" boolean DEFAULT false,
         "can_view_email" boolean DEFAULT false,
-        "can_view_payment_runner" boolean DEFAULT false
+        "can_view_payment_runner" boolean DEFAULT false,
+        "split_payments_enabled" boolean DEFAULT false,
+        "split_payments_default" boolean DEFAULT false,
+        "split_payments_config" text
       )
     `);
 
@@ -237,7 +240,8 @@ export async function runMigrations() {
         "frequency" text,
         "next_payment_date" text,
         "specific_dates" text,
-        "is_recurring" boolean DEFAULT false
+        "is_recurring" boolean DEFAULT false,
+        "split_allocations" text
       )
     `);
 
@@ -592,6 +596,13 @@ export async function runMigrations() {
     // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
     console.log("Running safe schema updates...");
     
+    await db.execute(sql`ALTER TABLE collectors ADD COLUMN IF NOT EXISTS split_payments_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE collectors ADD COLUMN IF NOT EXISTS split_payments_default boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE collectors ADD COLUMN IF NOT EXISTS split_payments_config text`);
+    await db.execute(sql`ALTER TABLE debtors ADD COLUMN IF NOT EXISTS split_payments_enabled boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE debtors ADD COLUMN IF NOT EXISTS split_payments_config text`);
+    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS split_allocations text`);
+
     // Add username column to global_admins if it doesn't exist
     await db.execute(sql`
       DO $$ 

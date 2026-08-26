@@ -89,6 +89,9 @@ const addCollectorSchema = z.object({
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
+  splitPaymentsEnabled: z.boolean().default(false),
+  splitPaymentsDefault: z.boolean().default(false),
+  splitPaymentsConfig: z.string().optional().or(z.literal("")),
 });
 
 const editCollectorSchema = z.object({
@@ -103,6 +106,9 @@ const editCollectorSchema = z.object({
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
+  splitPaymentsEnabled: z.boolean().default(false),
+  splitPaymentsDefault: z.boolean().default(false),
+  splitPaymentsConfig: z.string().optional().or(z.literal("")),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -215,6 +221,8 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
                 </FormControl>
                 <SelectContent>
                   <SelectItem value="collector">Collector</SelectItem>
+                  <SelectItem value="supervisor">Supervisor</SelectItem>
+                  <SelectItem value="point_caller">Point Caller</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="auditor">Auditor</SelectItem>
@@ -317,6 +325,51 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
             )}
           />
         </div>
+
+          <FormField
+            control={control}
+            name="splitPaymentsEnabled"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-split-payments-enabled" />
+                </FormControl>
+                <div className="pb-0">
+                  <FormLabel className="font-normal">Allow Payment Splits</FormLabel>
+                  <FormDescription>Admin-only configuration for sharing collector payment credit.</FormDescription>
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="splitPaymentsDefault"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-split-payments-default" />
+                </FormControl>
+                <div className="pb-0">
+                  <FormLabel className="font-normal">Use Split By Default</FormLabel>
+                  <FormDescription>Automatically applies this collector's split configuration when their accounts receive payments.</FormDescription>
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="splitPaymentsConfig"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Default Split JSON</FormLabel>
+                <FormControl>
+                  <Input placeholder='[{"collectorId":"owner","percentage":50},{"collectorId":"closer","percentage":50}]' {...field} data-testid="input-split-payments-config" />
+                </FormControl>
+                <FormDescription>Up to 3 collectors; percentages must total 100. Point callers default to 50/50 if left blank.</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
       </div>
     </>
   );
@@ -344,6 +397,9 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
       canViewDashboard: false,
       canViewEmail: false,
       canViewPaymentRunner: false,
+      splitPaymentsEnabled: false,
+      splitPaymentsDefault: false,
+      splitPaymentsConfig: "",
     },
   });
 
@@ -352,6 +408,9 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
       return apiRequest("POST", "/api/collectors", {
         ...data,
         avatarInitials: getInitials(data.name),
+        canViewEmail: data.role === "supervisor" ? true : data.canViewEmail,
+        canViewPaymentRunner: data.role === "supervisor" ? true : data.canViewPaymentRunner,
+        splitPaymentsEnabled: data.role === "point_caller" ? true : data.splitPaymentsEnabled,
       });
     },
     onSuccess: () => {
@@ -424,6 +483,9 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
       canViewDashboard: false,
       canViewEmail: false,
       canViewPaymentRunner: false,
+      splitPaymentsEnabled: false,
+      splitPaymentsDefault: false,
+      splitPaymentsConfig: "",
     },
   });
 
@@ -441,6 +503,9 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         canViewDashboard: collector.canViewDashboard ?? false,
         canViewEmail: collector.canViewEmail ?? false,
         canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
+        splitPaymentsEnabled: collector.splitPaymentsEnabled ?? collector.role === "point_caller",
+        splitPaymentsDefault: collector.splitPaymentsDefault ?? false,
+        splitPaymentsConfig: collector.splitPaymentsConfig || "",
       });
     }
   }, [collector?.id]);
@@ -458,7 +523,10 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         hourlyWage: data.hourlyWage,
         canViewDashboard: data.canViewDashboard,
         canViewEmail: data.canViewEmail,
-        canViewPaymentRunner: data.canViewPaymentRunner,
+        canViewPaymentRunner: data.role === "supervisor" ? true : data.canViewPaymentRunner,
+        splitPaymentsEnabled: data.role === "point_caller" ? true : data.splitPaymentsEnabled,
+        splitPaymentsDefault: data.splitPaymentsDefault,
+        splitPaymentsConfig: data.splitPaymentsConfig || "",
         avatarInitials: getInitials(data.name),
       };
       if (data.password && data.password.length >= 6) {
