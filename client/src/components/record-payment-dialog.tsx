@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { PaymentCard } from "@shared/schema";
+import { formatCardNumber, getCardTypeFromNumber, lookupBin } from "@/lib/bin-lookup";
+import { CardValidationFeedback } from "@/components/card-validation-feedback";
 
 interface RecordPaymentDialogProps {
   open: boolean;
@@ -57,6 +59,7 @@ export function RecordPaymentDialog({
   const [cardHolderName, setCardHolderName] = useState("");
   const [cardBillingZip, setCardBillingZip] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const cardValidation = cardNumber ? lookupBin(cardNumber) : null;
 
   const { data: paymentCards } = useQuery<PaymentCard[]>({
     queryKey: ["/api/debtors", debtorId, "cards"],
@@ -102,8 +105,8 @@ export function RecordPaymentDialog({
 
     try {
       if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
-        if (cardNumber.length < 13) {
-          toast({ title: "Error", description: "Please enter a valid card number.", variant: "destructive" });
+        if (!cardValidation?.isValid) {
+          toast({ title: "Error", description: "Please check the card number.", variant: "destructive" });
           setIsSubmitting(false);
           return;
         }
@@ -119,7 +122,7 @@ export function RecordPaymentDialog({
           debtorId,
           cardType,
           cardNumber,
-          cardNumberLast4: cardNumber.slice(-4),
+          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
           expiryMonth,
           expiryYear: `20${expiryYear}`,
           cardholderName: cardHolderName,
@@ -242,10 +245,18 @@ export function RecordPaymentDialog({
                       type="text"
                       placeholder="1234 5678 9012 3456"
                       value={cardNumber}
-                      onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ""))}
-                      maxLength={16}
+                      onChange={(e) => {
+                        const formatted = formatCardNumber(e.target.value);
+                        setCardNumber(formatted);
+                        const detected = getCardTypeFromNumber(formatted);
+                        if (detected !== "unknown") setCardType(detected);
+                      }}
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                      maxLength={23}
                       data-testid="input-card-number"
                     />
+                    {cardValidation && <CardValidationFeedback result={cardValidation} />}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
