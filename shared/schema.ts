@@ -309,7 +309,18 @@ export const payments = pgTable("payments", {
   nextPaymentDate: text("next_payment_date"),
   specificDates: text("specific_dates"), // JSON array of dates for specific_dates frequency
   isRecurring: boolean("is_recurring").default(false),
-});
+  // Stable application identity used for retries.  Provider transaction IDs
+  // are also unique so a replayed callback cannot create a second posting.
+  idempotencyKey: text("idempotency_key"),
+  providerTransactionId: text("provider_transaction_id"),
+  processingStartedAt: timestamp("processing_started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  organizationIdempotencyUnique: uniqueIndex("payments_org_idempotency_unique")
+    .on(table.organizationId, table.idempotencyKey),
+  providerTransactionUnique: uniqueIndex("payments_provider_transaction_unique")
+    .on(table.providerTransactionId),
+}));
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
