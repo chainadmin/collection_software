@@ -107,6 +107,21 @@ No schema migration was added. The build-time forced schema push was removed. Ap
 
 ## Launch verdict
 
+## Card validation and BIN/IIN report
+
+| Check | Status | Notes |
+|---|---|---|
+| CARD STRUCTURAL VALIDATION | READY | Shared formatting, plausible-length, network and checksum validation is enforced in both payment UI and card-creation API. |
+| LUHN VALIDATION | READY | Applied once enough digits exist. |
+| CARD NETWORK DETECTION | READY | Visa, Mastercard (including 2-series), American Express and Discover are detected locally. |
+| BIN/IIN LOOKUP | READY | Local, offline longest-prefix lookup; an outage cannot interrupt payment entry. |
+| CARD TYPE DETECTION | READY | Published test IIN metadata reports credit/debit; unavailable values display `Unknown`. |
+| ISSUER DETECTION | READY | Published test metadata is identified; unavailable values display `Unknown`. |
+| BIN LOOKUP SECURITY | READY | No request is made and no PAN/CVV is logged or placed in a lookup/cache key. |
+| PAYMENT PROCESSOR FINAL AUTHORIZATION | UNCHANGED | Validation only gates malformed input; existing gateways still make authorization decisions. |
+
+The BIN/IIN source is a no-cost, in-repository directory limited to payment-provider-published test IINs, with no usage limits. It sends no data to any external service. Existing gateway integrations supply final transaction responses, but do not provide the required safe metadata before submission. The local lookup examines at most the first eight digits and caches only that prefix; it never receives CVV, expiry, authentication details, credentials, or analytics data. Production issuer/type coverage beyond the test directory is **not available** unless a reviewed provider is added later.
+
 **NOT READY**
 
 The collection software **IS NOT ready for production use**. Exact blockers are: raw sensitive payment credentials in application storage/processing, non-transactional and non-idempotent payment posting, incomplete server-side role assurance, no automated tenant-isolation/security regression tests, and absent complete consumer portal/settlement/document/SMS workflows requested for launch. A controlled internal pilot using synthetic data may proceed only with payments disabled and strict network/access controls.

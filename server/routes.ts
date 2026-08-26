@@ -25,6 +25,7 @@ import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSetti
 import { db } from "./db";
 import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { validateCardNumber } from "@shared/card-validation";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -2332,6 +2333,10 @@ export async function registerRoutes(
       if (!debtor) return res.status(404).json({ error: "Debtor not found" });
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
+      }
+      const validation = validateCardNumber(String(req.body.cardNumber ?? ""));
+      if (!validation.isValid) {
+        return res.status(400).json({ error: "Please check the card number." });
       }
       const card = await storage.createPaymentCard({
         ...req.body,
