@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -309,7 +309,18 @@ export const payments = pgTable("payments", {
   nextPaymentDate: text("next_payment_date"),
   specificDates: text("specific_dates"), // JSON array of dates for specific_dates frequency
   isRecurring: boolean("is_recurring").default(false),
-});
+  // Stable application identity used for retries.  Provider transaction IDs
+  // are also unique so a replayed callback cannot create a second posting.
+  idempotencyKey: text("idempotency_key"),
+  providerTransactionId: text("provider_transaction_id"),
+  processingStartedAt: timestamp("processing_started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  organizationIdempotencyUnique: uniqueIndex("payments_org_idempotency_unique")
+    .on(table.organizationId, table.idempotencyKey),
+  providerTransactionUnique: uniqueIndex("payments_provider_transaction_unique")
+    .on(table.providerTransactionId),
+}));
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
@@ -806,3 +817,70 @@ export const accountStatuses = pgTable("account_statuses", {
 export const insertAccountStatusSchema = createInsertSchema(accountStatuses).omit({ id: true });
 export type InsertAccountStatus = z.infer<typeof insertAccountStatusSchema>;
 export type AccountStatus = typeof accountStatuses.$inferSelect;
+
+// Enrichment batches reference existing debtor IDs; they never represent accounts.
+export const enrichmentBatches = pgTable("enrichment_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  name: text("name").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceReference: varchar("source_reference"),
+  accountCount: integer("account_count").notNull().default(0),
+  status: text("status").notNull().default("CREATED"),
+  exportedAt: timestamp("exported_at", { withTimezone: true }),
+  returnedAt: timestamp("returned_at", { withTimezone: true }),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  returnFileHash: text("return_file_hash"),
+  notes: text("notes"),
+}, (table) => ({ organizationIdx: index("enrichment_batches_org_idx").on(table.organizationId) }));
+
+export const enrichmentBatchMembers = pgTable("enrichment_batch_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  batchId: varchar("batch_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  existingFileNumber: text("existing_file_number"),
+  existingAccountNumber: text("existing_account_number").notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  batchDebtorUnique: uniqueIndex("enrichment_members_batch_debtor_unique").on(table.batchId, table.debtorId),
+  debtorIdx: index("enrichment_members_debtor_idx").on(table.organizationId, table.debtorId),
+}));
+
+export const enrichmentBatchResults = pgTable("enrichment_batch_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  batchId: varchar("batch_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  rowNumber: integer("row_number").notNull(),
+  rowHash: text("row_hash").notNull(),
+  debtorId: varchar("debtor_id"),
+  matchMethod: text("match_method"),
+  status: text("status").notNull(),
+  inputData: text("input_data").notNull(),
+  previewData: text("preview_data"),
+  error: text("error"),
+  processedBy: varchar("processed_by"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  manualOverride: boolean("manual_override").default(false),
+}, (table) => ({
+  rowUnique: uniqueIndex("enrichment_results_batch_row_hash_unique").on(table.batchId, table.rowHash),
+  reviewIdx: index("enrichment_results_review_idx").on(table.organizationId, table.batchId, table.status),
+}));
+
+export const debtorAddresses = pgTable("debtor_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  address: text("address").notNull(), city: text("city"), state: text("state"), zipCode: text("zip_code"),
+  source: text("source"), sourceBatchId: varchar("source_batch_id"), addedAt: timestamp("added_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({ debtorIdx: index("debtor_addresses_debtor_idx").on(table.organizationId, table.debtorId) }));
+
+export const enrichmentAuditLog = pgTable("enrichment_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(), batchId: varchar("batch_id").notNull(), debtorId: varchar("debtor_id").notNull(),
+  resultId: varchar("result_id"), actorId: varchar("actor_id").notNull(), action: text("action").notNull(),
+  field: text("field"), previousValue: text("previous_value"), newValue: text("new_value"), matchMethod: text("match_method"),
+  manualOverride: boolean("manual_override").default(false), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ debtorIdx: index("enrichment_audit_debtor_idx").on(table.organizationId, table.debtorId) }));
