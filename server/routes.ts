@@ -23,8 +23,9 @@ import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSettings } from "./payment-message-automation";
 import { db } from "./db";
-import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, payments as paymentsTable, type CampaignIntegration } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { claimPaymentForProcessing, postPaymentAtomically } from "./payment-safety";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -335,7 +336,7 @@ export async function registerRoutes(
   ];
 
   // Global authentication middleware for /api routes (except public paths)
-  app.use("/api", (req: any, res: any, next: any) => {
+  app.use("/api", async (req: any, res: any, next: any) => {
     const path = req.path;
     
     // Skip auth for public paths
@@ -357,7 +358,17 @@ export async function registerRoutes(
     }
     
     // For all other /api routes, require collector auth (session-based)
-    if (req.session?.collector) {
+    if (req.session?.collector?.id) {
+      const collector = await storage.getCollector(req.session.collector.id);
+      if (!collector || collector.status !== "active" ||
+          collector.organizationId !== req.session.collector.organizationId) {
+        return res.status(401).json({ error: "Collector session is no longer authorized" });
+      }
+      // Organization selectors in a request never override session tenancy.
+      const requestedOrg = req.body?.organizationId ?? req.body?.tenantId ?? req.body?.companyId;
+      if (requestedOrg && requestedOrg !== collector.organizationId) {
+        return res.status(403).json({ error: "Organization access denied" });
+      }
       return next();
     }
     
@@ -2333,6 +2344,9 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      // Keep the entered CVV available for the first scheduled/automatic
+      // authorization. payment-processor clears it immediately after that
+      // authorization attempt; all other stored payment data is unchanged.
       const card = await storage.createPaymentCard({
         ...req.body,
         debtorId: req.params.id,
@@ -2394,12 +2408,31 @@ export async function registerRoutes(
       if (amount > debtor.currentBalance) {
         return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
       }
-      const payment = await storage.createPayment({
-        ...req.body,
-        amount,
-        debtorId: req.params.id,
-        organizationId: orgId,
-      });
+      const idempotencyKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || crypto.randomUUID());
+      if (idempotencyKey.length > 200) return res.status(400).json({ error: "Invalid idempotency key" });
+      const existing = (await storage.getPaymentsForDebtor(req.params.id)).find(
+        p => p.organizationId === orgId && p.idempotencyKey === idempotencyKey,
+      );
+      if (existing) return res.status(200).json(existing);
+      let payment;
+      try {
+        payment = await storage.createPayment({
+          ...req.body,
+          amount,
+          debtorId: req.params.id,
+          organizationId: orgId,
+          idempotencyKey,
+        });
+      } catch (error: any) {
+        // A concurrent request may win the unique-key race. Return that same
+        // logical payment rather than surfacing an error or creating another.
+        if (error?.code !== "23505") throw error;
+        [payment] = await db.select().from(paymentsTable).where(and(
+          eq(paymentsTable.organizationId, orgId),
+          eq(paymentsTable.idempotencyKey, idempotencyKey),
+        ));
+        if (!payment) throw error;
+      }
 
       // Scheduling a pending payment must not change the account balance.
       // The balance is applied exactly once when the processed payment posts.
@@ -3013,7 +3046,12 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      const result = await processPayment(payment, storage, orgId);
+      if (["processed", "posted"].includes(payment.status)) {
+        return res.json(payment);
+      }
+      const claimed = await claimPaymentForProcessing(payment.id, orgId);
+      if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
+      const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
       res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment processing error:", error);
@@ -3143,34 +3181,12 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      if (payment.status !== "processed") {
-        return res.status(400).json({ error: "Only processed payments can be posted" });
-      }
-
-      const debtor = await storage.getDebtor(payment.debtorId);
-      const updatedPayment = await storage.updatePayment(req.params.id, {
-        status: "posted",
-      });
-      if (debtor) {
-        await storage.updateDebtor(payment.debtorId, {
-          currentBalance: Math.max(0, debtor.currentBalance - payment.amount),
-          status: Math.max(0, debtor.currentBalance - payment.amount) === 0 ? "paid" : "in_payment",
-        });
-      }
-
-      // Add note to debtor account
-      await storage.createNote({
-        debtorId: payment.debtorId,
-        collectorId: payment.processedBy || "system",
-        content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully.`,
-        noteType: "payment",
-        createdDate: new Date().toISOString().split("T")[0],
-        organizationId: orgId,
-      });
-
-      res.json(updatedPayment);
+      const result = await postPaymentAtomically(payment.id, orgId);
+      const postedPayment = await storage.getPayment(payment.id);
+      res.json({ ...postedPayment, alreadyPosted: result.alreadyPosted });
     } catch (error) {
-      res.status(500).json({ error: "Failed to post payment" });
+      const status = (error as any)?.statusCode || 500;
+      res.status(status).json({ error: status === 500 ? "Failed to post payment" : (error as Error).message });
     }
   });
 
@@ -3190,28 +3206,8 @@ export async function registerRoutes(
       
       let count = 0;
       for (const payment of processedPayments) {
-        const debtor = await storage.getDebtor(payment.debtorId);
-        await storage.updatePayment(payment.id, {
-          status: "posted",
-        });
-        if (debtor) {
-          const newBalance = Math.max(0, debtor.currentBalance - payment.amount);
-          await storage.updateDebtor(payment.debtorId, {
-            currentBalance: newBalance,
-            status: newBalance === 0 ? "paid" : "in_payment",
-          });
-        }
-        
-        // Add note to each debtor account
-        await storage.createNote({
-          debtorId: payment.debtorId,
-          collectorId: payment.processedBy || "system",
-          content: `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully (bulk post).`,
-          noteType: "payment",
-          createdDate: new Date().toISOString().split("T")[0],
-          organizationId: orgId,
-        });
-        count++;
+        const result = await postPaymentAtomically(payment.id, orgId);
+        if (!result.alreadyPosted) count++;
       }
 
       res.json({ count, message: `${count} payments posted successfully` });

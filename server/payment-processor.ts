@@ -564,7 +564,10 @@ export async function processPayment(
           cardData = {
             cardNumber: normalizedCardNumber,
             expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-            cardCode: card.cvv || "999",
+            // The auto runner needs the entered CVV for the initial
+            // authorization. It is cleared from storage as soon as this
+            // authorization attempt completes.
+            cardCode: card.cvv || "",
           };
         } else {
           // Legacy Chain integrations saved their gateway token in the card
@@ -658,12 +661,20 @@ export async function processPayment(
 
   const updatedPayment = await storage.updatePayment(payment.id, {
     status: result.success ? "processed" : "declined",
+    providerTransactionId: result.transactionId,
+    completedAt: new Date(),
     notes: result.success
       ? result.transactionId
         ? `${payment.notes || ""} [TXN: ${result.transactionId}]`.trim()
         : payment.notes
       : `DECLINED: ${result.declineReason}`,
   });
+
+  // Defense in depth for historical rows: once authorization has completed,
+  // erase only CVV. Full PAN and all other recurring-payment data are kept.
+  if (payment.cardId) {
+    await storage.updatePaymentCard(payment.cardId, { cvv: null });
+  }
 
   if (debtor) {
     await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });
