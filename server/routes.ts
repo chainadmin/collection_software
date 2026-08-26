@@ -25,6 +25,9 @@ import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSetti
 import { db } from "./db";
 import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, type CampaignIntegration } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { applyReturn, createEnrichmentBatch, exportBatch, previewReturn } from "./enrichment-batches";
+import { enrichmentBatchMembers, enrichmentBatchResults, enrichmentBatches, enrichmentAuditLog } from "@shared/schema";
+import { and, desc } from "drizzle-orm";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -3288,6 +3291,43 @@ export async function registerRoutes(
     } catch (error) {
       res.status(500).json({ error: "Failed to bulk reverse declined payments" });
     }
+  });
+
+  // Existing-account enrichment batches. Kept separate from normal account imports.
+  app.post("/api/enrichment-batches", requireCollectorAuth, async (req: any, res) => {
+    try { const org = getOrgId(req); if (!await isActiveAdminOrManager(req, org)) return res.status(403).json({ error: "Admin or manager permission required" }); res.status(201).json(await createEnrichmentBatch(org, req.session.collector.id, req.body)); }
+    catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+  app.get("/api/enrichment-batches", requireCollectorAuth, async (req: any, res) => {
+    const org = getOrgId(req); res.json(await db.select().from(enrichmentBatches).where(eq(enrichmentBatches.organizationId, org)).orderBy(desc(enrichmentBatches.createdAt)));
+  });
+  app.get("/api/enrichment-batches/:id/export", requireCollectorAuth, async (req: any, res) => {
+    try { const org = getOrgId(req); if (!await isActiveAdminOrManager(req, org)) return res.status(403).json({ error: "Admin or manager permission required" }); res.json({ batchId: req.params.id, accounts: await exportBatch(org, req.params.id) }); }
+    catch (e: any) { res.status(404).json({ error: e.message }); }
+  });
+  app.post("/api/enrichment-batches/:id/returns/preview", requireCollectorAuth, async (req: any, res) => {
+    try { const org = getOrgId(req); if (!await isActiveAdminOrManager(req, org)) return res.status(403).json({ error: "Admin or manager permission required" }); if (!Array.isArray(req.body.rows)) return res.status(400).json({ error: "rows must be an array" }); res.json(await previewReturn(org, req.session.collector.id, req.params.id, req.body.rows, req.body.fileHash)); }
+    catch (e: any) { res.status(409).json({ error: e.message }); }
+  });
+  app.post("/api/enrichment-batches/:id/returns/apply", requireCollectorAuth, async (req: any, res) => {
+    try { const org = getOrgId(req); if (!await isActiveAdminOrManager(req, org)) return res.status(403).json({ error: "Admin or manager permission required" }); res.json(await applyReturn(org, req.session.collector.id, req.params.id)); }
+    catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+  app.get("/api/enrichment-batches/:id/review", requireCollectorAuth, async (req: any, res) => {
+    const org = getOrgId(req); res.json(await db.select().from(enrichmentBatchResults).where(and(eq(enrichmentBatchResults.organizationId, org), eq(enrichmentBatchResults.batchId, req.params.id))));
+  });
+  app.post("/api/enrichment-batches/:id/review/:resultId/link", requireCollectorAuth, async (req: any, res) => {
+    const org = getOrgId(req); if (!await isActiveAdminOrManager(req, org)) return res.status(403).json({ error: "Admin or manager permission required" });
+    const [member] = await db.select().from(enrichmentBatchMembers).where(and(eq(enrichmentBatchMembers.organizationId, org), eq(enrichmentBatchMembers.batchId, req.params.id), eq(enrichmentBatchMembers.debtorId, req.body.debtorId)));
+    if (!member) return res.status(400).json({ error: "Account must be an existing member of this tenant's batch" });
+    const [updated] = await db.update(enrichmentBatchResults).set({ debtorId: member.debtorId, status: "MATCHED", matchMethod: "MANUAL", manualOverride: true, processedBy: req.session.collector.id }).where(and(eq(enrichmentBatchResults.id, req.params.resultId), eq(enrichmentBatchResults.batchId, req.params.id), eq(enrichmentBatchResults.organizationId, org))).returning(); res.json(updated);
+  });
+  app.get("/api/debtors/:id/enrichment-history", requireCollectorAuth, async (req: any, res) => {
+    const org = getOrgId(req); const debtor = await storage.getDebtor(req.params.id); if (!debtor || debtor.organizationId !== org) return res.status(404).json({ error: "Account not found" });
+    res.json(await db.select({ batch: enrichmentBatches, member: enrichmentBatchMembers }).from(enrichmentBatchMembers).innerJoin(enrichmentBatches, eq(enrichmentBatches.id, enrichmentBatchMembers.batchId)).where(and(eq(enrichmentBatchMembers.organizationId, org), eq(enrichmentBatchMembers.debtorId, req.params.id))).orderBy(desc(enrichmentBatches.createdAt)));
+  });
+  app.get("/api/debtors/:id/enrichment-audit", requireCollectorAuth, async (req: any, res) => {
+    const org = getOrgId(req); res.json(await db.select().from(enrichmentAuditLog).where(and(eq(enrichmentAuditLog.organizationId, org), eq(enrichmentAuditLog.debtorId, req.params.id))).orderBy(desc(enrichmentAuditLog.createdAt)));
   });
 
   // Import Batches API
