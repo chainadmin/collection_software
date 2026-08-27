@@ -118,7 +118,7 @@ export function RecordPaymentDialog({
           return;
         }
 
-        const newCard = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
+        const newCardResponse = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
           debtorId,
           cardType,
           cardNumber,
@@ -128,7 +128,8 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-        }) as unknown as { id: string };
+        });
+        const newCard = await newCardResponse.json() as { id: string };
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
       }
@@ -165,7 +166,11 @@ export function RecordPaymentDialog({
       resetForm();
       onOpenChange(false);
     } catch (error) {
-      toast({ title: "Error", description: "Failed to record payment.", variant: "destructive" });
+      toast({
+        title: "Payment could not be recorded",
+        description: error instanceof Error ? error.message : "Failed to record payment.",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +221,7 @@ export function RecordPaymentDialog({
                       <SelectItem value="">Enter New Card</SelectItem>
                       {paymentCards.map((card) => (
                         <SelectItem key={card.id} value={card.id}>
-                          {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
+                          {card.cardType.toUpperCase()} •••• {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -293,7 +298,7 @@ export function RecordPaymentDialog({
                     />
                   </div>
                   <div>
-                    <Label>Billing ZIP (optional)</Label>
+                    <Label>Billing ZIP</Label>
                     <Input
                       type="text"
                       placeholder="12345"

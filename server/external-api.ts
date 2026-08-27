@@ -1,7 +1,46 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
+const RAW_CARD_FIELD = /(?:pan|cvv|cvc|security.?code|verification.?(?:code|value)|(?:card|cc).{0,20}(?:number|num))/i;
+
+/** Returns an opaque external credential or throws before any payment is stored. */
+export function externalOpaquePaymentToken(body: Record<string, unknown>): string | null {
+  for (const [key, value] of Object.entries(body)) {
+    const compactKey = key.replace(/[-\s]/g, "_");
+    if (RAW_CARD_FIELD.test(compactKey) && value !== undefined && value !== null && value !== "") {
+      throw new Error("Raw card data is not accepted by this endpoint");
+    }
+    // Do not rely on a partner's field name: a PAN under an unknown alias
+    // must not survive in reference/notes/token fallback fields either.
+    if (typeof value === "string" && /^\d{13,19}$/.test(value.replace(/[\s-]/g, ""))) {
+      throw new Error("Raw card data is not accepted by this endpoint");
+    }
+  }
+  const candidate = body.paymentToken ?? body.paymenttoken ?? body.cardToken ?? body.cardtoken;
+  if (candidate === undefined || candidate === null || candidate === "") return null;
+  if (typeof candidate !== "string") throw new Error("Invalid payment token");
+  const token = candidate.trim();
+  const digits = token.replace(/[\s-]/g, "");
+  if (/^\d{13,19}$/.test(digits)) throw new Error("Raw card data is not accepted by this endpoint");
+  // Known processor credentials include Stripe pm_/tok_, Authorize.Net opaque
+  // values, and gateway vault references. Require a bounded, non-whitespace
+  // opaque string without constraining provider-specific formats.
+  if (token.length < 3 || token.length > 500 || /\s/.test(token) || !/^[A-Za-z0-9_:/=.+-]+$/.test(token)) {
+    throw new Error("Invalid payment token");
+  }
+  return token;
+}
+
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import { canonicalizeIp } from "./ip-address";
+
+async function organizationAllowsIp(organizationId: string, requestIp: string | undefined): Promise<boolean> {
+  const organization = await storage.getOrganization(organizationId);
+  if (!organization?.isActive) return false;
+  if (!organization.ipRestrictionEnabled) return true;
+  const ip = canonicalizeIp(requestIp);
+  return !!ip && await storage.isIpWhitelisted(organizationId, ip);
+}
 
 // Verify a password against a stored hash. Supports bcrypt hashes (start
 // with "$2") and legacy SHA-256 hashes (64 hex chars), matching the
@@ -65,6 +104,13 @@ async function authenticateToken(req: AuthenticatedRequest, res: Response, next:
         message: "Please re-authenticate to obtain a token with organization access" 
       });
     }
+
+    if (!await organizationAllowsIp(apiToken.organizationId, req.ip)) {
+      return res.status(403).json({
+        error: "IP access denied",
+        message: "This IP address is not authorized for the token's organization",
+      });
+    }
     
     next();
   } catch (error) {
@@ -114,6 +160,9 @@ export function registerExternalApiRoutes(app: Express) {
         ) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
+        if (!await organizationAllowsIp(org.id, req.ip)) {
+          return res.status(403).json({ error: "This IP address is not authorized for your organization" });
+        }
 
         await storage.updateApiTokenLastUsed(apiKey.id);
 
@@ -151,6 +200,9 @@ export function registerExternalApiRoutes(app: Express) {
       
       if (!organization.isActive) {
         return res.status(403).json({ error: "Your organization is not active" });
+      }
+      if (!await organizationAllowsIp(organization.id, req.ip)) {
+        return res.status(403).json({ error: "This IP address is not authorized for your organization" });
       }
       
       const token = crypto.randomBytes(32).toString("hex");
@@ -880,15 +932,6 @@ export function registerExternalApiRoutes(app: Express) {
         referenceNumber,
         transactionid,
         transactionId,
-        paymentToken,
-        paymenttoken,
-        cardToken,
-        cardtoken,
-        cardNumber,
-        cardnumber,
-        card_number,
-        ccNumber,
-        ccnumber,
         status,
         notes,
       } = req.body;
@@ -909,19 +952,12 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(404).json({ error: "Account not found" });
       }
 
-      // Chain places the gateway token in its legacy "card number" slot. For
-      // this authenticated integration those fields are opaque credentials,
-      // not PANs, and must never be saved or submitted as raw card numbers.
-      const chainPaymentToken = paymentToken
-        || paymenttoken
-        || cardToken
-        || cardtoken
-        || cardNumber
-        || cardnumber
-        || card_number
-        || ccNumber
-        || ccnumber
-        || null;
+      let chainPaymentToken: string | null;
+      try {
+        chainPaymentToken = externalOpaquePaymentToken(req.body || {});
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message });
+      }
       const normalizedPaymentMethod = chainPaymentToken
         ? "card"
         : (paymentMethod || "external");

@@ -9,7 +9,11 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
-if (process.env.NODE_ENV === "production") {
+// Railway terminates public requests at one edge proxy. Do not enable proxy
+// trust merely because an arbitrary deployment is production: otherwise a
+// directly reachable server could accept spoofed forwarding headers.
+// Non-Railway deployments must opt in explicitly to this same one-hop topology.
+if (process.env.RAILWAY_ENVIRONMENT || process.env.TRUST_PROXY_HOPS === "1") {
   app.set("trust proxy", 1);
 }
 

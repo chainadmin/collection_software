@@ -25,6 +25,20 @@ import { formatDate } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { IpWhitelist } from "@shared/schema";
 
+function apiErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const jsonStart = error.message.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(error.message.slice(jsonStart));
+      if (typeof parsed.error === "string") return parsed.error;
+    } catch {
+      // Use the fallback for non-JSON server errors.
+    }
+  }
+  return fallback;
+}
+
 export default function ServerAccess() {
   const { toast } = useToast();
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -60,8 +74,8 @@ export default function ServerAccess() {
       setIpAddress("");
       setIpDescription("");
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add IP address.", variant: "destructive" });
+    onError: (error) => {
+      toast({ title: "Unable to add entry", description: apiErrorMessage(error, "Enter a valid IPv4, IPv6, or CIDR entry."), variant: "destructive" });
     },
   });
 
@@ -72,8 +86,8 @@ export default function ServerAccess() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ip-whitelist"] });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update IP address.", variant: "destructive" });
+    onError: (error) => {
+      toast({ title: "Unable to update entry", description: apiErrorMessage(error, "The whitelist entry could not be updated."), variant: "destructive" });
     },
   });
 
@@ -85,8 +99,8 @@ export default function ServerAccess() {
       queryClient.invalidateQueries({ queryKey: ["/api/ip-whitelist"] });
       toast({ title: "IP Removed", description: "The IP address has been removed from the whitelist." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to remove IP address.", variant: "destructive" });
+    onError: (error) => {
+      toast({ title: "Unable to remove entry", description: apiErrorMessage(error, "The whitelist entry could not be removed."), variant: "destructive" });
     },
   });
 
@@ -96,15 +110,15 @@ export default function ServerAccess() {
     },
     onSuccess: (_, enabled) => {
       queryClient.invalidateQueries({ queryKey: ["/api/organization/ip-restriction"] });
-      toast({ 
-        title: enabled ? "IP Restriction Enabled" : "IP Restriction Disabled", 
-        description: enabled 
-          ? "Collectors can only login from whitelisted IPs." 
-          : "Collectors can login from any IP." 
+      toast({
+        title: enabled ? "IP Restriction Enabled" : "IP Restriction Disabled",
+        description: enabled
+          ? "All company API access is now limited to active whitelist entries."
+          : "Company API access is allowed from any IP."
       });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update IP restriction setting.", variant: "destructive" });
+    onError: (error) => {
+      toast({ title: "Unable to change restriction", description: apiErrorMessage(error, "Add at least one active entry before enabling restriction."), variant: "destructive" });
       setEnableIpRestriction(!enableIpRestriction);
     },
   });
@@ -112,11 +126,6 @@ export default function ServerAccess() {
   const handleAddIp = () => {
     if (!ipAddress) {
       toast({ title: "Error", description: "Please enter an IP address.", variant: "destructive" });
-      return;
-    }
-    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
-    if (!ipRegex.test(ipAddress)) {
-      toast({ title: "Error", description: "Please enter a valid IP address or CIDR range.", variant: "destructive" });
       return;
     }
     addIpMutation.mutate({ ipAddress, description: ipDescription });
@@ -140,7 +149,7 @@ export default function ServerAccess() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Server Access Control</h1>
-          <p className="text-muted-foreground">Manage IP whitelist for collector login</p>
+          <p className="text-muted-foreground">Manage IPv4 and IPv6 access to your organization's APIs</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
@@ -156,19 +165,19 @@ export default function ServerAccess() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>IP Address or CIDR Range</Label>
-                <Input 
-                  placeholder="e.g., 192.168.1.100 or 10.0.0.0/24"
+                <Input
+                   placeholder="e.g., 192.0.2.10, 10.0.0.0/24, or 2001:db8::/48"
                   value={ipAddress}
                   onChange={(e) => setIpAddress(e.target.value)}
                   data-testid="input-ip-address"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Enter a single IP or CIDR notation for a range
+                   Enter one IPv4 or IPv6 address, or a CIDR range. Entries are normalized when saved.
                 </p>
               </div>
               <div className="space-y-2">
                 <Label>Description</Label>
-                <Textarea 
+                <Textarea
                   placeholder="e.g., Main Office, Remote Worker Name"
                   value={ipDescription}
                   onChange={(e) => setIpDescription(e.target.value)}
@@ -178,8 +187,8 @@ export default function ServerAccess() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-              <Button 
-                onClick={handleAddIp} 
+              <Button
+                onClick={handleAddIp}
                 disabled={addIpMutation.isPending}
                 data-testid="button-save-ip"
               >
@@ -200,9 +209,9 @@ export default function ServerAccess() {
               <div>
                 <p className="font-medium">IP Restriction</p>
                 <p className="text-sm text-muted-foreground">
-                  {enableIpRestriction 
-                    ? "Collectors can only login from whitelisted IPs" 
-                    : "IP restriction is disabled - collectors can login from any IP"}
+                  {enableIpRestriction
+                    ? "All authenticated company API requests require a whitelisted IP"
+                    : "IP restriction is disabled — company APIs accept any IP"}
                 </p>
               </div>
             </div>
@@ -210,13 +219,25 @@ export default function ServerAccess() {
               <Badge variant={enableIpRestriction ? "default" : "secondary"}>
                 {enableIpRestriction ? "Enabled" : "Disabled"}
               </Badge>
-              <Switch 
+              <Switch
                 checked={enableIpRestriction}
                 onCheckedChange={handleToggleRestriction}
                 disabled={toggleRestrictionMutation.isPending}
                 data-testid="switch-ip-restriction"
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-orange-500/50">
+        <CardContent className="pt-6 flex gap-3">
+          <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-medium">Avoid locking out your organization</p>
+            <p className="text-muted-foreground">
+              Add and verify your current public IP or network before enabling restriction. Existing sessions and API tokens are blocked immediately if their IP is not listed. A live admin or manager can still reach this page to recover access; a global administrator can also repair the organization's whitelist.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -266,7 +287,7 @@ export default function ServerAccess() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">IP Whitelist</CardTitle>
-          <CardDescription>Authorized IP addresses for collector access</CardDescription>
+          <CardDescription>Authorized IPv4 addresses, IPv6 addresses, and CIDR networks</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -278,12 +299,12 @@ export default function ServerAccess() {
               <div className="text-center py-8 text-muted-foreground">
                 <Globe className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No IP addresses in whitelist</p>
-                <p className="text-sm">Add IP addresses to restrict collector login access</p>
+                 <p className="text-sm">Add an IPv4/IPv6 address or CIDR network before enabling restriction</p>
               </div>
             ) : null}
             {whitelist.map((ip) => (
-              <div 
-                key={ip.id} 
+              <div
+                key={ip.id}
                 className={`flex items-center justify-between p-4 border rounded-lg flex-wrap gap-4 ${!ip.isActive ? "opacity-60" : ""}`}
                 data-testid={`row-ip-${ip.id}`}
               >
@@ -311,15 +332,15 @@ export default function ServerAccess() {
                     <p>{formatDate(ip.createdDate)}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch 
+                    <Switch
                       checked={ip.isActive ?? false}
                       onCheckedChange={() => handleToggleIpActive(ip.id, ip.isActive ?? false)}
                       data-testid={`switch-ip-${ip.id}`}
                     />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="icon"
                           data-testid={`button-delete-ip-${ip.id}`}
                         >
@@ -371,14 +392,14 @@ export default function ServerAccess() {
               <CheckCircle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">When Enabled</p>
-                <p className="text-muted-foreground">Collectors can only login from IP addresses in this whitelist. Blocked attempts show an access denied error.</p>
+                 <p className="text-muted-foreground">Every authenticated company request, including existing sessions and API tokens, must originate from an active whitelist entry.</p>
               </div>
             </div>
             <div className="flex gap-3">
               <Globe className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">CIDR Support</p>
-                <p className="text-muted-foreground">You can add entire IP ranges using CIDR notation (e.g., 192.168.1.0/24 for a /24 subnet).</p>
+                 <p className="text-muted-foreground">IPv4 and IPv6 CIDR ranges are supported (for example, 192.168.1.0/24 or 2001:db8::/48). The server canonicalizes network addresses.</p>
               </div>
             </div>
           </div>

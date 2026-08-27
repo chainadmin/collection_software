@@ -3,7 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
 import crypto from "crypto";
-import net from "net";
+import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
+import { isActiveGlobalAdminSession } from "./access-control";
 import bcrypt from "bcrypt";
 import { 
   processDebtorCardPayment,
@@ -23,9 +24,33 @@ import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSettings } from "./payment-message-automation";
 import { db } from "./db";
-import { emailSettings, recallItems, workQueueItems, debtors as debtorsTable, payments as paymentsTable, type CampaignIntegration } from "@shared/schema";
-import { and, eq } from "drizzle-orm";
-import { claimPaymentForProcessing, postPaymentAtomically } from "./payment-safety";
+import {
+  emailSettings,
+  enrichmentAuditLog,
+  enrichmentBatches,
+  enrichmentBatchMembers,
+  enrichmentBatchResults,
+  recallItems,
+  workQueueItems,
+  debtors as debtorsTable,
+  payments as paymentsTable,
+  type CampaignIntegration,
+} from "@shared/schema";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  claimDeclinedPaymentForRerun,
+  claimPaymentForProcessing,
+  postPaymentAtomically,
+} from "./payment-safety";
+import {
+  applyReturn,
+  createEnrichmentBatch,
+  exportBatch,
+  previewReturn,
+} from "./enrichment-batches";
+import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card-validation";
+import { CardVaultError, vaultCard } from "./card-vault";
+import { redactPaymentCard } from "./payment-card-presenter";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -88,11 +113,21 @@ function requireCollectorAuth(req: any, res: any, next: any) {
 }
 
 // Require global admin authentication
-function requireGlobalAdminAuth(req: any, res: any, next: any) {
-  if (!req.session?.globalAdmin) {
+async function requireGlobalAdminAuth(req: any, res: any, next: any) {
+  const sessionAdminId = req.session?.globalAdmin?.id;
+  if (!sessionAdminId) {
     return res.status(401).json({ error: "Super admin authentication required" });
   }
-  next();
+  try {
+    const liveAdmin = await storage.getGlobalAdmin(sessionAdminId);
+    if (!isActiveGlobalAdminSession(sessionAdminId, liveAdmin)) {
+      return res.status(401).json({ error: "Super admin session is no longer authorized" });
+    }
+    return next();
+  } catch (error) {
+    console.error("Global admin session validation failed:", error);
+    return res.status(503).json({ error: "Unable to validate super admin session" });
+  }
 }
 
 // Verify the session's collector is still a live, active admin/manager of the
@@ -202,16 +237,6 @@ async function renderTemplateForDebtor(templateText: string, debtor: any, html: 
   });
 }
 
-function normalizeIpAddress(ip: string): string {
-  if (ip.startsWith("::ffff:")) {
-    return ip.slice(7);
-  }
-  if (ip === "::1") {
-    return "127.0.0.1";
-  }
-  return ip;
-}
-
 // Normalize an agency code that the user may have entered as a slug, a URL
 // (https://app.example.com/login/acme), or a path (/login/acme). Falls back
 // to the raw input, trimmed and lowercased.
@@ -240,28 +265,10 @@ function normalizeAgencyCode(input: unknown): string {
   return s.trim().toLowerCase();
 }
 
-function getClientIp(req: any): string {
-  const forwardedFor = (req.headers["x-forwarded-for"] as string | undefined)
-    ?.split(",")[0]
-    ?.trim();
-  const rawIp = normalizeIpAddress(req.ip || forwardedFor || req.socket.remoteAddress || "127.0.0.1");
-  return rawIp;
-}
-
-function isValidWhitelistEntry(entry: string): boolean {
-  const trimmed = entry.trim();
-  if (!trimmed) return false;
-
-  if (trimmed.includes("/")) {
-    const [ip, prefixLength] = trimmed.split("/");
-    const prefix = Number(prefixLength);
-    const version = net.isIP(ip);
-    if (!version || Number.isNaN(prefix)) return false;
-    const maxPrefix = version === 4 ? 32 : 128;
-    return prefix >= 0 && prefix <= maxPrefix;
-  }
-
-  return net.isIP(trimmed) !== 0;
+function getClientIp(req: any): string | null {
+  // Express derives req.ip from the socket and the configured trust-proxy hop.
+  // Never parse X-Forwarded-For directly: that would trust attacker-supplied hops.
+  return canonicalizeIp(req.ip);
 }
 
 // Check if organization has active subscription or is in trial period
@@ -338,6 +345,57 @@ export async function registerRoutes(
   // Global authentication middleware for /api routes (except public paths)
   app.use("/api", async (req: any, res: any, next: any) => {
     const path = req.path;
+
+    // A global administrator is outside company tenancy and is never subject to
+    // an organization's whitelist.
+    const globalAdminId = req.session?.globalAdmin?.id;
+    let isGlobalAdminSession = false;
+    if (globalAdminId) {
+      try {
+        const liveAdmin = await storage.getGlobalAdmin(globalAdminId);
+        isGlobalAdminSession = isActiveGlobalAdminSession(globalAdminId, liveAdmin);
+      } catch (error) {
+        console.error("Global admin session validation failed:", error);
+        return res.status(503).json({ error: "Unable to validate super admin session" });
+      }
+    }
+
+    // Existing collector sessions are checked on every request, including
+    // otherwise-public session routes. Only whitelist administration remains
+    // available to a blocked, live admin/manager as a narrow recovery path.
+    if (!isGlobalAdminSession && req.session?.collector?.id) {
+      try {
+        const collector = await storage.getCollector(req.session.collector.id);
+        if (!collector || collector.status !== "active" ||
+            collector.organizationId !== req.session.collector.organizationId) {
+          return res.status(401).json({ error: "Collector session is no longer authorized" });
+        }
+        const organization = await storage.getOrganization(collector.organizationId);
+        if (!organization || !organization.isActive) {
+          return res.status(403).json({ error: "Organization is not active" });
+        }
+        if (organization.ipRestrictionEnabled) {
+          const clientIp = getClientIp(req);
+          const allowed = !!clientIp &&
+            await storage.isIpWhitelisted(organization.id, clientIp);
+          if (!allowed) {
+            const recoveryPath = path === "/ip-whitelist" ||
+              path.startsWith("/ip-whitelist/") ||
+              path === "/organization/ip-restriction";
+            const privileged = collector.role === "admin" || collector.role === "manager";
+            if (!(recoveryPath && privileged)) {
+              return res.status(403).json({
+                code: "ip_blocked",
+                error: "Access denied. Your current IP address is not authorized for this organization.",
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error("IP access validation failed:", error);
+        return res.status(503).json({ error: "Unable to validate IP access" });
+      }
+    }
     
     // Skip auth for public paths
     if (publicPaths.some(p => path === p || path.startsWith(p))) {
@@ -351,7 +409,7 @@ export async function registerRoutes(
     
     // For super-admin routes, require global admin auth
     if (path.startsWith("/super-admin/")) {
-      if (!req.session?.globalAdmin) {
+      if (!isGlobalAdminSession) {
         return res.status(401).json({ error: "Super admin authentication required" });
       }
       return next();
@@ -360,8 +418,7 @@ export async function registerRoutes(
     // For all other /api routes, require collector auth (session-based)
     if (req.session?.collector?.id) {
       const collector = await storage.getCollector(req.session.collector.id);
-      if (!collector || collector.status !== "active" ||
-          collector.organizationId !== req.session.collector.organizationId) {
+      if (!collector) {
         return res.status(401).json({ error: "Collector session is no longer authorized" });
       }
       // Organization selectors in a request never override session tenancy.
@@ -627,7 +684,7 @@ export async function registerRoutes(
       if (organization.ipRestrictionEnabled) {
         const clientIp = getClientIp(req);
 
-        if (net.isIP(clientIp) === 0) {
+        if (!clientIp) {
           return res.status(403).json({
             error: "Access denied. Could not validate your IP address.",
           });
@@ -711,7 +768,7 @@ export async function registerRoutes(
       if (organization.ipRestrictionEnabled) {
         const clientIp = getClientIp(req);
 
-        if (net.isIP(clientIp) === 0) {
+        if (!clientIp) {
           return res.status(403).json({
             code: "ip_invalid",
             error: "We couldn't validate your IP address. Please try again or contact your administrator.",
@@ -877,6 +934,93 @@ export async function registerRoutes(
       console.error("[Super Admin] Failed to fetch organizations:", error?.message || error);
       res.status(500).json({ error: "Failed to fetch organizations" });
     }
+  });
+
+  // Super-admin IP recovery endpoints. Every operation is scoped to the
+  // organization named in the URL so a locked-out company can be repaired.
+  app.get("/api/super-admin/organizations/:organizationId/ip-whitelist", requireGlobalAdminAuth, async (req, res) => {
+    const organization = await storage.getOrganization(req.params.organizationId);
+    if (!organization) return res.status(404).json({ error: "Organization not found" });
+    const entries = await storage.getIpWhitelist(organization.id);
+    res.json({ organizationId: organization.id, ipRestrictionEnabled: !!organization.ipRestrictionEnabled, entries });
+  });
+
+  app.post("/api/super-admin/organizations/:organizationId/ip-whitelist", requireGlobalAdminAuth, async (req, res) => {
+    const organization = await storage.getOrganization(req.params.organizationId);
+    if (!organization) return res.status(404).json({ error: "Organization not found" });
+    const canonicalAddress = canonicalizeWhitelistEntry(req.body?.ipAddress);
+    if (!canonicalAddress) return res.status(400).json({ error: "Invalid IP address or CIDR range" });
+    const entry = await storage.createIpWhitelistEntry({
+      organizationId: organization.id,
+      ipAddress: canonicalAddress,
+      description: req.body?.description || null,
+      isActive: typeof req.body?.isActive === "boolean" ? req.body.isActive : true,
+      createdDate: new Date().toISOString(),
+      createdBy: req.session.globalAdmin!.id,
+    });
+    res.status(201).json(entry);
+  });
+
+  app.patch("/api/super-admin/organizations/:organizationId/ip-whitelist/:entryId", requireGlobalAdminAuth, async (req, res) => {
+    const organization = await storage.getOrganization(req.params.organizationId);
+    if (!organization) return res.status(404).json({ error: "Organization not found" });
+    const existing = await storage.getIpWhitelistEntry(req.params.entryId);
+    if (!existing || existing.organizationId !== organization.id) {
+      return res.status(404).json({ error: "IP whitelist entry not found" });
+    }
+    const updates: any = {};
+    if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
+    if (req.body?.description !== undefined) updates.description = req.body.description || null;
+    if (req.body?.ipAddress !== undefined) {
+      const canonicalAddress = canonicalizeWhitelistEntry(req.body.ipAddress);
+      if (!canonicalAddress) return res.status(400).json({ error: "Invalid IP address or CIDR range" });
+      updates.ipAddress = canonicalAddress;
+    }
+    if (organization.ipRestrictionEnabled && existing.isActive &&
+        canonicalizeWhitelistEntry(existing.ipAddress) && updates.isActive === false) {
+      const active = (await storage.getIpWhitelist(organization.id))
+        .filter((item) => item.isActive && canonicalizeWhitelistEntry(item.ipAddress));
+      if (active.length <= 1) {
+        return res.status(409).json({ error: "Cannot disable the final active whitelist entry while IP restriction is enabled" });
+      }
+    }
+    res.json(await storage.updateIpWhitelistEntry(existing.id, updates));
+  });
+
+  app.delete("/api/super-admin/organizations/:organizationId/ip-whitelist/:entryId", requireGlobalAdminAuth, async (req, res) => {
+    const organization = await storage.getOrganization(req.params.organizationId);
+    if (!organization) return res.status(404).json({ error: "Organization not found" });
+    const existing = await storage.getIpWhitelistEntry(req.params.entryId);
+    if (!existing || existing.organizationId !== organization.id) {
+      return res.status(404).json({ error: "IP whitelist entry not found" });
+    }
+    if (organization.ipRestrictionEnabled && existing.isActive &&
+        canonicalizeWhitelistEntry(existing.ipAddress)) {
+      const active = (await storage.getIpWhitelist(organization.id))
+        .filter((item) => item.isActive && canonicalizeWhitelistEntry(item.ipAddress));
+      if (active.length <= 1) {
+        return res.status(409).json({ error: "Cannot delete the final active whitelist entry while IP restriction is enabled" });
+      }
+    }
+    await storage.deleteIpWhitelistEntry(existing.id);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/super-admin/organizations/:organizationId/ip-restriction", requireGlobalAdminAuth, async (req, res) => {
+    const organization = await storage.getOrganization(req.params.organizationId);
+    if (!organization) return res.status(404).json({ error: "Organization not found" });
+    if (typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled must be a boolean" });
+    }
+    if (req.body.enabled) {
+      const active = (await storage.getIpWhitelist(organization.id))
+        .filter((entry) => entry.isActive && canonicalizeWhitelistEntry(entry.ipAddress));
+      if (active.length === 0) {
+        return res.status(409).json({ error: "Add at least one active valid whitelist entry before enabling restriction" });
+      }
+    }
+    const updated = await storage.updateOrganization(organization.id, { ipRestrictionEnabled: req.body.enabled });
+    res.json({ organizationId: organization.id, ipRestrictionEnabled: !!updated?.ipRestrictionEnabled });
   });
 
   // Super Admin - Toggle organization active status
@@ -2330,7 +2474,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const cards = await storage.getPaymentCards(req.params.id);
-      res.json(cards);
+      res.json(cards.filter(card => card.organizationId === orgId).map(redactPaymentCard));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment cards" });
     }
@@ -2344,19 +2488,95 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      // Keep the entered CVV available for the first scheduled/automatic
-      // authorization. payment-processor clears it immediately after that
-      // authorization attempt; all other stored payment data is unchanged.
+      const panValue = typeof req.body.cardNumber === "string" ? req.body.cardNumber : "";
+      const { digits: pan, malformed } = normalizeCardNumber(panValue);
+      const network = detectCardNetwork(pan);
+      const networkType: Record<string, string> = {
+        Visa: "visa",
+        Mastercard: "mastercard",
+        "American Express": "amex",
+        Discover: "discover",
+      };
+      const expectedLengths: Record<string, number[]> = {
+        Visa: [13, 16, 19],
+        Mastercard: [16],
+        "American Express": [15],
+        Discover: [16, 19],
+      };
+      if (malformed || network === "Unknown" || !expectedLengths[network].includes(pan.length) || !passesLuhn(pan)) {
+        return res.status(400).json({ error: "Invalid card number" });
+      }
+      if (req.body.cardType && req.body.cardType !== networkType[network]) {
+        return res.status(400).json({ error: "Card network does not match card number" });
+      }
+      const cvv = typeof req.body.cvv === "string" ? req.body.cvv : "";
+      const cvvLength = network === "American Express" ? 4 : 3;
+      if (!new RegExp(`^\\d{${cvvLength}}$`).test(cvv)) {
+        return res.status(400).json({ error: "Invalid security code" });
+      }
+      const expiryMonth = String(req.body.expiryMonth || "").padStart(2, "0");
+      let expiryYear = String(req.body.expiryYear || "");
+      if (/^\d{2}$/.test(expiryYear)) expiryYear = `20${expiryYear}`;
+      if (!/^(0[1-9]|1[0-2])$/.test(expiryMonth) || !/^\d{4}$/.test(expiryYear)) {
+        return res.status(400).json({ error: "Invalid expiration date" });
+      }
+      const expiration = new Date(Number(expiryYear), Number(expiryMonth), 0, 23, 59, 59);
+      if (expiration < new Date()) return res.status(400).json({ error: "Card is expired" });
+      const cardholderName = typeof req.body.cardholderName === "string" ? req.body.cardholderName.trim() : "";
+      if (cardholderName.length < 2 || cardholderName.length > 100 || !/^[A-Za-z][A-Za-z .,'-]+$/.test(cardholderName)) {
+        return res.status(400).json({ error: "Invalid cardholder name" });
+      }
+      const billingZip = typeof req.body.billingZip === "string" ? req.body.billingZip.trim() : "";
+      if (!/^\d{5}(?:-\d{4})?$/.test(billingZip)) {
+        return res.status(400).json({ error: "A valid billing ZIP is required" });
+      }
+      const merchants = await storage.getMerchants(orgId);
+      const merchant = merchants.find(item => item.isActive && (
+        (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
+        (item.processorType === "stripe" && item.stripeSecretKey) ||
+        (item.processorType === "nmi" && item.nmiSecurityKey) ||
+        (item.processorType === "usaepay" && item.usaepaySourceKey)
+      ));
+      if (!merchant) return res.status(409).json({ error: "No active card processor is configured" });
+      const existingCards = (await storage.getPaymentCards(req.params.id))
+        .filter(card => card.organizationId === orgId);
+      const existingCustomerId = existingCards.find(card =>
+        card.processorType === merchant.processorType &&
+        card.vaultStatus === "vaulted" &&
+        card.processorCustomerId
+      )?.processorCustomerId || undefined;
+      const vaulted = await vaultCard(merchant, debtor, {
+        pan,
+        cvv,
+        expiryMonth,
+        expiryYear,
+        cardholderName,
+        billingZip,
+      }, existingCustomerId);
+      const vaultedCards = existingCards.filter(card => card.vaultStatus === "vaulted");
+      const makeDefault = req.body.isDefault === true || vaultedCards.length === 0;
+      if (makeDefault) {
+        await Promise.all(existingCards.filter(card => card.isDefault)
+          .map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
+      }
       const card = await storage.createPaymentCard({
-        ...cardInput,
-        cvv: null,
+        cardType: networkType[network],
+        cardholderName,
+        cardNumberLast4: pan.slice(-4),
+        expiryMonth,
+        expiryYear,
+        billingZip,
+        isDefault: makeDefault,
+        ...vaulted,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
+        addedBy: req.session?.collector?.id || null,
         organizationId: orgId,
       });
-      res.status(201).json(card);
+      res.status(201).json(redactPaymentCard(card));
     } catch (error) {
-      res.status(500).json({ error: "Failed to create payment card" });
+      if (error instanceof CardVaultError) return res.status(422).json({ error: error.message });
+      res.status(500).json({ error: "Failed to vault payment card" });
     }
   });
 
@@ -2370,6 +2590,13 @@ export async function registerRoutes(
       }
       const success = await storage.deletePaymentCard(req.params.id);
       if (success) {
+        // Preserve a usable default where possible. Legacy/unvaulted rows are
+        // intentionally never promoted because the runner must refuse them.
+        if (existing.isDefault) {
+          const replacement = (await storage.getPaymentCards(existing.debtorId))
+            .find(card => card.organizationId === orgId && card.vaultStatus === "vaulted");
+          if (replacement) await storage.updatePaymentCard(replacement.id, { isDefault: true });
+        }
         res.status(204).send();
       } else {
         res.status(404).json({ error: "Payment card not found" });
@@ -2408,6 +2635,22 @@ export async function registerRoutes(
       }
       if (amount > debtor.currentBalance) {
         return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
+      }
+      if (req.body.paymentMethod === "card") {
+        if (typeof req.body.cardId !== "string" || !req.body.cardId) {
+          return res.status(400).json({ error: "A saved vaulted card is required" });
+        }
+        const card = await storage.getPaymentCard(req.body.cardId);
+        if (!card || card.organizationId !== orgId || card.debtorId !== debtor.id) {
+          return res.status(400).json({ error: "Payment card does not belong to this debtor" });
+        }
+        if (card.vaultStatus !== "vaulted" || !card.processorToken || !card.processorType) {
+          return res.status(409).json({ error: "Payment card is not vaulted and cannot be scheduled" });
+        }
+        const activeProcessor = (await storage.getMerchants(orgId)).find(item => item.isActive)?.processorType;
+        if (activeProcessor !== card.processorType) {
+          return res.status(409).json({ error: "Payment card is not vaulted with the active processor" });
+        }
       }
       const idempotencyKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || crypto.randomUUID());
       if (idempotencyKey.length > 200) return res.status(400).json({ error: "Invalid idempotency key" });
@@ -2773,6 +3016,9 @@ export async function registerRoutes(
   app.get("/api/ip-whitelist", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       const whitelist = await storage.getIpWhitelist(orgId);
       res.json(whitelist);
     } catch (error) {
@@ -2784,22 +3030,30 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { ipAddress, description, isActive } = req.body;
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       
       if (!ipAddress) {
         return res.status(400).json({ error: "IP address is required" });
       }
 
-      if (!isValidWhitelistEntry(ipAddress)) {
+      const canonicalAddress = canonicalizeWhitelistEntry(ipAddress);
+      if (!canonicalAddress) {
         return res.status(400).json({ error: "Invalid IP address or CIDR range" });
+      }
+      const creatorId = req.session.collector?.id;
+      if (!creatorId) {
+        return res.status(401).json({ error: "Collector authentication required" });
       }
       
       const entry = await storage.createIpWhitelistEntry({
         organizationId: orgId,
-        ipAddress: ipAddress.trim(),
+        ipAddress: canonicalAddress,
         description: description || null,
-        isActive: isActive !== undefined ? isActive : true,
+        isActive: typeof isActive === "boolean" ? isActive : true,
         createdDate: new Date().toISOString(),
-        createdBy: null,
+        createdBy: creatorId,
       });
       
       res.status(201).json(entry);
@@ -2813,7 +3067,10 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { id } = req.params;
-      const { isActive, description } = req.body;
+      const { isActive, description, ipAddress } = req.body;
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       
       // Verify entry belongs to this organization
       const existing = await storage.getIpWhitelistEntry(id);
@@ -2821,7 +3078,26 @@ export async function registerRoutes(
         return res.status(404).json({ error: "IP whitelist entry not found" });
       }
       
-      const entry = await storage.updateIpWhitelistEntry(id, { isActive, description });
+      const updates: any = {};
+      if (typeof isActive === "boolean") updates.isActive = isActive;
+      if (description !== undefined) updates.description = description || null;
+      if (ipAddress !== undefined) {
+        const canonicalAddress = canonicalizeWhitelistEntry(ipAddress);
+        if (!canonicalAddress) {
+          return res.status(400).json({ error: "Invalid IP address or CIDR range" });
+        }
+        updates.ipAddress = canonicalAddress;
+      }
+      const org = await storage.getOrganization(orgId);
+      if (org?.ipRestrictionEnabled && existing.isActive &&
+          canonicalizeWhitelistEntry(existing.ipAddress) && isActive === false) {
+        const active = (await storage.getIpWhitelist(orgId))
+          .filter((item) => item.isActive && canonicalizeWhitelistEntry(item.ipAddress));
+        if (active.length <= 1) {
+          return res.status(409).json({ error: "Cannot disable the final active whitelist entry while IP restriction is enabled" });
+        }
+      }
+      const entry = await storage.updateIpWhitelistEntry(id, updates);
       res.json(entry);
     } catch (error) {
       res.status(500).json({ error: "Failed to update IP whitelist entry" });
@@ -2832,6 +3108,9 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { id } = req.params;
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       
       // Verify entry belongs to this organization
       const existing = await storage.getIpWhitelistEntry(id);
@@ -2839,6 +3118,15 @@ export async function registerRoutes(
         return res.status(404).json({ error: "IP whitelist entry not found" });
       }
       
+      const org = await storage.getOrganization(orgId);
+      if (org?.ipRestrictionEnabled && existing.isActive &&
+          canonicalizeWhitelistEntry(existing.ipAddress)) {
+        const active = (await storage.getIpWhitelist(orgId))
+          .filter((item) => item.isActive && canonicalizeWhitelistEntry(item.ipAddress));
+        if (active.length <= 1) {
+          return res.status(409).json({ error: "Cannot delete the final active whitelist entry while IP restriction is enabled" });
+        }
+      }
       await storage.deleteIpWhitelistEntry(id);
       res.json({ success: true });
     } catch (error) {
@@ -2851,6 +3139,19 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { enabled } = req.body;
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled must be a boolean" });
+      }
+      if (enabled) {
+        const active = (await storage.getIpWhitelist(orgId))
+          .filter((entry) => entry.isActive && canonicalizeWhitelistEntry(entry.ipAddress));
+        if (active.length === 0) {
+          return res.status(409).json({ error: "Add at least one active valid IP address or CIDR range before enabling restriction" });
+        }
+      }
       
       const org = await storage.updateOrganization(orgId, { 
         ipRestrictionEnabled: enabled 
@@ -2870,6 +3171,9 @@ export async function registerRoutes(
   app.get("/api/organization/ip-restriction", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       const org = await storage.getOrganization(orgId);
       
       if (!org) {
@@ -3071,13 +3375,14 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      await storage.updatePayment(req.params.id, { status: "pending" });
-      const resetPayment = await storage.getPayment(req.params.id);
-      if (!resetPayment) {
-        return res.status(404).json({ error: "Payment not found after reset" });
+      if (payment.status !== "declined") {
+        return res.status(409).json({ error: "Only declined payments can be re-run" });
       }
-
-      const result = await processPayment(resetPayment, storage, orgId);
+      const claimed = await claimDeclinedPaymentForRerun(payment.id, orgId);
+      if (!claimed) {
+        return res.status(409).json({ error: "Payment is already being processed or is no longer declined" });
+      }
+      const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
       res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment rerun error:", error);

@@ -125,6 +125,7 @@ import {
 } from "@shared/schema";
 import type { IStorage } from "./storage";
 import { randomUUID } from "crypto";
+import { ipMatchesAny } from "./ip-address";
 
 export class DatabaseStorage implements IStorage {
   
@@ -1306,30 +1307,7 @@ export class DatabaseStorage implements IStorage {
   async isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean> {
     const whitelist = await this.getIpWhitelist(organizationId);
     const activeEntries = whitelist.filter(entry => entry.isActive);
-    if (activeEntries.length === 0) return true; // No whitelist means allow all
-    
-    // Check for exact IP match or CIDR range match
-    for (const entry of activeEntries) {
-      if (entry.ipAddress === ipAddress) return true;
-      
-      // Handle CIDR notation (e.g., 192.168.1.0/24)
-      if (entry.ipAddress.includes('/')) {
-        if (this.ipInCidr(ipAddress, entry.ipAddress)) return true;
-      }
-    }
-    return false;
-  }
-
-  private ipInCidr(ip: string, cidr: string): boolean {
-    const [range, bits] = cidr.split('/');
-    const mask = ~(2 ** (32 - parseInt(bits)) - 1);
-    const ipNum = this.ipToNumber(ip);
-    const rangeNum = this.ipToNumber(range);
-    return (ipNum & mask) === (rangeNum & mask);
-  }
-
-  private ipToNumber(ip: string): number {
-    const parts = ip.split('.').map(Number);
-    return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+    return activeEntries.length > 0 &&
+      ipMatchesAny(ipAddress, activeEntries.map((entry) => entry.ipAddress));
   }
 }

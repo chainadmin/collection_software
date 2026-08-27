@@ -25,6 +25,7 @@ export interface ChargeResult {
   authCode?: string;
   errorMessage?: string;
   responseCode?: string;
+  ambiguous?: boolean;
 }
 
 export interface SubscriptionCardData {
@@ -271,10 +272,11 @@ export interface AchPaymentData {
   nameOnAccount: string;
 }
 
-/** Charge an Accept.js opaque token against this company's Authorize.Net merchant. */
+/** Charge a reusable CIM customer/payment profile. */
 export async function processDebtorTokenPayment(
   merchantCredentials: MerchantCredentials,
-  paymentToken: string,
+  customerProfileId: string,
+  paymentProfileId: string,
   amount: number,
   invoiceNumber?: string,
   customerEmail?: string
@@ -284,12 +286,11 @@ export async function processDebtorTokenPayment(
     merchantAuth.setName(merchantCredentials.apiLoginId);
     merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
 
-    const opaqueData = new APIContracts.OpaqueDataType();
-    opaqueData.setDataDescriptor("COMMON.ACCEPT.INAPP.PAYMENT");
-    opaqueData.setDataValue(paymentToken);
-
-    const paymentType = new APIContracts.PaymentType();
-    paymentType.setOpaqueData(opaqueData);
+    const paymentProfile = new APIContracts.PaymentProfile();
+    paymentProfile.setPaymentProfileId(paymentProfileId);
+    const profile = new APIContracts.CustomerProfilePaymentType();
+    profile.setCustomerProfileId(customerProfileId);
+    profile.setPaymentProfile(paymentProfile);
 
     const orderDetails = new APIContracts.OrderType();
     orderDetails.setInvoiceNumber(invoiceNumber || `PMT-${Date.now()}`);
@@ -297,9 +298,15 @@ export async function processDebtorTokenPayment(
 
     const transactionRequest = new APIContracts.TransactionRequestType();
     transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
-    transactionRequest.setPayment(paymentType);
+    transactionRequest.setProfile(profile);
     transactionRequest.setAmount(amount);
     transactionRequest.setOrder(orderDetails);
+    const duplicateWindow = new APIContracts.SettingType();
+    duplicateWindow.setSettingName("duplicateWindow");
+    duplicateWindow.setSettingValue("300");
+    const transactionSettings = new APIContracts.ArrayOfSetting();
+    transactionSettings.setSetting([duplicateWindow]);
+    transactionRequest.setTransactionSettings(transactionSettings);
 
     if (customerEmail) {
       const customer = new APIContracts.CustomerDataType();
@@ -314,26 +321,37 @@ export async function processDebtorTokenPayment(
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
     const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === "production";
     ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
-    ctrl.execute(() => {
-      const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
-      const transResponse = response.getTransactionResponse();
-      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK && transResponse?.getMessages()) {
+    const complete = () => {
+      try {
+        const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
+        const transResponse = response.getTransactionResponse();
+        if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK && transResponse?.getMessages()) {
+          resolve({
+            success: true,
+            transactionId: transResponse.getTransId(),
+            authCode: transResponse.getAuthCode(),
+            responseCode: transResponse.getResponseCode(),
+          });
+          return;
+        }
+        const explicitError = transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
+          || response.getMessages()?.getMessage()?.[0]?.getText();
         resolve({
-          success: true,
-          transactionId: transResponse.getTransId(),
-          authCode: transResponse.getAuthCode(),
-          responseCode: transResponse.getResponseCode(),
+          success: false,
+          errorMessage: explicitError || "Authorize.Net returned no conclusive response",
+          responseCode: transResponse?.getResponseCode(),
+          transactionId: transResponse?.getTransId(),
+          ambiguous: !explicitError || /duplicate/i.test(explicitError),
         });
-        return;
+      } catch {
+        resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net returned a malformed response" });
       }
-      resolve({
-        success: false,
-        errorMessage: transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
-          || response.getMessages()?.getMessage()?.[0]?.getText()
-          || "Token transaction failed",
-        responseCode: transResponse?.getResponseCode(),
-      });
-    });
+    };
+    try {
+      ctrl.execute(complete);
+    } catch {
+      resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net transport failed before a conclusive outcome" });
+    }
   });
 }
 

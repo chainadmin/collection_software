@@ -82,6 +82,7 @@ import {
   type InsertIpWhitelist,
 } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
+import { ipMatchesAny } from "./ip-address";
 
 // Legacy SHA-256 hash for MemStorage seed data only
 // New passwords in production use bcrypt via routes.ts
@@ -857,6 +858,10 @@ export class MemStorage implements IStorage {
       nextPaymentDate: "2025-01-15",
       specificDates: null,
       isRecurring: true,
+      idempotencyKey: null,
+      providerTransactionId: null,
+      processingStartedAt: null,
+      completedAt: null,
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
@@ -876,6 +881,10 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      idempotencyKey: null,
+      providerTransactionId: null,
+      processingStartedAt: null,
+      completedAt: null,
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
@@ -895,6 +904,10 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      idempotencyKey: null,
+      providerTransactionId: null,
+      processingStartedAt: null,
+      completedAt: null,
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
@@ -914,6 +927,10 @@ export class MemStorage implements IStorage {
       nextPaymentDate: null,
       specificDates: null,
       isRecurring: false,
+      idempotencyKey: null,
+      providerTransactionId: null,
+      processingStartedAt: null,
+      completedAt: null,
     });
 
     const batch1Id = randomUUID();
@@ -1562,12 +1579,14 @@ export class MemStorage implements IStorage {
       debtorId: card.debtorId,
       cardType: card.cardType,
       cardholderName: card.cardholderName,
-      cardNumber: card.cardNumber,
       cardNumberLast4: card.cardNumberLast4,
       expiryMonth: card.expiryMonth,
       expiryYear: card.expiryYear,
-      cvv: card.cvv ?? null,
       billingZip: card.billingZip ?? null,
+      processorType: card.processorType ?? null,
+      processorToken: card.processorToken ?? null,
+      processorCustomerId: card.processorCustomerId ?? null,
+      vaultStatus: card.vaultStatus ?? "legacy_unvaulted",
       isDefault: card.isDefault ?? false,
       addedDate: card.addedDate,
       addedBy: card.addedBy ?? null,
@@ -1646,6 +1665,10 @@ export class MemStorage implements IStorage {
       nextPaymentDate: payment.nextPaymentDate ?? null,
       specificDates: payment.specificDates ?? null,
       isRecurring: payment.isRecurring ?? false,
+      idempotencyKey: payment.idempotencyKey ?? null,
+      providerTransactionId: payment.providerTransactionId ?? null,
+      processingStartedAt: payment.processingStartedAt ?? null,
+      completedAt: payment.completedAt ?? null,
     };
     this.payments.set(id, newPayment);
     return newPayment;
@@ -2714,31 +2737,8 @@ export class MemStorage implements IStorage {
   async isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean> {
     const whitelist = await this.getIpWhitelist(organizationId);
     const activeEntries = whitelist.filter(entry => entry.isActive);
-    if (activeEntries.length === 0) return true; // No whitelist means allow all
-    
-    // Check for exact IP match or CIDR range match
-    for (const entry of activeEntries) {
-      if (entry.ipAddress === ipAddress) return true;
-      
-      // Handle CIDR notation (e.g., 192.168.1.0/24)
-      if (entry.ipAddress.includes('/')) {
-        if (this.ipInCidr(ipAddress, entry.ipAddress)) return true;
-      }
-    }
-    return false;
-  }
-
-  private ipInCidr(ip: string, cidr: string): boolean {
-    const [range, bits] = cidr.split('/');
-    const mask = ~(2 ** (32 - parseInt(bits)) - 1);
-    const ipNum = this.ipToNumber(ip);
-    const rangeNum = this.ipToNumber(range);
-    return (ipNum & mask) === (rangeNum & mask);
-  }
-
-  private ipToNumber(ip: string): number {
-    const parts = ip.split('.').map(Number);
-    return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+    return activeEntries.length > 0 &&
+      ipMatchesAny(ipAddress, activeEntries.map((entry) => entry.ipAddress));
   }
 }
 

@@ -447,6 +447,13 @@ export default function Workstation() {
       setBinLookupResult(null);
       toast({ title: "Card added", description: "Payment card has been saved on file." });
     },
+    onError: (error) => {
+      toast({
+        title: "Card vaulting failed",
+        description: error instanceof Error ? error.message : "The card could not be vaulted.",
+        variant: "destructive",
+      });
+    },
   });
 
   const updateContactMutation = useMutation({
@@ -987,7 +994,6 @@ export default function Workstation() {
           debtorId: selectedDebtorId,
           cardType,
           cardNumber,
-          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
           expiryMonth,
           expiryYear: `20${expiryYear}`,
           cardholderName: cardHolderName,
@@ -998,7 +1004,11 @@ export default function Workstation() {
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
       } catch (error) {
-        toast({ title: "Error", description: "Failed to save card.", variant: "destructive" });
+        toast({
+          title: "Card vaulting failed",
+          description: error instanceof Error ? error.message : "Failed to save card.",
+          variant: "destructive",
+        });
         return;
       }
     }
@@ -1670,11 +1680,11 @@ export default function Workstation() {
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium capitalize">{card.cardType}</p>
                                   <Badge variant="secondary" className="text-xs font-mono">
-                                    {card.cardNumber || `**** ${card.cardNumberLast4}`}
+                                    •••• {card.cardNumberLast4}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground">
-                                  Exp: {card.expiryMonth}/{card.expiryYear} | {card.cardholderName}
+                                  Exp: {card.expiryMonth}/{card.expiryYear}
                                 </p>
                               </div>
                             ))}
@@ -2067,7 +2077,7 @@ export default function Workstation() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Billing ZIP (optional)</label>
+              <label className="text-sm font-medium">Billing ZIP</label>
               <Input
                 type="text"
                 placeholder="12345"

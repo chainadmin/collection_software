@@ -207,12 +207,14 @@ export async function runMigrations() {
         "debtor_id" varchar NOT NULL,
         "card_type" text NOT NULL,
         "cardholder_name" text NOT NULL,
-        "card_number" text NOT NULL,
         "card_number_last_4" text NOT NULL,
         "expiry_month" text NOT NULL,
         "expiry_year" text NOT NULL,
-        "cvv" text,
         "billing_zip" text,
+        "processor_type" text,
+        "processor_token" text,
+        "processor_customer_id" text,
+        "vault_status" text NOT NULL DEFAULT 'legacy_unvaulted',
         "is_default" boolean DEFAULT false,
         "added_date" text NOT NULL,
         "added_by" varchar
@@ -591,6 +593,44 @@ export async function runMigrations() {
 
     // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
     console.log("Running safe schema updates...");
+
+    // Legacy PAN is left in place for a non-destructive migration but is no
+    // longer mapped by the application. CVV retention is prohibited, so any
+    // historical CVV values are nulled. Existing rows remain quarantined until
+    // an administrator replaces the card.
+    await db.execute(sql`
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_type text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_token text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_customer_id text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS vault_status text;
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'payment_cards' AND column_name = 'card_number') THEN
+          ALTER TABLE payment_cards ALTER COLUMN card_number DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'payment_cards' AND column_name = 'cvv') THEN
+          EXECUTE 'UPDATE payment_cards SET cvv = NULL WHERE cvv IS NOT NULL';
+        END IF;
+      END $$;
+      UPDATE payment_cards
+         SET vault_status = 'legacy_unvaulted'
+       WHERE vault_status IS NULL;
+      ALTER TABLE payment_cards ALTER COLUMN vault_status SET DEFAULT 'legacy_unvaulted';
+      ALTER TABLE payment_cards ALTER COLUMN vault_status SET NOT NULL;
+      WITH ranked_defaults AS (
+        SELECT id, row_number() OVER (
+          PARTITION BY debtor_id ORDER BY added_date DESC NULLS LAST, id DESC
+        ) AS rank
+        FROM payment_cards WHERE is_default IS TRUE
+      )
+      UPDATE payment_cards SET is_default = false
+      FROM ranked_defaults
+      WHERE payment_cards.id = ranked_defaults.id AND ranked_defaults.rank > 1;
+      CREATE UNIQUE INDEX IF NOT EXISTS payment_cards_one_default_per_debtor
+      ON payment_cards (debtor_id) WHERE is_default IS TRUE;
+    `);
     
     // Add username column to global_admins if it doesn't exist
     await db.execute(sql`

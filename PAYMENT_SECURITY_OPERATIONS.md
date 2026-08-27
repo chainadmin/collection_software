@@ -9,8 +9,9 @@ Authorization produces a provider transaction ID and moves the existing
 payment from pending/processing to processed or declined. Posting is a
 separate, existing admin/manager action: it changes the payment to posted,
 reduces the debtor balance, changes account status, and creates the payment
-history note. Reversal, batch, recurring, messaging, merchant selection, PAN,
-and bank-account behavior remain in place.
+history note. Reversal, batch, recurring, messaging, merchant selection, and
+bank-account behavior remain in place; saved-card PAN handling is replaced by
+the vault flow below.
 
 The payment row is the persistent attempt identity. `idempotency_key` protects
 logical creation retries, `provider_transaction_id` protects provider callback
@@ -35,20 +36,34 @@ The intentionally public list is maintained beside the middleware in
 token authorization. New routes must not accept a body/query organization ID
 as authorization.
 
-## CVV production cleanup
+## Saved-card vaulting
 
-Historical CVV data may exist in **table `payment_cards`, column `cvv`**. A CVV
-entered while scheduling a card is retained only until the first authorization
-attempt so the automatic runner can submit it, then that field is cleared. A
-later recurring authorization uses the existing stored card credential without
-CVV. No PAN, bank account, recurring-payment credential, merchant, or provider
-integration is removed.
+Card saves are no-charge vault operations performed before a metadata row is
+inserted. The application schema maps only brand, last four, expiration,
+cardholder/billing metadata, processor type, reusable processor identifiers,
+default selection, and vault status. PAN and CVV exist only in request memory
+for the duration of the processor vault call and are never returned or logged.
 
-After backup/retention approval, a production operator must run the commented
-cleanup statement in migration `0001_payment_safety.sql` as a separately
-reviewed change. Do not query, export, log, or print the values. Verify only an
-aggregate null/non-null count, restrict column access, inspect logs/backups for
-copies, and follow the organization's approved backup-expiry procedure.
+Authorize.Net uses CIM customer and payment profiles; subsequent cards reuse
+the debtor's customer profile. Stripe saved-card creation is explicitly
+unsupported until a tenant publishable-key plus Elements/Checkout hosted setup
+flow is implemented; the server never submits raw card data to Stripe's
+PaymentMethod API. NMI uses its `add_customer` customer-vault operation.
+USAePay currently fails explicitly because a no-charge mechanism has not been
+verified for this integration.
+
+Provider calls use a stable per-payment order reference; Stripe additionally
+uses its request-level idempotency key. A transport timeout, malformed response,
+or missing processor outcome moves the payment to `needs_review`, not
+`declined`. Review payments cannot be rerun automatically and do not create the
+next recurring occurrence.
+
+Safe migration leaves historical raw database columns and their values in place
+to avoid destructive deletion, but removes them from the application mapping,
+makes the old PAN column nullable for new rows, and marks historical cards
+`legacy_unvaulted`. The payment runner refuses those rows. Production operators
+must handle eventual legacy-data destruction through a separately approved
+retention and backup-expiry process; never query, export, or print those values.
 
 ## Deployment and live verification
 

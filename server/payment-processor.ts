@@ -8,11 +8,56 @@ import {
 } from "./authorizenet";
 import { sendPaymentOutcomeAutomation } from "./payment-message-automation";
 import Stripe from "stripe";
+import { nextRecurringOccurrence } from "./recurring-payments";
 
 export interface ProcessPaymentResult {
   success: boolean;
   transactionId: string | null;
   declineReason: string | null;
+  ambiguous?: boolean;
+}
+
+export function gatewayReferences(payment: Pick<Payment, "id" | "idempotencyKey">) {
+  const stable = payment.idempotencyKey || payment.id;
+  const compact = stable.replace(/[^A-Za-z0-9]/g, "");
+  return {
+    orderReference: `PMT-${compact.slice(0, 16)}`,
+    idempotencyKey: `debt-payment:${stable}`,
+  };
+}
+
+export function ambiguousGatewayResult(message: string, transactionId: string | null = null): ProcessPaymentResult {
+  return { success: false, transactionId, declineReason: message, ambiguous: true };
+}
+
+async function createNextRecurringOccurrence(payment: Payment, storage: IStorage): Promise<void> {
+  const occurrenceDate = nextRecurringOccurrence(payment);
+  if (!occurrenceDate) return;
+  const occurrenceKey = `recurrence:${payment.id}:${occurrenceDate}`;
+  const existing = await storage.getPaymentsForDebtor(payment.debtorId);
+  if (existing.some(item => item.organizationId === payment.organizationId && item.idempotencyKey === occurrenceKey)) {
+    return;
+  }
+  const child = {
+    ...payment,
+    paymentDate: occurrenceDate,
+    nextPaymentDate: nextRecurringOccurrence({ ...payment, paymentDate: occurrenceDate }),
+    status: "pending",
+    idempotencyKey: occurrenceKey,
+    providerTransactionId: null,
+    processingStartedAt: null,
+    completedAt: null,
+    paymentToken: null,
+  };
+  try {
+    await storage.createPayment(child);
+    // Keep the completed arrangement pointing at its next occurrence for UI
+    // visibility; it is not reopened and therefore cannot replay a charge.
+    await storage.updatePayment(payment.id, { nextPaymentDate: occurrenceDate });
+  } catch (error: any) {
+    // The database uniqueness constraint makes concurrent scheduling harmless.
+    if (error?.code !== "23505") throw error;
+  }
 }
 
 interface NmiCredentials {
@@ -39,49 +84,13 @@ function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
   );
 }
 
-async function processStripeCard(
-  secretKey: string,
-  cardData: { cardNumber: string; expirationDate: string; cardCode: string },
-  amount: number,
-  invoiceNumber?: string,
-  customerEmail?: string,
-): Promise<ProcessPaymentResult> {
-  try {
-    const stripe = new Stripe(secretKey);
-    const exp = cardData.expirationDate.replace(/\D/g, "");
-    const paymentMethod = await stripe.paymentMethods.create({
-      type: "card",
-      card: {
-        number: cardData.cardNumber.replace(/\s/g, ""),
-        exp_month: Number(exp.slice(0, 2)),
-        exp_year: Number(`20${exp.slice(-2)}`),
-        cvc: cardData.cardCode,
-      },
-      billing_details: customerEmail ? { email: customerEmail } : undefined,
-    });
-    const intent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency: "usd",
-      payment_method: paymentMethod.id,
-      confirm: true,
-      description: invoiceNumber ? `Debt payment ${invoiceNumber}` : "Debt payment",
-      metadata: invoiceNumber ? { invoiceNumber } : undefined,
-      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-    });
-    if (intent.status === "succeeded") {
-      return { success: true, transactionId: intent.id, declineReason: null };
-    }
-    return { success: false, transactionId: intent.id, declineReason: `Stripe payment status: ${intent.status}` };
-  } catch (error: any) {
-    return { success: false, transactionId: null, declineReason: `Stripe error: ${error.message}` };
-  }
-}
-
 async function processStripeToken(
   secretKey: string,
   paymentToken: string,
+  customerId: string,
   amount: number,
   invoiceNumber?: string,
+  idempotencyKey?: string,
 ): Promise<ProcessPaymentResult> {
   try {
     const stripe = new Stripe(secretKey);
@@ -89,16 +98,24 @@ async function processStripeToken(
       amount: Math.round(amount * 100),
       currency: "usd",
       payment_method: paymentToken,
+      customer: customerId,
+      off_session: true,
       confirm: true,
       description: invoiceNumber ? `Debt payment ${invoiceNumber}` : "Debt payment",
       metadata: invoiceNumber ? { invoiceNumber } : undefined,
       automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-    });
+    }, { idempotencyKey });
+    if (intent.status === "processing") {
+      return ambiguousGatewayResult("Stripe payment outcome is still processing", intent.id);
+    }
     return intent.status === "succeeded"
       ? { success: true, transactionId: intent.id, declineReason: null }
       : { success: false, transactionId: intent.id, declineReason: `Stripe payment status: ${intent.status}` };
   } catch (error: any) {
-    return { success: false, transactionId: null, declineReason: `Stripe error: ${error.message}` };
+    if (error?.type === "StripeCardError") {
+      return { success: false, transactionId: error?.payment_intent?.id || null, declineReason: error.message || "Stripe card declined" };
+    }
+    return ambiguousGatewayResult("Stripe did not return a conclusive payment outcome", error?.payment_intent?.id || null);
   }
 }
 
@@ -130,6 +147,7 @@ async function processNmiCard(
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     });
+    if (!res.ok) return ambiguousGatewayResult("NMI transport returned an inconclusive response");
     const text = await res.text();
     const result = new URLSearchParams(text);
 
@@ -140,13 +158,12 @@ async function processNmiCard(
     if (responseCode === "1") {
       return { success: true, transactionId, declineReason: null };
     }
-    return { success: false, transactionId: null, declineReason: responseText };
+    if (responseCode === "2" || responseCode === "3") {
+      return { success: false, transactionId, declineReason: responseText };
+    }
+    return ambiguousGatewayResult("NMI returned an inconclusive payment response", transactionId);
   } catch (error: any) {
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: `NMI error: ${error.message}`,
-    };
+    return ambiguousGatewayResult("NMI transport failed before a conclusive outcome");
   }
 }
 
@@ -180,6 +197,7 @@ async function processNmiAch(
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     });
+    if (!res.ok) return ambiguousGatewayResult("NMI transport returned an inconclusive ACH response");
     const text = await res.text();
     const result = new URLSearchParams(text);
 
@@ -190,13 +208,12 @@ async function processNmiAch(
     if (responseCode === "1") {
       return { success: true, transactionId, declineReason: null };
     }
-    return { success: false, transactionId: null, declineReason: responseText };
+    if (responseCode === "2" || responseCode === "3") {
+      return { success: false, transactionId, declineReason: responseText };
+    }
+    return ambiguousGatewayResult("NMI returned an inconclusive ACH response", transactionId);
   } catch (error: any) {
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: `NMI ACH error: ${error.message}`,
-    };
+    return ambiguousGatewayResult("NMI transport failed before a conclusive ACH outcome");
   }
 }
 
@@ -235,6 +252,7 @@ async function processUsaepayCard(
       },
       body: JSON.stringify(body),
     });
+    if (!res.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive response");
     const data = await res.json();
 
     if (data.result_code === "A" || data.result === "Approved") {
@@ -244,17 +262,16 @@ async function processUsaepayCard(
         declineReason: null,
       };
     }
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: data.error || data.result || "Transaction declined",
-    };
+    if (data.result_code || data.result || data.error) {
+      return {
+        success: false,
+        transactionId: data.refnum || data.key || null,
+        declineReason: data.error || data.result || "Transaction declined",
+      };
+    }
+    return ambiguousGatewayResult("USAePay returned an inconclusive payment response", data.refnum || data.key || null);
   } catch (error: any) {
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: `USAePay error: ${error.message}`,
-    };
+    return ambiguousGatewayResult("USAePay transport failed before a conclusive outcome");
   }
 }
 
@@ -295,6 +312,7 @@ async function processUsaepayAch(
       },
       body: JSON.stringify(body),
     });
+    if (!res.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive ACH response");
     const data = await res.json();
 
     if (data.result_code === "A" || data.result === "Approved") {
@@ -304,17 +322,16 @@ async function processUsaepayAch(
         declineReason: null,
       };
     }
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: data.error || data.result || "ACH transaction declined",
-    };
+    if (data.result_code || data.result || data.error) {
+      return {
+        success: false,
+        transactionId: data.refnum || data.key || null,
+        declineReason: data.error || data.result || "ACH transaction declined",
+      };
+    }
+    return ambiguousGatewayResult("USAePay returned an inconclusive ACH response", data.refnum || data.key || null);
   } catch (error: any) {
-    return {
-      success: false,
-      transactionId: null,
-      declineReason: `USAePay ACH error: ${error.message}`,
-    };
+    return ambiguousGatewayResult("USAePay transport failed before a conclusive ACH outcome");
   }
 }
 
@@ -322,6 +339,7 @@ async function processViaGateway(
   merchant: Merchant,
   paymentMethod: string,
   paymentToken: string | null,
+  customerToken: string | null,
   cardData: {
     cardNumber: string;
     expirationDate: string;
@@ -335,7 +353,8 @@ async function processViaGateway(
   } | null,
   amount: number,
   invoiceNumber?: string,
-  customerEmail?: string
+  customerEmail?: string,
+  stripeIdempotencyKey?: string,
 ): Promise<ProcessPaymentResult> {
   if (paymentMethod === "check") {
     return { success: true, transactionId: null, declineReason: null };
@@ -348,11 +367,15 @@ async function processViaGateway(
       testMode: merchant.testMode ?? true,
     };
     if (paymentMethod === "card" && paymentToken) {
-      const result = await processDebtorTokenPayment(creds, paymentToken, amount, invoiceNumber, customerEmail);
+      if (!customerToken) {
+        return { success: false, transactionId: null, declineReason: "Authorize.Net CIM customer profile is missing" };
+      }
+      const result = await processDebtorTokenPayment(creds, customerToken, paymentToken, amount, invoiceNumber, customerEmail);
       return {
         success: result.success,
         transactionId: result.transactionId || null,
         declineReason: result.errorMessage || null,
+        ambiguous: result.ambiguous,
       };
     }
     if (paymentMethod === "card" && cardData) {
@@ -400,7 +423,8 @@ async function processViaGateway(
           security_key: creds.securityKey,
           type: "sale",
           amount: amount.toFixed(2),
-          payment_token: paymentToken,
+          customer_vault_id: paymentToken,
+          dup_seconds: "300",
         });
         if (invoiceNumber) params.set("orderid", invoiceNumber);
         const response = await fetch("https://secure.nmi.com/api/transact.php", {
@@ -408,12 +432,17 @@ async function processViaGateway(
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
         });
+        if (!response.ok) return ambiguousGatewayResult("NMI transport returned an inconclusive response");
         const result = new URLSearchParams(await response.text());
-        return result.get("response") === "1"
-          ? { success: true, transactionId: result.get("transactionid"), declineReason: null }
-          : { success: false, transactionId: null, declineReason: result.get("responsetext") || "NMI token transaction declined" };
+        const responseCode = result.get("response");
+        const transactionId = result.get("transactionid");
+        if (responseCode === "1") return { success: true, transactionId, declineReason: null };
+        if (responseCode === "2" || responseCode === "3") {
+          return { success: false, transactionId, declineReason: result.get("responsetext") || "NMI transaction declined" };
+        }
+        return ambiguousGatewayResult("NMI returned an inconclusive payment response", transactionId);
       } catch (error: any) {
-        return { success: false, transactionId: null, declineReason: `NMI error: ${error.message}` };
+        return ambiguousGatewayResult("NMI transport failed before a conclusive outcome");
       }
     }
     if (paymentMethod === "card" && cardData) {
@@ -461,12 +490,18 @@ async function processViaGateway(
             ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
           }),
         });
+        if (!response.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive response");
         const data = await response.json();
-        return data.result_code === "A" || data.result === "Approved"
-          ? { success: true, transactionId: data.refnum || data.key || null, declineReason: null }
-          : { success: false, transactionId: null, declineReason: data.error || data.result || "USAePay token transaction declined" };
+        const transactionId = data.refnum || data.key || null;
+        if (data.result_code === "A" || data.result === "Approved") {
+          return { success: true, transactionId, declineReason: null };
+        }
+        if (data.result_code || data.result || data.error) {
+          return { success: false, transactionId, declineReason: data.error || data.result || "USAePay transaction declined" };
+        }
+        return ambiguousGatewayResult("USAePay returned an inconclusive payment response", transactionId);
       } catch (error: any) {
-        return { success: false, transactionId: null, declineReason: `USAePay error: ${error.message}` };
+        return ambiguousGatewayResult("USAePay transport failed before a conclusive outcome");
       }
     }
     if (paymentMethod === "card" && cardData) {
@@ -494,18 +529,19 @@ async function processViaGateway(
 
   if (merchant.processorType === "stripe") {
     if (paymentMethod === "card" && paymentToken) {
-      return processStripeToken(merchant.stripeSecretKey!, paymentToken, amount, invoiceNumber);
+      if (!customerToken) {
+        return { success: false, transactionId: null, declineReason: "Stripe Customer is missing for saved card" };
+      }
+      return processStripeToken(merchant.stripeSecretKey!, paymentToken, customerToken, amount, invoiceNumber, stripeIdempotencyKey);
     }
     if (paymentMethod !== "card" || !cardData) {
       return { success: false, transactionId: null, declineReason: "Stripe merchant processing currently supports card payments only" };
     }
-    return processStripeCard(
-      merchant.stripeSecretKey!,
-      cardData,
-      amount,
-      invoiceNumber,
-      customerEmail,
-    );
+    return {
+      success: false,
+      transactionId: null,
+      declineReason: "Stripe requires a saved PaymentMethod created by a hosted setup flow",
+    };
   }
 
   return {
@@ -544,6 +580,7 @@ export async function processPayment(
     };
   } else {
     let gatewayPaymentToken = payment.paymentToken;
+    let gatewayCustomerToken: string | null = null;
     let cardData: {
       cardNumber: string;
       expirationDate: string;
@@ -558,28 +595,21 @@ export async function processPayment(
 
     if (payment.paymentMethod === "card" && payment.cardId) {
       const card = await storage.getPaymentCard(payment.cardId);
-      if (card && card.cardNumber) {
-        const normalizedCardNumber = card.cardNumber.replace(/[\s-]/g, "");
-        if (/^\d{13,19}$/.test(normalizedCardNumber)) {
-          cardData = {
-            cardNumber: normalizedCardNumber,
-            expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
-            // The auto runner needs the entered CVV for the initial
-            // authorization. It is cleared from storage as soon as this
-            // authorization attempt completes.
-            cardCode: card.cvv || "",
-          };
-        } else {
-          // Legacy Chain integrations saved their gateway token in the card
-          // number slot. Route opaque values through the active merchant's
-          // token API instead of submitting them as a raw PAN.
-          gatewayPaymentToken = card.cardNumber;
-        }
+      if (
+        card &&
+        card.organizationId === orgId &&
+        card.debtorId === payment.debtorId &&
+        card.vaultStatus === "vaulted" &&
+        card.processorType === activeMerchant.processorType &&
+        card.processorToken
+      ) {
+        gatewayPaymentToken = card.processorToken;
+        gatewayCustomerToken = card.processorCustomerId;
       } else {
         result = {
           success: false,
           transactionId: null,
-          declineReason: "Card not found or missing card details",
+          declineReason: "Saved card is not vaulted for this debtor and active processor",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
           status: "declined",
@@ -604,6 +634,17 @@ export async function processPayment(
         });
         return { ...result, updatedPayment };
       }
+    } else if (payment.paymentMethod === "card") {
+      result = {
+        success: false,
+        transactionId: null,
+        declineReason: "A vaulted saved card is required",
+      };
+      const updatedPayment = await storage.updatePayment(payment.id, {
+        status: "declined",
+        notes: `DECLINED: ${result.declineReason}`,
+      });
+      return { ...result, updatedPayment };
     } else if (payment.paymentMethod === "ach") {
       const bankAccounts = await storage.getBankAccounts(payment.debtorId);
       const bankAccount = bankAccounts[0];
@@ -647,40 +688,43 @@ export async function processPayment(
       }
     }
 
+    const references = gatewayReferences(payment);
     result = await processViaGateway(
       activeMerchant,
       payment.paymentMethod,
       gatewayPaymentToken,
+      gatewayCustomerToken,
       cardData,
       achData,
       payment.amount / 100,
-      payment.referenceNumber || undefined,
-      debtor?.email || undefined
+      references.orderReference,
+      debtor?.email || undefined,
+      references.idempotencyKey,
     );
   }
 
   const updatedPayment = await storage.updatePayment(payment.id, {
-    status: result.success ? "processed" : "declined",
+    status: result.success ? "processed" : result.ambiguous ? "needs_review" : "declined",
     providerTransactionId: result.transactionId,
     completedAt: new Date(),
     notes: result.success
       ? result.transactionId
         ? `${payment.notes || ""} [TXN: ${result.transactionId}]`.trim()
         : payment.notes
-      : `DECLINED: ${result.declineReason}`,
+      : result.ambiguous
+        ? `NEEDS REVIEW: ${result.declineReason}`
+        : `DECLINED: ${result.declineReason}`,
   });
 
-  // Defense in depth for historical rows: once authorization has completed,
-  // erase only CVV. Full PAN and all other recurring-payment data are kept.
-  if (payment.cardId) {
-    await storage.updatePaymentCard(payment.cardId, { cvv: null });
+  if (result.success) {
+    await createNextRecurringOccurrence(payment, storage);
   }
 
-  if (debtor) {
+  if (debtor && !result.ambiguous) {
     await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });
   }
 
-  if (!result.success && debtor) {
+  if (!result.success && !result.ambiguous && debtor) {
     await storage.createNote({
       debtorId: payment.debtorId,
       collectorId: payment.processedBy || "system",
@@ -691,12 +735,14 @@ export async function processPayment(
     });
   }
 
-  await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
-    payment,
-    success: result.success,
-    transactionId: result.transactionId,
-    declineReason: result.declineReason,
-  });
+  if (!result.ambiguous) {
+    await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
+      payment,
+      success: result.success,
+      transactionId: result.transactionId,
+      declineReason: result.declineReason,
+    });
+  }
 
   return { ...result, updatedPayment };
 }

@@ -2,18 +2,21 @@ import { storage } from "./storage";
 import { processPayment } from "./payment-processor";
 import { sendOrgNotificationEmail } from "./email";
 import type { Payment } from "@shared/schema";
+import { claimPaymentForProcessing } from "./payment-safety";
 
 interface RunResult {
   runTime: string;
   totalProcessed: number;
   totalSuccess: number;
   totalDeclined: number;
+  totalNeedsReview: number;
   totalSkipped: number;
   orgResults: Record<string, {
     orgName: string;
     processed: number;
     success: number;
     declined: number;
+    needsReview?: number;
     skipped: boolean;
     skipReason?: string;
   }>;
@@ -58,6 +61,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       totalProcessed: 0,
       totalSuccess: 0,
       totalDeclined: 0,
+      totalNeedsReview: 0,
       totalSkipped: 0,
       orgResults: {},
     };
@@ -72,6 +76,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
     totalProcessed: 0,
     totalSuccess: 0,
     totalDeclined: 0,
+    totalNeedsReview: 0,
     totalSkipped: 0,
     orgResults: {},
   };
@@ -156,15 +161,28 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
         processed: 0,
         success: 0,
         declined: 0,
+        needsReview: 0,
         skipped: false,
       };
 
       for (const payment of payments) {
         try {
-          const r = await processPayment(payment, storage, orgId);
+          // Claim immediately before the provider call. A simultaneous manual
+          // run or runner instance sees zero rows returned and must not charge.
+          const claimed = await claimPaymentForProcessing(payment.id, orgId);
+          if (!claimed) {
+            result.totalSkipped++;
+            continue;
+          }
+          // The source payment came through the typed storage layer. The raw
+          // SQL claim is used only as an atomic lock result because node-postgres
+          // returns snake_case database column names.
+          const r = await processPayment({ ...payment, status: "processing" }, storage, orgId);
           orgResult.processed++;
           if (r.success) {
             orgResult.success++;
+          } else if (r.ambiguous) {
+            orgResult.needsReview++;
           } else {
             orgResult.declined++;
           }
@@ -179,6 +197,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       result.totalProcessed += orgResult.processed;
       result.totalSuccess += orgResult.success;
       result.totalDeclined += orgResult.declined;
+      result.totalNeedsReview += orgResult.needsReview;
 
       console.log(`[Auto Runner] Org "${orgName}": ${orgResult.processed} processed, ${orgResult.success} success, ${orgResult.declined} declined`);
 

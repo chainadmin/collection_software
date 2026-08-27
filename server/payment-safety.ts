@@ -52,8 +52,23 @@ export async function postPaymentAtomically(paymentId: string, organizationId: s
 export async function claimPaymentForProcessing(paymentId: string, organizationId: string) {
   const result = await pool.query(
     `UPDATE payments SET status = 'processing', processing_started_at = NOW()
-     WHERE id = $1 AND organization_id = $2 AND status IN ('pending', 'declined', 'failed')
+     WHERE id = $1 AND organization_id = $2 AND status = 'pending'
      RETURNING *`,
+    [paymentId, organizationId],
+  );
+  return result.rows[0];
+}
+
+/** Atomically claims a previously declined payment for an explicit rerun. */
+export async function claimDeclinedPaymentForRerun(paymentId: string, organizationId: string) {
+  const result = await pool.query(
+    `UPDATE payments
+        SET status = 'processing',
+            processing_started_at = NOW(),
+            completed_at = NULL,
+            provider_transaction_id = NULL
+      WHERE id = $1 AND organization_id = $2 AND status = 'declined'
+      RETURNING *`,
     [paymentId, organizationId],
   );
   return result.rows[0];
