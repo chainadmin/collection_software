@@ -119,17 +119,14 @@ export function RecordPaymentDialog({
         }
 
         const newCard = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
-          debtorId,
-          cardType,
           cardNumber,
-          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
           expiryMonth,
           expiryYear: `20${expiryYear}`,
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-        }) as unknown as { id: string };
-        cardIdToUse = newCard.id;
+        });
+        cardIdToUse = ((await newCard.json()) as { id: string }).id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
       }
 
@@ -165,7 +162,7 @@ export function RecordPaymentDialog({
       resetForm();
       onOpenChange(false);
     } catch (error) {
-      toast({ title: "Error", description: "Failed to record payment.", variant: "destructive" });
+      toast({ title: "Error", description: error instanceof Error ? error.message.replace(/^[0-9]+:\s*/, "") : "Failed to record payment.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +213,7 @@ export function RecordPaymentDialog({
                       <SelectItem value="">Enter New Card</SelectItem>
                       {paymentCards.map((card) => (
                         <SelectItem key={card.id} value={card.id}>
-                          {card.cardType.toUpperCase()} {card.cardNumber || `**** ${card.cardNumberLast4}`} (Exp: {card.expiryMonth}/{card.expiryYear})
+                          {card.cardType.toUpperCase()} **** {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
                         </SelectItem>
                       ))}
                     </SelectContent>

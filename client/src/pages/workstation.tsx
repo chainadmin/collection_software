@@ -424,11 +424,9 @@ export default function Workstation() {
   });
 
   const addCardMutation = useMutation({
-    mutationFn: async (data: { debtorId: string; cardType: string; cardNumber: string; cardNumberLast4: string; expiryMonth: string; expiryYear: string; cardholderName: string; billingZip: string; cvv: string }) => {
+    mutationFn: async (data: { debtorId: string; cardNumber: string; expiryMonth: string; expiryYear: string; cardholderName: string; billingZip: string; cvv: string }) => {
       return apiRequest("POST", `/api/debtors/${data.debtorId}/cards`, {
-        cardType: data.cardType,
         cardNumber: data.cardNumber,
-        cardNumberLast4: data.cardNumberLast4,
         expiryMonth: data.expiryMonth,
         expiryYear: data.expiryYear,
         cardholderName: data.cardholderName,
@@ -446,6 +444,9 @@ export default function Workstation() {
       setCardCvv("");
       setBinLookupResult(null);
       toast({ title: "Card added", description: "Payment card has been saved on file." });
+    },
+    onError: (error) => {
+      toast({ title: "Card could not be saved", description: error instanceof Error ? error.message.replace(/^[0-9]+:\s*/, "") : "Processor vaulting failed.", variant: "destructive" });
     },
   });
 
@@ -693,7 +694,6 @@ export default function Workstation() {
       return;
     }
     
-    const cardNumberLast4 = cardNumber.replace(/\D/g, "").slice(-4);
     const expiryParts = cardExpiry.split("/");
     if (expiryParts.length !== 2) {
       toast({ title: "Error", description: "Please enter expiry as MM/YY.", variant: "destructive" });
@@ -701,9 +701,7 @@ export default function Workstation() {
     }
     addCardMutation.mutate({
       debtorId: selectedDebtorId,
-      cardType: getCardTypeFromNumber(cardNumber) || cardType,
       cardNumber,
-      cardNumberLast4,
       expiryMonth: expiryParts[0],
       expiryYear: `20${expiryParts[1]}`,
       cardholderName: cardHolderName,
@@ -984,10 +982,7 @@ export default function Workstation() {
       
       try {
         const response = await apiRequest("POST", `/api/debtors/${selectedDebtorId}/cards`, {
-          debtorId: selectedDebtorId,
-          cardType,
           cardNumber,
-          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
           expiryMonth,
           expiryYear: `20${expiryYear}`,
           cardholderName: cardHolderName,
@@ -1670,7 +1665,7 @@ export default function Workstation() {
                                 <div className="flex items-center justify-between">
                                   <p className="font-medium capitalize">{card.cardType}</p>
                                   <Badge variant="secondary" className="text-xs font-mono">
-                                    {card.cardNumber || `**** ${card.cardNumberLast4}`}
+                                    **** {card.cardNumberLast4}
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground">

@@ -9,7 +9,9 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
-if (process.env.NODE_ENV === "production") {
+if (process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT) {
+  // Railway terminates HTTP at one trusted proxy. Express then derives req.ip
+  // from that hop without application code trusting arbitrary X-Forwarded-For.
   app.set("trust proxy", 1);
 }
 

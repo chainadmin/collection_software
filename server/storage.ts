@@ -81,6 +81,7 @@ import {
   type IpWhitelist,
   type InsertIpWhitelist,
 } from "@shared/schema";
+import { ipMatchesEntry } from "./ip-whitelist";
 import { randomUUID, createHash } from "crypto";
 
 // Legacy SHA-256 hash for MemStorage seed data only
@@ -350,10 +351,10 @@ export interface IStorage {
 
   // IP Whitelist (organization-scoped)
   getIpWhitelist(organizationId: string): Promise<IpWhitelist[]>;
-  getIpWhitelistEntry(id: string): Promise<IpWhitelist | undefined>;
+  getIpWhitelistEntry(organizationId: string, id: string): Promise<IpWhitelist | undefined>;
   createIpWhitelistEntry(entry: InsertIpWhitelist): Promise<IpWhitelist>;
-  updateIpWhitelistEntry(id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined>;
-  deleteIpWhitelistEntry(id: string): Promise<boolean>;
+  updateIpWhitelistEntry(organizationId: string, id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined>;
+  deleteIpWhitelistEntry(organizationId: string, id: string): Promise<boolean>;
   isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean>;
 }
 
@@ -1562,12 +1563,14 @@ export class MemStorage implements IStorage {
       debtorId: card.debtorId,
       cardType: card.cardType,
       cardholderName: card.cardholderName,
-      cardNumber: card.cardNumber,
       cardNumberLast4: card.cardNumberLast4,
       expiryMonth: card.expiryMonth,
       expiryYear: card.expiryYear,
-      cvv: card.cvv ?? null,
       billingZip: card.billingZip ?? null,
+      processorType: card.processorType,
+      processorToken: card.processorToken,
+      processorCustomerId: card.processorCustomerId ?? null,
+      vaultStatus: card.vaultStatus ?? "active",
       isDefault: card.isDefault ?? false,
       addedDate: card.addedDate,
       addedBy: card.addedBy ?? null,
@@ -2680,8 +2683,9 @@ export class MemStorage implements IStorage {
     return Array.from(this.ipWhitelistEntries.values()).filter(entry => entry.organizationId === organizationId);
   }
 
-  async getIpWhitelistEntry(id: string): Promise<IpWhitelist | undefined> {
-    return this.ipWhitelistEntries.get(id);
+  async getIpWhitelistEntry(organizationId: string, id: string): Promise<IpWhitelist | undefined> {
+    const entry = this.ipWhitelistEntries.get(id);
+    return entry?.organizationId === organizationId ? entry : undefined;
   }
 
   async createIpWhitelistEntry(entry: InsertIpWhitelist): Promise<IpWhitelist> {
@@ -2699,46 +2703,24 @@ export class MemStorage implements IStorage {
     return newEntry;
   }
 
-  async updateIpWhitelistEntry(id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined> {
-    const existing = this.ipWhitelistEntries.get(id);
+  async updateIpWhitelistEntry(organizationId: string, id: string, entry: Partial<InsertIpWhitelist>): Promise<IpWhitelist | undefined> {
+    const existing = await this.getIpWhitelistEntry(organizationId, id);
     if (!existing) return undefined;
     const updated = { ...existing, ...entry };
     this.ipWhitelistEntries.set(id, updated);
     return updated;
   }
 
-  async deleteIpWhitelistEntry(id: string): Promise<boolean> {
-    return this.ipWhitelistEntries.delete(id);
+  async deleteIpWhitelistEntry(organizationId: string, id: string): Promise<boolean> {
+    const existing = await this.getIpWhitelistEntry(organizationId, id);
+    return existing ? this.ipWhitelistEntries.delete(id) : false;
   }
 
   async isIpWhitelisted(organizationId: string, ipAddress: string): Promise<boolean> {
     const whitelist = await this.getIpWhitelist(organizationId);
     const activeEntries = whitelist.filter(entry => entry.isActive);
-    if (activeEntries.length === 0) return true; // No whitelist means allow all
-    
-    // Check for exact IP match or CIDR range match
-    for (const entry of activeEntries) {
-      if (entry.ipAddress === ipAddress) return true;
-      
-      // Handle CIDR notation (e.g., 192.168.1.0/24)
-      if (entry.ipAddress.includes('/')) {
-        if (this.ipInCidr(ipAddress, entry.ipAddress)) return true;
-      }
-    }
-    return false;
-  }
-
-  private ipInCidr(ip: string, cidr: string): boolean {
-    const [range, bits] = cidr.split('/');
-    const mask = ~(2 ** (32 - parseInt(bits)) - 1);
-    const ipNum = this.ipToNumber(ip);
-    const rangeNum = this.ipToNumber(range);
-    return (ipNum & mask) === (rangeNum & mask);
-  }
-
-  private ipToNumber(ip: string): number {
-    const parts = ip.split('.').map(Number);
-    return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+    if (activeEntries.length === 0) return false;
+    return activeEntries.some((entry) => ipMatchesEntry(ipAddress, entry.ipAddress));
   }
 }
 

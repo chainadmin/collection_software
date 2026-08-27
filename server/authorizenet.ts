@@ -277,19 +277,13 @@ export async function processDebtorTokenPayment(
   paymentToken: string,
   amount: number,
   invoiceNumber?: string,
-  customerEmail?: string
+  customerEmail?: string,
+  customerProfileId?: string,
 ): Promise<ChargeResult> {
   return new Promise((resolve) => {
     const merchantAuth = new APIContracts.MerchantAuthenticationType();
     merchantAuth.setName(merchantCredentials.apiLoginId);
     merchantAuth.setTransactionKey(merchantCredentials.transactionKey);
-
-    const opaqueData = new APIContracts.OpaqueDataType();
-    opaqueData.setDataDescriptor("COMMON.ACCEPT.INAPP.PAYMENT");
-    opaqueData.setDataValue(paymentToken);
-
-    const paymentType = new APIContracts.PaymentType();
-    paymentType.setOpaqueData(opaqueData);
 
     const orderDetails = new APIContracts.OrderType();
     orderDetails.setInvoiceNumber(invoiceNumber || `PMT-${Date.now()}`);
@@ -297,7 +291,16 @@ export async function processDebtorTokenPayment(
 
     const transactionRequest = new APIContracts.TransactionRequestType();
     transactionRequest.setTransactionType(APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
-    transactionRequest.setPayment(paymentType);
+    if (!customerProfileId) {
+      resolve({ success: false, errorMessage: "Authorize.Net CIM customer profile is missing" });
+      return;
+    }
+    const paymentProfile = new APIContracts.PaymentProfile();
+    paymentProfile.setPaymentProfileId(paymentToken);
+    const profile = new APIContracts.CustomerProfilePaymentType();
+    profile.setCustomerProfileId(customerProfileId);
+    profile.setPaymentProfile(paymentProfile);
+    transactionRequest.setProfile(profile);
     transactionRequest.setAmount(amount);
     transactionRequest.setOrder(orderDetails);
 
