@@ -2348,8 +2348,8 @@ export async function registerRoutes(
       // authorization. payment-processor clears it immediately after that
       // authorization attempt; all other stored payment data is unchanged.
       const card = await storage.createPaymentCard({
-        ...cardInput,
-        cvv: null,
+        ...req.body,
+        cvv: req.body.cvv,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
         organizationId: orgId,
