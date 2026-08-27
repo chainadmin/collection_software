@@ -60,8 +60,8 @@ export default function ServerAccess() {
       setIpAddress("");
       setIpDescription("");
     },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message || "Failed to add IP address.", variant: "destructive" });
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add IP address.", variant: "destructive" });
     },
   });
 
@@ -72,8 +72,8 @@ export default function ServerAccess() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ip-whitelist"] });
     },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message || "Failed to update IP address.", variant: "destructive" });
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update IP address.", variant: "destructive" });
     },
   });
 
@@ -85,8 +85,8 @@ export default function ServerAccess() {
       queryClient.invalidateQueries({ queryKey: ["/api/ip-whitelist"] });
       toast({ title: "IP Removed", description: "The IP address has been removed from the whitelist." });
     },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message || "Failed to remove IP address.", variant: "destructive" });
+    onError: () => {
+      toast({ title: "Error", description: "Failed to remove IP address.", variant: "destructive" });
     },
   });
 
@@ -99,13 +99,13 @@ export default function ServerAccess() {
       toast({ 
         title: enabled ? "IP Restriction Enabled" : "IP Restriction Disabled", 
         description: enabled 
-          ? "Collector access is now limited to active whitelist entries."
-          : "Collectors can access the organization from any IP."
+          ? "Collectors can only login from whitelisted IPs." 
+          : "Collectors can login from any IP." 
       });
     },
-    onError: (error: Error, enabled) => {
-      toast({ title: "IP restriction not changed", description: error.message || "Failed to update IP restriction setting.", variant: "destructive" });
-      setEnableIpRestriction(!enabled);
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update IP restriction setting.", variant: "destructive" });
+      setEnableIpRestriction(!enableIpRestriction);
     },
   });
 
@@ -114,7 +114,12 @@ export default function ServerAccess() {
       toast({ title: "Error", description: "Please enter an IP address.", variant: "destructive" });
       return;
     }
-    addIpMutation.mutate({ ipAddress: ipAddress.trim(), description: ipDescription });
+    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+    if (!ipRegex.test(ipAddress)) {
+      toast({ title: "Error", description: "Please enter a valid IP address or CIDR range.", variant: "destructive" });
+      return;
+    }
+    addIpMutation.mutate({ ipAddress, description: ipDescription });
   };
 
   const handleToggleRestriction = (checked: boolean) => {
@@ -135,7 +140,7 @@ export default function ServerAccess() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Server Access Control</h1>
-          <p className="text-muted-foreground">Manage the IP whitelist for all collector access</p>
+          <p className="text-muted-foreground">Manage IP whitelist for collector login</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
@@ -158,7 +163,7 @@ export default function ServerAccess() {
                   data-testid="input-ip-address"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Enter an IPv4 or IPv6 address, or a CIDR range (for example, 2001:db8::/32)
+                  Enter a single IP or CIDR notation for a range
                 </p>
               </div>
               <div className="space-y-2">
@@ -196,8 +201,8 @@ export default function ServerAccess() {
                 <p className="font-medium">IP Restriction</p>
                 <p className="text-sm text-muted-foreground">
                   {enableIpRestriction 
-                    ? "Collector requests are allowed only from active whitelist entries"
-                    : "IP restriction is disabled — collectors can access from any IP"}
+                    ? "Collectors can only login from whitelisted IPs" 
+                    : "IP restriction is disabled - collectors can login from any IP"}
                 </p>
               </div>
             </div>
@@ -215,18 +220,6 @@ export default function ServerAccess() {
           </div>
         </CardContent>
       </Card>
-
-      <div className="flex gap-3 rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-4 text-sm">
-        <AlertTriangle className="h-5 w-5 shrink-0 text-yellow-600" />
-        <div>
-          <p className="font-medium">Prevent an access lockout</p>
-          <p className="text-muted-foreground">
-            Add and activate your current public IP or network before enabling this setting. At least one valid active
-            entry is required, and the last active entry cannot be removed while restriction is enabled. Active admins
-            and managers can still return to this page to repair or disable the policy.
-          </p>
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -285,7 +278,7 @@ export default function ServerAccess() {
               <div className="text-center py-8 text-muted-foreground">
                 <Globe className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No IP addresses in whitelist</p>
-                <p className="text-sm">Add an IPv4/IPv6 address or CIDR range to restrict collector access</p>
+                <p className="text-sm">Add IP addresses to restrict collector login access</p>
               </div>
             ) : null}
             {whitelist.map((ip) => (
@@ -378,14 +371,14 @@ export default function ServerAccess() {
               <CheckCircle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">When Enabled</p>
-                <p className="text-muted-foreground">Login and already-authenticated collector requests must come from an active whitelist entry. Blocked attempts show an access denied error.</p>
+                <p className="text-muted-foreground">Collectors can only login from IP addresses in this whitelist. Blocked attempts show an access denied error.</p>
               </div>
             </div>
             <div className="flex gap-3">
               <Globe className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">CIDR Support</p>
-                <p className="text-muted-foreground">IPv4 and IPv6 are supported, including CIDR ranges such as 192.168.1.0/24 and 2001:db8::/32.</p>
+                <p className="text-muted-foreground">You can add entire IP ranges using CIDR notation (e.g., 192.168.1.0/24 for a /24 subnet).</p>
               </div>
             </div>
           </div>

@@ -922,11 +922,6 @@ export function registerExternalApiRoutes(app: Express) {
         || ccNumber
         || ccnumber
         || null;
-      if (typeof chainPaymentToken === "string" && /^\s*\d[\d\s-]{11,22}\d\s*$/.test(chainPaymentToken)) {
-        return res.status(400).json({
-          error: "Raw card numbers are not accepted; provide a reusable processor token",
-        });
-      }
       const normalizedPaymentMethod = chainPaymentToken
         ? "card"
         : (paymentMethod || "external");

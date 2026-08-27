@@ -272,31 +272,20 @@ export const paymentCards = pgTable("payment_cards", {
   debtorId: varchar("debtor_id").notNull(),
   cardType: text("card_type").notNull(), // visa, mastercard, amex, discover
   cardholderName: text("cardholder_name").notNull(),
+  cardNumber: text("card_number").notNull(), // full card number
   cardNumberLast4: text("card_number_last_4").notNull(),
   expiryMonth: text("expiry_month").notNull(),
   expiryYear: text("expiry_year").notNull(),
+  cvv: text("cvv"), // CVV code
   billingZip: text("billing_zip"),
-  // Server-only ciphertext. API serializers must remove this field.
-  encryptedPan: text("encrypted_pan"),
-  processorType: text("processor_type"),
-  processorToken: text("processor_token"),
-  processorCustomerId: text("processor_customer_id"),
-  vaultStatus: text("vault_status").notNull().default("active"),
   isDefault: boolean("is_default").default(false),
   addedDate: text("added_date").notNull(),
   addedBy: varchar("added_by"), // collector id who added the card
 });
 
-export const insertPaymentCardSchema = createInsertSchema(paymentCards).omit({
-  id: true,
-  encryptedPan: true,
-  processorToken: true,
-  processorCustomerId: true,
-});
+export const insertPaymentCardSchema = createInsertSchema(paymentCards).omit({ id: true });
 export type InsertPaymentCard = z.infer<typeof insertPaymentCardSchema>;
-export type InternalInsertPaymentCard = typeof paymentCards.$inferInsert;
-export type InternalPaymentCard = typeof paymentCards.$inferSelect;
-export type PaymentCard = Omit<InternalPaymentCard, "encryptedPan">;
+export type PaymentCard = typeof paymentCards.$inferSelect;
 
 // Payments
 export const payments = pgTable("payments", {

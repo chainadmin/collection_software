@@ -82,7 +82,6 @@ async function processStripeToken(
   paymentToken: string,
   amount: number,
   invoiceNumber?: string,
-  customerId?: string,
 ): Promise<ProcessPaymentResult> {
   try {
     const stripe = new Stripe(secretKey);
@@ -90,7 +89,6 @@ async function processStripeToken(
       amount: Math.round(amount * 100),
       currency: "usd",
       payment_method: paymentToken,
-      customer: customerId,
       confirm: true,
       description: invoiceNumber ? `Debt payment ${invoiceNumber}` : "Debt payment",
       metadata: invoiceNumber ? { invoiceNumber } : undefined,
@@ -324,7 +322,6 @@ async function processViaGateway(
   merchant: Merchant,
   paymentMethod: string,
   paymentToken: string | null,
-  processorCustomerId: string | null,
   cardData: {
     cardNumber: string;
     expirationDate: string;
@@ -351,7 +348,7 @@ async function processViaGateway(
       testMode: merchant.testMode ?? true,
     };
     if (paymentMethod === "card" && paymentToken) {
-      const result = await processDebtorTokenPayment(creds, paymentToken, amount, invoiceNumber, customerEmail, processorCustomerId || undefined);
+      const result = await processDebtorTokenPayment(creds, paymentToken, amount, invoiceNumber, customerEmail);
       return {
         success: result.success,
         transactionId: result.transactionId || null,
@@ -497,7 +494,7 @@ async function processViaGateway(
 
   if (merchant.processorType === "stripe") {
     if (paymentMethod === "card" && paymentToken) {
-      return processStripeToken(merchant.stripeSecretKey!, paymentToken, amount, invoiceNumber, processorCustomerId || undefined);
+      return processStripeToken(merchant.stripeSecretKey!, paymentToken, amount, invoiceNumber);
     }
     if (paymentMethod !== "card" || !cardData) {
       return { success: false, transactionId: null, declineReason: "Stripe merchant processing currently supports card payments only" };
@@ -547,7 +544,6 @@ export async function processPayment(
     };
   } else {
     let gatewayPaymentToken = payment.paymentToken;
-    let processorCustomerId: string | null = null;
     let cardData: {
       cardNumber: string;
       expirationDate: string;
@@ -562,26 +558,28 @@ export async function processPayment(
 
     if (payment.paymentMethod === "card" && payment.cardId) {
       const card = await storage.getPaymentCard(payment.cardId);
-      if (
-        card &&
-        card.processorToken &&
-        card.vaultStatus === "active" &&
-        card.organizationId === orgId &&
-        card.debtorId === payment.debtorId &&
-        card.processorType === activeMerchant.processorType
-      ) {
-        gatewayPaymentToken = card.processorToken;
-        processorCustomerId = card.processorCustomerId;
+      if (card && card.cardNumber) {
+        const normalizedCardNumber = card.cardNumber.replace(/[\s-]/g, "");
+        if (/^\d{13,19}$/.test(normalizedCardNumber)) {
+          cardData = {
+            cardNumber: normalizedCardNumber,
+            expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
+            // The auto runner needs the entered CVV for the initial
+            // authorization. It is cleared from storage as soon as this
+            // authorization attempt completes.
+            cardCode: card.cvv || "",
+          };
+        } else {
+          // Legacy Chain integrations saved their gateway token in the card
+          // number slot. Route opaque values through the active merchant's
+          // token API instead of submitting them as a raw PAN.
+          gatewayPaymentToken = card.cardNumber;
+        }
       } else {
-        const reason = !card || !card.processorToken || card.vaultStatus !== "active"
-          ? "Card is not vaulted; legacy raw-card rows cannot be charged"
-          : card.organizationId !== orgId || card.debtorId !== payment.debtorId
-            ? "Stored card ownership mismatch"
-            : "Stored card belongs to a different payment processor";
         result = {
           success: false,
           transactionId: null,
-          declineReason: reason,
+          declineReason: "Card not found or missing card details",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
           status: "declined",
@@ -653,7 +651,6 @@ export async function processPayment(
       activeMerchant,
       payment.paymentMethod,
       gatewayPaymentToken,
-      processorCustomerId,
       cardData,
       achData,
       payment.amount / 100,
@@ -672,6 +669,12 @@ export async function processPayment(
         : payment.notes
       : `DECLINED: ${result.declineReason}`,
   });
+
+  // Defense in depth for historical rows: once authorization has completed,
+  // erase only CVV. Full PAN and all other recurring-payment data are kept.
+  if (payment.cardId) {
+    await storage.updatePaymentCard(payment.cardId, { cvv: null });
+  }
 
   if (debtor) {
     await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });

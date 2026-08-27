@@ -207,16 +207,12 @@ export async function runMigrations() {
         "debtor_id" varchar NOT NULL,
         "card_type" text NOT NULL,
         "cardholder_name" text NOT NULL,
-        "card_number" text,
+        "card_number" text NOT NULL,
         "card_number_last_4" text NOT NULL,
         "expiry_month" text NOT NULL,
         "expiry_year" text NOT NULL,
         "cvv" text,
         "billing_zip" text,
-        "processor_type" text NOT NULL,
-        "processor_token" text NOT NULL,
-        "processor_customer_id" text,
-        "vault_status" text NOT NULL DEFAULT 'active',
         "is_default" boolean DEFAULT false,
         "added_date" text NOT NULL,
         "added_by" varchar
@@ -595,19 +591,6 @@ export async function runMigrations() {
 
     // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
     console.log("Running safe schema updates...");
-
-    // Legacy PAN/CVV columns are intentionally retained pending an approved
-    // purge. They are no longer mapped by the application or returned by APIs.
-    // New rows contain only gateway vault references.
-    await db.execute(sql`
-      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_type text;
-      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_token text;
-      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_customer_id text;
-      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS vault_status text NOT NULL DEFAULT 'legacy_unvaulted';
-      ALTER TABLE payment_cards ALTER COLUMN card_number DROP NOT NULL;
-      UPDATE payment_cards SET vault_status = 'legacy_unvaulted'
-        WHERE processor_token IS NULL;
-    `);
     
     // Add username column to global_admins if it doesn't exist
     await db.execute(sql`
