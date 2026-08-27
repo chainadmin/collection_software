@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerExternalApiRoutes } from "./external-api";
+import { buildInternalPaymentInsert, rejectRawCardData } from "./payment-input";
+import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
 import { isActiveGlobalAdminSession } from "./access-control";
@@ -2615,7 +2617,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const payments = await storage.getPayments(req.params.id);
-      res.json(payments);
+      res.json(redactPayments(payments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments" });
     }
@@ -2635,6 +2637,11 @@ export async function registerRoutes(
       }
       if (amount > debtor.currentBalance) {
         return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
+      }
+      try {
+        rejectRawCardData(req.body);
+      } catch {
+        return res.status(400).json({ error: "Raw card data is not accepted by this endpoint" });
       }
       if (req.body.paymentMethod === "card") {
         if (typeof req.body.cardId !== "string" || !req.body.cardId) {
@@ -2660,13 +2667,13 @@ export async function registerRoutes(
       if (existing) return res.status(200).json(existing);
       let payment;
       try {
-        payment = await storage.createPayment({
-          ...req.body,
+        payment = await storage.createPayment(buildInternalPaymentInsert(req.body, {
           amount,
           debtorId: req.params.id,
           organizationId: orgId,
           idempotencyKey,
-        });
+          processedBy: req.session?.collectorId ?? null,
+        }));
       } catch (error: any) {
         // A concurrent request may win the unique-key race. Return that same
         // logical payment rather than surfacing an error or creating another.
@@ -2680,7 +2687,7 @@ export async function registerRoutes(
 
       // Scheduling a pending payment must not change the account balance.
       // The balance is applied exactly once when the processed payment posts.
-      res.status(201).json(payment);
+      res.status(201).json(redactPayment(payment));
     } catch (error) {
       res.status(500).json({ error: "Failed to create payment" });
     }
@@ -2725,7 +2732,7 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const limit = parseInt(req.query.limit as string) || 10;
       const payments = await storage.getRecentPayments(limit, orgId);
-      res.json(payments);
+      res.json(redactPayments(payments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch recent payments" });
     }
@@ -2735,7 +2742,7 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const payments = await storage.getPendingPayments(orgId);
-      res.json(payments);
+      res.json(redactPayments(payments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pending payments" });
     }
@@ -2817,7 +2824,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Payment batch not found" });
       }
       const payments = await storage.getPayments(undefined, req.params.id);
-      res.json(payments);
+      res.json(redactPayments(payments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch batch payments" });
     }
@@ -3320,7 +3327,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Date parameter required" });
       }
       const payments = await storage.getPaymentsByDate(date as string, orgId);
-      res.json(payments);
+      res.json(redactPayments(payments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments by date" });
     }
@@ -3333,7 +3340,7 @@ export async function registerRoutes(
       const allPayments = await storage.getAllPayments();
       // Filter to only return payments from the authenticated user's organization
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
-      res.json(orgPayments);
+      res.json(redactPayments(orgPayments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments" });
     }
@@ -3352,12 +3359,14 @@ export async function registerRoutes(
       }
 
       if (["processed", "posted"].includes(payment.status)) {
-        return res.json(payment);
+        return res.json(redactPayment(payment));
       }
       const claimed = await claimPaymentForProcessing(payment.id, orgId);
       if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
       const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
-      res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
+      const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
+      if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
+      res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment processing error:", error);
       res.status(500).json({ error: "Failed to process payment" });
@@ -3383,7 +3392,9 @@ export async function registerRoutes(
         return res.status(409).json({ error: "Payment is already being processed or is no longer declined" });
       }
       const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
-      res.json({ ...result.updatedPayment, declineReason: result.declineReason, transactionId: result.transactionId });
+      const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
+      if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
+      res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment rerun error:", error);
       res.status(500).json({ error: "Failed to re-run payment" });
@@ -3462,7 +3473,8 @@ export async function registerRoutes(
         organizationId: orgId,
       });
 
-      res.json({ ...updatedPayment, cancelledPayments: futurePayments.length });
+      if (!updatedPayment) return res.status(404).json({ error: "Payment not found" });
+      res.json({ ...redactPayment(updatedPayment), cancelledPayments: futurePayments.length });
     } catch (error) {
       res.status(500).json({ error: "Failed to reverse payment" });
     }
@@ -3489,7 +3501,8 @@ export async function registerRoutes(
 
       const result = await postPaymentAtomically(payment.id, orgId);
       const postedPayment = await storage.getPayment(payment.id);
-      res.json({ ...postedPayment, alreadyPosted: result.alreadyPosted });
+      if (!postedPayment) return res.status(404).json({ error: "Payment not found" });
+      res.json({ ...redactPayment(postedPayment), alreadyPosted: result.alreadyPosted });
     } catch (error) {
       const status = (error as any)?.statusCode || 500;
       res.status(status).json({ error: status === 500 ? "Failed to post payment" : (error as Error).message });

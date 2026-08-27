@@ -280,10 +280,16 @@ export const paymentCards = pgTable("payment_cards", {
   processorToken: text("processor_token"),
   processorCustomerId: text("processor_customer_id"),
   vaultStatus: text("vault_status").notNull().default("legacy_unvaulted"),
+  // External future-card requests reserve a safe row before vaulting. This
+  // contains only the caller's opaque retry key, never PAN/CVV.
+  externalIdempotencyKey: text("external_idempotency_key"),
   isDefault: boolean("is_default").default(false),
   addedDate: text("added_date").notNull(),
   addedBy: varchar("added_by"), // collector id who added the card
-});
+}, (table) => ({
+  externalIdempotencyUnique: uniqueIndex("payment_cards_org_external_idempotency_unique")
+    .on(table.organizationId, table.externalIdempotencyKey),
+}));
 
 export const insertPaymentCardSchema = createInsertSchema(paymentCards).omit({ id: true });
 export type InsertPaymentCard = z.infer<typeof insertPaymentCardSchema>;

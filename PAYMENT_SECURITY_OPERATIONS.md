@@ -44,6 +44,15 @@ cardholder/billing metadata, processor type, reusable processor identifiers,
 default selection, and vault status. PAN and CVV exist only in request memory
 for the duration of the processor vault call and are never returned or logged.
 
+Authenticated Chain requests may submit full card details to
+`POST /api/v2/insert_payments_external` only when scheduling a future card
+payment. The request must include a stable idempotency key. DMP reserves one
+vault record for that organization and key, vaults the card immediately, then
+creates the pending payment with the saved-card ID and a null payment token.
+Retries reuse the same reservation. All non-card request fields are screened
+for PAN/CVV values before any row is written, and API responses use an explicit
+payment allowlist.
+
 Authorize.Net uses CIM customer and payment profiles; subsequent cards reuse
 the debtor's customer profile. Stripe saved-card creation is explicitly
 unsupported until a tenant publishable-key plus Elements/Checkout hosted setup

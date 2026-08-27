@@ -171,6 +171,7 @@ export interface IStorage {
   deleteBankAccount(id: string): Promise<boolean>;
 
   getPaymentCards(debtorId: string): Promise<PaymentCard[]>;
+  getPaymentCardByExternalIdempotencyKey(organizationId: string, key: string): Promise<PaymentCard | undefined>;
   createPaymentCard(card: InsertPaymentCard): Promise<PaymentCard>;
   updatePaymentCard(id: string, card: Partial<InsertPaymentCard>): Promise<PaymentCard | undefined>;
   deletePaymentCard(id: string): Promise<boolean>;
@@ -178,6 +179,7 @@ export interface IStorage {
   getPayments(debtorId?: string, batchId?: string): Promise<Payment[]>;
   getAllPayments(): Promise<Payment[]>;
   getPayment(id: string): Promise<Payment | undefined>;
+  getPaymentByIdempotencyKey(organizationId: string, key: string): Promise<Payment | undefined>;
   getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
   getRecentPayments(limit?: number, organizationId?: string): Promise<Payment[]>;
   getPendingPayments(organizationId?: string): Promise<Payment[]>;
@@ -1571,6 +1573,12 @@ export class MemStorage implements IStorage {
     return Array.from(this.paymentCards.values()).filter((c) => c.debtorId === debtorId);
   }
 
+  async getPaymentCardByExternalIdempotencyKey(organizationId: string, key: string): Promise<PaymentCard | undefined> {
+    return Array.from(this.paymentCards.values()).find(
+      card => card.organizationId === organizationId && card.externalIdempotencyKey === key,
+    );
+  }
+
   async createPaymentCard(card: InsertPaymentCard): Promise<PaymentCard> {
     const id = randomUUID();
     const newCard: PaymentCard = {
@@ -1587,6 +1595,7 @@ export class MemStorage implements IStorage {
       processorToken: card.processorToken ?? null,
       processorCustomerId: card.processorCustomerId ?? null,
       vaultStatus: card.vaultStatus ?? "legacy_unvaulted",
+      externalIdempotencyKey: card.externalIdempotencyKey ?? null,
       isDefault: card.isDefault ?? false,
       addedDate: card.addedDate,
       addedBy: card.addedBy ?? null,
@@ -1620,6 +1629,12 @@ export class MemStorage implements IStorage {
 
   async getPayment(id: string): Promise<Payment | undefined> {
     return this.payments.get(id);
+  }
+
+  async getPaymentByIdempotencyKey(organizationId: string, key: string): Promise<Payment | undefined> {
+    return Array.from(this.payments.values()).find(
+      payment => payment.organizationId === organizationId && payment.idempotencyKey === key,
+    );
   }
 
   async getPaymentsForDebtor(debtorId: string): Promise<Payment[]> {

@@ -630,6 +630,10 @@ export async function runMigrations() {
       WHERE payment_cards.id = ranked_defaults.id AND ranked_defaults.rank > 1;
       CREATE UNIQUE INDEX IF NOT EXISTS payment_cards_one_default_per_debtor
       ON payment_cards (debtor_id) WHERE is_default IS TRUE;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS external_idempotency_key text;
+      CREATE UNIQUE INDEX IF NOT EXISTS payment_cards_org_external_idempotency_unique
+      ON payment_cards (organization_id, external_idempotency_key)
+      WHERE external_idempotency_key IS NOT NULL;
     `);
     
     // Add username column to global_admins if it doesn't exist

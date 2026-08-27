@@ -485,6 +485,14 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(paymentCards).where(eq(paymentCards.debtorId, debtorId));
   }
 
+  async getPaymentCardByExternalIdempotencyKey(organizationId: string, key: string): Promise<PaymentCard | undefined> {
+    const [card] = await db.select().from(paymentCards).where(and(
+      eq(paymentCards.organizationId, organizationId),
+      eq(paymentCards.externalIdempotencyKey, key),
+    ));
+    return card;
+  }
+
   async getPaymentCard(id: string): Promise<PaymentCard | undefined> {
     const [card] = await db.select().from(paymentCards).where(eq(paymentCards.id, id));
     return card;
@@ -528,6 +536,14 @@ export class DatabaseStorage implements IStorage {
 
   async getPayment(id: string): Promise<Payment | undefined> {
     const [payment] = await db.select().from(payments).where(eq(payments.id, id));
+    return payment;
+  }
+
+  async getPaymentByIdempotencyKey(organizationId: string, key: string): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(and(
+      eq(payments.organizationId, organizationId),
+      eq(payments.idempotencyKey, key),
+    ));
     return payment;
   }
 
