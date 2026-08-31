@@ -3,6 +3,7 @@ import { processPayment } from "./payment-processor";
 import { sendOrgNotificationEmail } from "./email";
 import type { Payment } from "@shared/schema";
 import { claimPaymentForProcessing } from "./payment-safety";
+import { getPaymentBusinessDate } from "./payment-date";
 
 interface RunResult {
   runTime: string;
@@ -45,11 +46,7 @@ function getEasternTime(): Date {
 }
 
 function getEasternDateString(): string {
-  const et = getEasternTime();
-  const y = et.getFullYear();
-  const m = String(et.getMonth() + 1).padStart(2, "0");
-  const d = String(et.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return getPaymentBusinessDate();
 }
 
 export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean }): Promise<RunResult> {
@@ -169,7 +166,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
         try {
           // Claim immediately before the provider call. A simultaneous manual
           // run or runner instance sees zero rows returned and must not charge.
-          const claimed = await claimPaymentForProcessing(payment.id, orgId);
+          const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
           if (!claimed) {
             result.totalSkipped++;
             continue;
