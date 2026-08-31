@@ -49,12 +49,12 @@ export async function postPaymentAtomically(paymentId: string, organizationId: s
 }
 
 /** Claims a payment before the provider call; only one worker can win. */
-export async function claimPaymentForProcessing(paymentId: string, organizationId: string) {
+export async function claimPaymentForProcessing(paymentId: string, organizationId: string, dueByDate: string) {
   const result = await pool.query(
     `UPDATE payments SET status = 'processing', processing_started_at = NOW()
-     WHERE id = $1 AND organization_id = $2 AND status = 'pending'
+     WHERE id = $1 AND organization_id = $2 AND status = 'pending' AND payment_date <= $3
      RETURNING *`,
-    [paymentId, organizationId],
+    [paymentId, organizationId, dueByDate],
   );
   return result.rows[0];
 }

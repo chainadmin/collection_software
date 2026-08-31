@@ -53,6 +53,7 @@ import {
 import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card-validation";
 import { CardVaultError, vaultCard } from "./card-vault";
 import { redactPaymentCard } from "./payment-card-presenter";
+import { getPaymentBusinessDate } from "./payment-date";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -2667,7 +2668,10 @@ export async function registerRoutes(
       if (existing) return res.status(200).json(existing);
       let payment;
       try {
-        payment = await storage.createPayment(buildInternalPaymentInsert(req.body, {
+        const paymentBody = req.body.processNow === true
+          ? { ...req.body, paymentDate: getPaymentBusinessDate() }
+          : req.body;
+        payment = await storage.createPayment(buildInternalPaymentInsert(paymentBody, {
           amount,
           debtorId: req.params.id,
           organizationId: orgId,
@@ -2683,6 +2687,23 @@ export async function registerRoutes(
           eq(paymentsTable.idempotencyKey, idempotencyKey),
         ));
         if (!payment) throw error;
+      }
+
+      if (req.body.processNow === true) {
+        const today = getPaymentBusinessDate();
+        if (payment.paymentMethod !== "card" || payment.paymentDate !== today) {
+          return res.status(400).json({ error: "Pay Now requires a card payment dated today" });
+        }
+        const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
+        if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
+        const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+        const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
+        if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
+        return res.status(201).json({
+          ...redactPayment(responsePayment),
+          declineReason: result.declineReason,
+          transactionId: result.transactionId,
+        });
       }
 
       // Scheduling a pending payment must not change the account balance.
@@ -3361,8 +3382,8 @@ export async function registerRoutes(
       if (["processed", "posted"].includes(payment.status)) {
         return res.json(redactPayment(payment));
       }
-      const claimed = await claimPaymentForProcessing(payment.id, orgId);
-      if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
+      const claimed = await claimPaymentForProcessing(payment.id, orgId, getPaymentBusinessDate());
+      if (!claimed) return res.status(409).json({ error: "Payment is not due or is already being processed" });
       const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
       const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
       if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });

@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +49,7 @@ export function RecordPaymentDialog({
   const { toast } = useToast();
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("ach");
+  const [cardPaymentTiming, setCardPaymentTiming] = useState<"pay_now" | "schedule_future">("pay_now");
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
@@ -69,6 +71,7 @@ export function RecordPaymentDialog({
   const resetForm = () => {
     setPaymentAmount("");
     setPaymentMethod("ach");
+    setCardPaymentTiming("pay_now");
     setPaymentFrequency("one_time");
     setPaymentDate(new Date());
     setSelectedDates([]);
@@ -104,6 +107,14 @@ export function RecordPaymentDialog({
     let cardIdToUse = selectedCardId;
 
     try {
+      const paymentDateValue = format(paymentDate, "yyyy-MM-dd");
+      const today = format(new Date(), "yyyy-MM-dd");
+      const shouldProcessNow = paymentMethod === "card" && cardPaymentTiming === "pay_now";
+      if (paymentMethod === "card" && cardPaymentTiming === "schedule_future" && paymentDateValue <= today) {
+        toast({ title: "Choose a future date", description: "Scheduled card payments must be dated after today.", variant: "destructive" });
+        return;
+      }
+
       if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
         if (!cardValidation?.isValid) {
           toast({ title: "Error", description: "Please check the card number.", variant: "destructive" });
@@ -144,11 +155,11 @@ export function RecordPaymentDialog({
         nextPaymentDate = today.toISOString().split("T")[0];
       }
 
-      await apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
+      const paymentResponse = await apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
         debtorId,
         amount,
         paymentMethod,
-        paymentDate: paymentDate.toISOString().split("T")[0],
+        paymentDate: shouldProcessNow ? today : paymentDateValue,
         status: "pending",
         processedBy: collectorId,
         frequency: paymentFrequency,
@@ -156,13 +167,24 @@ export function RecordPaymentDialog({
         nextPaymentDate,
         specificDates: paymentFrequency === "specific_dates" ? selectedDates.map(d => d.toISOString().split("T")[0]).join(", ") : null,
         cardId: cardIdToUse || null,
+        processNow: shouldProcessNow,
       });
+      const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null };
 
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
 
-      toast({ title: "Payment recorded", description: "Payment has been added to the account." });
+      if (shouldProcessNow) {
+        const approved = processedPayment?.status === "processed" || processedPayment?.status === "posted";
+        toast({
+          title: approved ? "Payment approved" : "Payment declined",
+          description: approved ? "The card was saved for future payments." : (processedPayment?.declineReason || "The card payment was not approved."),
+          variant: approved ? "default" : "destructive",
+        });
+      } else {
+        toast({ title: "Payment scheduled", description: "No payment was taken today." });
+      }
       resetForm();
       onOpenChange(false);
     } catch (error) {
@@ -210,6 +232,23 @@ export function RecordPaymentDialog({
           </div>
           {paymentMethod === "card" && (
             <>
+              <div>
+                <Label>Payment Timing</Label>
+                <RadioGroup
+                  value={cardPaymentTiming}
+                  onValueChange={(value) => setCardPaymentTiming(value as "pay_now" | "schedule_future")}
+                  className="mt-2 grid grid-cols-2 gap-3"
+                >
+                  <Label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 font-normal">
+                    <RadioGroupItem value="pay_now" data-testid="radio-pay-now" />
+                    Pay Now
+                  </Label>
+                  <Label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 font-normal">
+                    <RadioGroupItem value="schedule_future" data-testid="radio-schedule-future" />
+                    Schedule for Future
+                  </Label>
+                </RadioGroup>
+              </div>
               {paymentCards && paymentCards.length > 0 && (
                 <div>
                   <Label>Use Saved Card (Optional)</Label>
@@ -407,7 +446,9 @@ export function RecordPaymentDialog({
             disabled={isSubmitting || !paymentAmount}
             data-testid="button-confirm-payment"
           >
-            {isSubmitting ? "Recording..." : "Record Payment"}
+            {isSubmitting
+              ? (paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
+              : (paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Pay Now" : "Schedule Payment")}
           </Button>
         </DialogFooter>
       </DialogContent>
