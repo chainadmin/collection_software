@@ -180,12 +180,14 @@ export interface IStorage {
   getAllPayments(): Promise<Payment[]>;
   getPayment(id: string): Promise<Payment | undefined>;
   getPaymentByIdempotencyKey(organizationId: string, key: string): Promise<Payment | undefined>;
+  getPaymentByProviderTransactionId(organizationId: string, transactionId: string): Promise<Payment | undefined>;
   getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
   getRecentPayments(limit?: number, organizationId?: string): Promise<Payment[]>;
   getPendingPayments(organizationId?: string): Promise<Payment[]>;
   getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
+  promoteChainPaymentReservation(id: string, organizationId: string, cardId: string): Promise<Payment | undefined>;
 
   getPaymentBatches(organizationId?: string): Promise<PaymentBatch[]>;
   getPaymentBatch(id: string): Promise<PaymentBatch | undefined>;
@@ -1580,6 +1582,12 @@ export class MemStorage implements IStorage {
   }
 
   async createPaymentCard(card: InsertPaymentCard): Promise<PaymentCard> {
+    if (card.externalIdempotencyKey && Array.from(this.paymentCards.values()).some(candidate =>
+      candidate.organizationId === card.organizationId &&
+      candidate.externalIdempotencyKey === card.externalIdempotencyKey
+    )) {
+      throw Object.assign(new Error("Duplicate external card identity"), { code: "23505" });
+    }
     const id = randomUUID();
     const newCard: PaymentCard = {
       id,
@@ -1596,6 +1604,7 @@ export class MemStorage implements IStorage {
       processorCustomerId: card.processorCustomerId ?? null,
       vaultStatus: card.vaultStatus ?? "legacy_unvaulted",
       externalIdempotencyKey: card.externalIdempotencyKey ?? null,
+      externalCredentialFingerprint: card.externalCredentialFingerprint ?? null,
       isDefault: card.isDefault ?? false,
       addedDate: card.addedDate,
       addedBy: card.addedBy ?? null,
@@ -1637,6 +1646,12 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getPaymentByProviderTransactionId(organizationId: string, transactionId: string): Promise<Payment | undefined> {
+    return Array.from(this.payments.values()).find(
+      payment => payment.organizationId === organizationId && payment.providerTransactionId === transactionId,
+    );
+  }
+
   async getPaymentsForDebtor(debtorId: string): Promise<Payment[]> {
     return Array.from(this.payments.values()).filter((p) => p.debtorId === debtorId);
   }
@@ -1661,6 +1676,18 @@ export class MemStorage implements IStorage {
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
+    if (payment.idempotencyKey && Array.from(this.payments.values()).some(candidate =>
+      candidate.organizationId === payment.organizationId &&
+      candidate.idempotencyKey === payment.idempotencyKey
+    )) {
+      throw Object.assign(new Error("Duplicate payment identity"), { code: "23505" });
+    }
+    if (payment.providerTransactionId && Array.from(this.payments.values()).some(candidate =>
+      candidate.organizationId === payment.organizationId &&
+      candidate.providerTransactionId === payment.providerTransactionId
+    )) {
+      throw Object.assign(new Error("Duplicate provider transaction"), { code: "23505" });
+    }
     const id = randomUUID();
     const newPayment: Payment = {
       id,
@@ -1695,6 +1722,19 @@ export class MemStorage implements IStorage {
     const updated = { ...existing, ...payment };
     this.payments.set(id, updated);
     return updated;
+  }
+
+  async promoteChainPaymentReservation(id: string, organizationId: string, cardId: string): Promise<Payment | undefined> {
+    // No await before the compare-and-set: one invocation completes this
+    // critical section before another JavaScript task can observe the row.
+    const existing = this.payments.get(id);
+    if (!existing || existing.organizationId !== organizationId ||
+      existing.status !== "needs_review" || existing.cardId !== null) {
+      return undefined;
+    }
+    const promoted = { ...existing, cardId, status: "pending" };
+    this.payments.set(id, promoted);
+    return promoted;
   }
 
   async getPaymentBatches(organizationId?: string): Promise<PaymentBatch[]> {

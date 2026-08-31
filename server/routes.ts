@@ -2538,7 +2538,7 @@ export async function registerRoutes(
         (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
         (item.processorType === "stripe" && item.stripeSecretKey) ||
         (item.processorType === "nmi" && item.nmiSecurityKey) ||
-        (item.processorType === "usaepay" && item.usaepaySourceKey)
+        (item.processorType === "usaepay" && item.usaepaySourceKey && item.usaepayPin)
       ));
       if (!merchant) return res.status(409).json({ error: "No active card processor is configured" });
       const existingCards = (await storage.getPaymentCards(req.params.id))
@@ -2973,7 +2973,7 @@ export async function registerRoutes(
       }
       const configured =
         (processorType === "nmi" && req.body.nmiSecurityKey) ||
-        (processorType === "usaepay" && req.body.usaepaySourceKey) ||
+        (processorType === "usaepay" && req.body.usaepaySourceKey && req.body.usaepayPin) ||
         (processorType === "authorize_net" && req.body.authorizeNetApiLoginId && req.body.authorizeNetTransactionKey) ||
         (processorType === "stripe" && req.body.stripeSecretKey);
       if (!configured) {

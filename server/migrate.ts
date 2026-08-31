@@ -215,6 +215,8 @@ export async function runMigrations() {
         "processor_token" text,
         "processor_customer_id" text,
         "vault_status" text NOT NULL DEFAULT 'legacy_unvaulted',
+         "external_idempotency_key" text,
+         "external_credential_fingerprint" text,
         "is_default" boolean DEFAULT false,
         "added_date" text NOT NULL,
         "added_by" varchar
@@ -239,7 +241,11 @@ export async function runMigrations() {
         "frequency" text,
         "next_payment_date" text,
         "specific_dates" text,
-        "is_recurring" boolean DEFAULT false
+         "is_recurring" boolean DEFAULT false,
+         "idempotency_key" text,
+         "provider_transaction_id" text,
+         "processing_started_at" timestamp,
+         "completed_at" timestamp
       )
     `);
 
@@ -631,9 +637,29 @@ export async function runMigrations() {
       CREATE UNIQUE INDEX IF NOT EXISTS payment_cards_one_default_per_debtor
       ON payment_cards (debtor_id) WHERE is_default IS TRUE;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS external_idempotency_key text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS external_credential_fingerprint text;
       CREATE UNIQUE INDEX IF NOT EXISTS payment_cards_org_external_idempotency_unique
       ON payment_cards (organization_id, external_idempotency_key)
       WHERE external_idempotency_key IS NOT NULL;
+    `);
+
+    // Payment attempt identities and processor outcomes are tenant-scoped.
+    // Drop the historical global provider index before creating the partial
+    // organization-scoped replacement so two merchants may use the same
+    // provider transaction identifier without weakening same-tenant replay
+    // protection.
+    await db.execute(sql`
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS idempotency_key text;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_transaction_id text;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS processing_started_at timestamp;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS completed_at timestamp;
+      DROP INDEX IF EXISTS payments_provider_transaction_unique;
+      CREATE UNIQUE INDEX IF NOT EXISTS payments_org_idempotency_unique
+        ON payments (organization_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS payments_org_provider_transaction_unique
+        ON payments (organization_id, provider_transaction_id)
+        WHERE provider_transaction_id IS NOT NULL;
     `);
     
     // Add username column to global_admins if it doesn't exist

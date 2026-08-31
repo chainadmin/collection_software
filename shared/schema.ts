@@ -283,6 +283,9 @@ export const paymentCards = pgTable("payment_cards", {
   // External future-card requests reserve a safe row before vaulting. This
   // contains only the caller's opaque retry key, never PAN/CVV.
   externalIdempotencyKey: text("external_idempotency_key"),
+  // One-way credential comparison value for external retry conflict detection.
+  // Never expose this alongside card metadata or processor credentials.
+  externalCredentialFingerprint: text("external_credential_fingerprint"),
   isDefault: boolean("is_default").default(false),
   addedDate: text("added_date").notNull(),
   addedBy: varchar("added_by"), // collector id who added the card
@@ -326,8 +329,8 @@ export const payments = pgTable("payments", {
 }, (table) => ({
   organizationIdempotencyUnique: uniqueIndex("payments_org_idempotency_unique")
     .on(table.organizationId, table.idempotencyKey),
-  providerTransactionUnique: uniqueIndex("payments_provider_transaction_unique")
-    .on(table.providerTransactionId),
+  providerTransactionUnique: uniqueIndex("payments_org_provider_transaction_unique")
+    .on(table.organizationId, table.providerTransactionId),
 }));
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });

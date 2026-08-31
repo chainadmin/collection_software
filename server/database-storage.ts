@@ -547,6 +547,14 @@ export class DatabaseStorage implements IStorage {
     return payment;
   }
 
+  async getPaymentByProviderTransactionId(organizationId: string, transactionId: string): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(and(
+      eq(payments.organizationId, organizationId),
+      eq(payments.providerTransactionId, transactionId),
+    ));
+    return payment;
+  }
+
   async getPaymentsForDebtor(debtorId: string): Promise<Payment[]> {
     return await db.select().from(payments).where(eq(payments.debtorId, debtorId));
   }
@@ -587,6 +595,19 @@ export class DatabaseStorage implements IStorage {
   async updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined> {
     const [updated] = await db.update(payments).set(payment).where(eq(payments.id, id)).returning();
     return updated;
+  }
+
+  async promoteChainPaymentReservation(id: string, organizationId: string, cardId: string): Promise<Payment | undefined> {
+    const [promoted] = await db.update(payments)
+      .set({ cardId, status: "pending" })
+      .where(and(
+        eq(payments.id, id),
+        eq(payments.organizationId, organizationId),
+        eq(payments.status, "needs_review"),
+        sql`${payments.cardId} IS NULL`,
+      ))
+      .returning();
+    return promoted;
   }
 
   // Payment Batches

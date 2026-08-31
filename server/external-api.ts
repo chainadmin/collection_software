@@ -4,6 +4,19 @@ import { rejectRawCardData } from "./payment-input";
 import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card-validation";
 import { CardVaultError, vaultCard, type RawCardInput } from "./card-vault";
 import { redactPayment } from "./payment-presenter";
+import { claimPaymentForProcessing, postPaymentAtomically } from "./payment-safety";
+import { processPayment } from "./payment-processor";
+import {
+  chainCardIdentity,
+  chainCredentialFingerprint,
+  chainPaymentConflicts,
+  chainPaymentIdentity,
+  normalizeChainPaymentRequest,
+  validateChainToken,
+  verifyChainCredentialFingerprint,
+  type ChainOutcome,
+} from "./chain-payment";
+import { getPaymentBusinessDate } from "./payment-date";
 
 /** Returns an opaque external credential or throws before any payment is stored. */
 export function externalOpaquePaymentToken(body: Record<string, unknown>): string | null {
@@ -31,7 +44,7 @@ const externalCvvKeys = [
   "cvv", "cvv2", "cvc", "cardCvv", "card_cvv", "cardCode", "cardcode",
   "securityCode", "security_code", "cardSecurityCode",
 ] as const;
-const externalRawCardKeys = new Set<string>([...externalPanKeys, ...externalCvvKeys]);
+const externalRawCardKeys = new Set<string>([...externalPanKeys, ...externalCvvKeys].flatMap(key => [key, key.toLowerCase()]));
 
 function firstString(body: Record<string, unknown>, keys: readonly string[]): string {
   for (const key of keys) {
@@ -45,10 +58,22 @@ export function hasExternalRawCard(body: Record<string, unknown>): boolean {
 }
 
 export function rejectExternalCardDataOutsideDesignatedFields(body: Record<string, unknown>): void {
-  const auxiliaryFields = Object.fromEntries(
-    Object.entries(body).filter(([key]) => !externalRawCardKeys.has(key)),
-  );
-  rejectRawCardData(auxiliaryFields);
+  const stripDesignatedCardFields = (value: unknown, allowCardFields = false): unknown => {
+    if (Array.isArray(value)) return value.map(item => stripDesignatedCardFields(item, allowCardFields));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+      const normalized = key.toLowerCase();
+      if (allowCardFields && (externalRawCardKeys.has(key) || externalRawCardKeys.has(normalized))) return [];
+      // paymentdata is often sent as JSON text. Decode it strictly for
+      // screening so a PAN cannot be hidden in invoice/reference fields.
+      if (normalized === "paymentdata") {
+        if (typeof item !== "string") return [[key, stripDesignatedCardFields(item, true)]];
+        try { return [[key, stripDesignatedCardFields(JSON.parse(item), true)]]; } catch { return [[key, item]]; }
+      }
+      return [[key, stripDesignatedCardFields(item, false)]];
+    }));
+  };
+  rejectRawCardData(stripDesignatedCardFields(body, true) as Record<string, unknown>);
 }
 
 export function presentExternalPayment(payment: Record<string, unknown>) {
@@ -73,7 +98,7 @@ export function presentExternalPayment(payment: Record<string, unknown>) {
   };
 }
 
-export function parseExternalFutureCard(body: Record<string, unknown>, today = new Date()): {
+export function parseExternalFutureCard(body: Record<string, unknown>, today = new Date(), allowToday = false): {
   card: RawCardInput;
   safeCard: {
     cardType: string;
@@ -137,8 +162,10 @@ export function parseExternalFutureCard(body: Record<string, unknown>, today = n
   ) {
     throw new Error("Invalid payment date");
   }
-  const todayDate = new Date(today.getTime() - today.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-  if (paymentDate <= todayDate) throw new Error("Card payment date must be in the future");
+  const todayDate = getPaymentBusinessDate(today);
+  if (paymentDate < todayDate || (!allowToday && paymentDate === todayDate)) {
+    throw new Error(allowToday ? "Card payment date cannot be in the past" : "Card payment date must be in the future");
+  }
   const sourceKey = firstString(body, ["idempotencyKey", "idempotency_key", "requestId", "transactionid", "transactionId", "referenceNumber"]);
   if (!sourceKey || sourceKey.length > 200 || !/^[A-Za-z0-9_.:/-]+$/.test(sourceKey)) {
     throw new Error("A valid idempotency key is required");
@@ -1069,224 +1096,322 @@ export function registerExternalApiRoutes(app: Express) {
     }
   });
 
-  // POST /api/v2/insert_payments_external - Insert payment from external system
+  // Chain payment ingestion. Chain reports already-completed payments and DMP
+  // owns every unprocessed installment from creation through its due-date run.
   app.post("/api/v2/insert_payments_external", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const {
-        fileNumber,
-        amount,
-        paymentMethod,
-        paymentDate,
-        referenceNumber,
-        transactionid,
-        transactionId,
-        status,
-        notes,
-      } = req.body;
-      const orgId = req.apiToken?.organizationId;
-      
-      if (!fileNumber || !amount) {
-        return res.status(400).json({ error: "fileNumber and amount are required" });
-      }
-      
-      const debtor = await storage.getDebtorByFileNumber(fileNumber, req.apiToken!.organizationId!);
-      
-      if (!debtor) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-      
-      // Verify organization ownership for multi-tenant isolation
-      if (orgId && debtor.organizationId !== orgId) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-
-      if (hasExternalRawCard(req.body || {})) {
-        try {
-          rejectExternalCardDataOutsideDesignatedFields(req.body || {});
-        } catch {
-          return res.status(400).json({ error: "Raw card data is accepted only in designated card fields" });
-        }
-        let request;
-        try {
-          request = parseExternalFutureCard(req.body || {});
-        } catch (error: any) {
-          return res.status(400).json({ error: error.message });
-        }
-        const existingPayment = await storage.getPaymentByIdempotencyKey(debtor.organizationId, request.idempotencyKey);
-        if (existingPayment) {
-          const existingCard = existingPayment.cardId
-            ? await storage.getPaymentCard(existingPayment.cardId)
-            : undefined;
-          if (
-            existingPayment.debtorId !== debtor.id ||
-            existingPayment.amount !== request.amountCents ||
-            existingPayment.paymentDate !== request.paymentDate ||
-            existingPayment.paymentMethod !== "card" ||
-            !existingCard ||
-            existingCard.organizationId !== debtor.organizationId ||
-            existingCard.cardNumberLast4 !== request.safeCard.cardNumberLast4 ||
-            existingCard.expiryMonth !== request.safeCard.expiryMonth ||
-            existingCard.expiryYear !== request.safeCard.expiryYear
-          ) {
-            return res.status(409).json({ error: "Idempotency key is already used by a different payment request" });
-          }
-          return res.json({ success: true, data: presentExternalPayment(existingPayment) });
-        }
-
-        const merchants = await storage.getMerchants(debtor.organizationId);
-        const merchant = merchants.find(item => item.isActive && (
-          (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
-          (item.processorType === "nmi" && item.nmiSecurityKey) ||
-          (item.processorType === "stripe" && item.stripeSecretKey) ||
-          (item.processorType === "usaepay" && item.usaepaySourceKey)
-        ));
-        if (!merchant) return res.status(409).json({ error: "No active card processor is configured" });
-        // These processors intentionally fail before receiving card data until
-        // their verified no-charge/hosted collection flow is available.
-        if (merchant.processorType === "stripe") {
-          return res.status(422).json({ error: "Stripe requires a hosted card collection flow" });
-        }
-        if (merchant.processorType === "usaepay") {
-          return res.status(422).json({ error: "The active processor does not support no-charge card vaulting" });
-        }
-
-        let createdReservation = false;
-        let reservedCard = await storage.getPaymentCardByExternalIdempotencyKey(
-          debtor.organizationId, request.idempotencyKey,
-        );
-        if (reservedCard && reservedCard.debtorId !== debtor.id) {
-          return res.status(409).json({ error: "Idempotency key is already used by another account" });
-        }
-        if (reservedCard && (
-          reservedCard.cardNumberLast4 !== request.safeCard.cardNumberLast4 ||
-          reservedCard.expiryMonth !== request.safeCard.expiryMonth ||
-          reservedCard.expiryYear !== request.safeCard.expiryYear ||
-          reservedCard.cardholderName !== request.safeCard.cardholderName ||
-          reservedCard.processorType !== merchant.processorType
-        )) {
-          return res.status(409).json({ error: "Idempotency key is already used by a different card request" });
-        }
-        if (!reservedCard) {
-          try {
-            reservedCard = await storage.createPaymentCard({
-              ...request.safeCard,
-              organizationId: debtor.organizationId,
-              debtorId: debtor.id,
-              processorType: merchant.processorType,
-              processorToken: null,
-              processorCustomerId: null,
-              vaultStatus: "vaulting",
-              externalIdempotencyKey: request.idempotencyKey,
-              isDefault: false,
-              addedDate: new Date().toISOString().slice(0, 10),
-              addedBy: null,
-            });
-            createdReservation = true;
-          } catch {
-            // A concurrent retry may have won the unique reservation. Never
-            // include request data in this error path.
-            reservedCard = await storage.getPaymentCardByExternalIdempotencyKey(
-              debtor.organizationId, request.idempotencyKey,
-            );
-            if (!reservedCard) return res.status(409).json({ error: "Unable to reserve card vault request" });
-          }
-        }
-        if (!createdReservation && reservedCard.vaultStatus === "vaulting") {
-          return res.status(409).json({ error: "Card vault request is already in progress" });
-        }
-        const reservedCardId = reservedCard.id;
-        if (reservedCard.vaultStatus !== "vaulted" && reservedCard.vaultStatus !== "vaulted_orphaned") {
-          await storage.updatePaymentCard(reservedCardId, { vaultStatus: "vaulting" });
-          const existingCards = await storage.getPaymentCards(debtor.id);
-          const existingCustomerId = existingCards.find(card =>
-            card.id !== reservedCard!.id &&
-            card.processorType === merchant.processorType &&
-            card.vaultStatus === "vaulted" &&
-            card.processorCustomerId
-          )?.processorCustomerId || undefined;
-          try {
-            const vaulted = await vaultCard(merchant, debtor, request.card, existingCustomerId);
-            reservedCard = await storage.updatePaymentCard(reservedCardId, {
-              ...vaulted,
-              vaultStatus: "vaulted",
-            });
-          } catch (error) {
-            await storage.updatePaymentCard(reservedCardId, { vaultStatus: "vault_failed" });
-            if (error instanceof CardVaultError) return res.status(422).json({ error: error.message });
-            return res.status(502).json({ error: "Card vault request failed" });
-          }
-        }
-        if (!reservedCard?.processorToken || reservedCard.debtorId !== debtor.id) {
-          return res.status(409).json({ error: "Card vault request is incomplete" });
-        }
-        try {
-          const safeReferenceNumber = firstString(req.body || {}, [
-            "transactionid", "transactionId", "referenceNumber",
-          ]) || null;
-          const safeNotes = typeof notes === "string" ? notes : null;
-          const payment = await storage.createPayment(buildExternalFutureCardPayment(request, {
-            organizationId: debtor.organizationId,
-            debtorId: debtor.id,
-            cardId: reservedCard.id,
-            referenceNumber: safeReferenceNumber,
-            notes: safeNotes,
-          }));
-          if (reservedCard.vaultStatus === "vaulted_orphaned") {
-            await storage.updatePaymentCard(reservedCard.id, { vaultStatus: "vaulted" });
-          }
-          return res.json({ success: true, data: presentExternalPayment(payment) });
-        } catch {
-          // The vault credential is safe but may now be unreferenced. Mark it
-          // explicitly so an idempotent retry can attach the same card without
-          // transmitting or vaulting the PAN a second time.
-          await storage.updatePaymentCard(reservedCard.id, { vaultStatus: "vaulted_orphaned" });
-          const racedPayment = await storage.getPaymentByIdempotencyKey(
-            debtor.organizationId, request.idempotencyKey,
-          );
-          if (racedPayment && racedPayment.debtorId === debtor.id) {
-            return res.json({ success: true, data: presentExternalPayment(racedPayment) });
-          }
-          return res.status(500).json({ error: "Payment persistence failed after card vaulting; retry with the same idempotency key" });
-        }
-      }
-
-      let chainPaymentToken: string | null;
+      const orgId = req.apiToken!.organizationId!;
       try {
-        chainPaymentToken = externalOpaquePaymentToken(req.body || {});
-      } catch (error: any) {
-        return res.status(400).json({ error: error.message });
+        rejectExternalCardDataOutsideDesignatedFields(req.body || {});
+      } catch {
+        return res.status(400).json({ success: false, error: "Raw card data is accepted only in designated card fields" });
       }
-      const normalizedPaymentMethod = chainPaymentToken
-        ? "card"
-        : (paymentMethod || "external");
-      const safeReferenceNumber = firstString(req.body || {}, [
-        "transactionid", "transactionId", "referenceNumber",
-      ]) || null;
-      const safeNotes = typeof notes === "string" ? notes : null;
-      
-      const payment = await storage.createPayment({
-        organizationId: debtor.organizationId,
-        debtorId: debtor.id,
-        amount: Math.round(amount * 100),
-        paymentDate: paymentDate || new Date().toISOString().split("T")[0],
-        paymentMethod: normalizedPaymentMethod,
-        status: typeof status === "string" ? status.toLowerCase() : "pending",
-        // Chain already sends `transactionid`. Persist it so getpayments can
-        // return the same identifier instead of creating a duplicate in Chain.
-        referenceNumber: safeReferenceNumber,
-        // The active merchant on this DMP company determines which processor
-        // owns the token; Chain does not need to send a separate gateway name.
-        paymentToken: chainPaymentToken,
-        notes: safeNotes,
-      });
+      let items;
+      try {
+        items = normalizeChainPaymentRequest(req.body);
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+      const merchants = (await storage.getMerchants(orgId)).filter(item => item.isActive && (
+        (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
+        (item.processorType === "nmi" && item.nmiSecurityKey) ||
+        (item.processorType === "usaepay" && item.usaepaySourceKey && item.usaepayPin) ||
+        (item.processorType === "stripe" && item.stripeSecretKey)
+      ));
+      const merchant = merchants.length === 1 ? merchants[0] : undefined;
+      const today = getPaymentBusinessDate();
+      const outcomes: Array<{ index: number; outcome: ChainOutcome; message?: string; payment?: unknown }> = [];
+      const finishReadyPayment = async (item: (typeof items)[number], reservedPayment: any, cardId: string) => {
+        const promoted = await storage.promoteChainPaymentReservation(reservedPayment.id, orgId, cardId);
+        if (!promoted) {
+          const current = await storage.getPayment(reservedPayment.id);
+          if (!current || current.organizationId !== orgId) {
+            outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment reservation requires review" });
+          } else if (current.status === "processed") {
+            try {
+              await postPaymentAtomically(current.id, orgId);
+              const posted = await storage.getPayment(current.id) || current;
+              outcomes.push({ index: item.index, outcome: "posted" as const, payment: presentExternalPayment(posted) });
+            } catch {
+              outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment posting requires review" });
+            }
+          } else if (current.status === "declined") {
+            outcomes.push({ index: item.index, outcome: "declined" as const, message: "Payment was declined", payment: presentExternalPayment(current) });
+          } else if (current.status === "needs_review" || current.status === "vault_failed") {
+            outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment reservation requires review", payment: presentExternalPayment(current) });
+          } else {
+            // pending/processing/posted are all owned or completed by the
+            // compare-and-swap winner and must never be reset.
+            outcomes.push({ index: item.index, outcome: "duplicate" as const, payment: presentExternalPayment(current) });
+          }
+          return;
+        }
+        let payment = promoted;
+        if (item.paymentDate !== today) {
+          outcomes.push({ index: item.index, outcome: "created" as const, payment: presentExternalPayment(payment) });
+          return;
+        }
+        const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
+        if (!claimed) {
+          const current = await storage.getPayment(payment.id);
+          if (current?.status === "processed") {
+            try {
+              await postPaymentAtomically(current.id, orgId);
+              const posted = await storage.getPayment(current.id) || current;
+              outcomes.push({ index: item.index, outcome: "posted" as const, payment: presentExternalPayment(posted) });
+            } catch {
+              outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment posting requires review" });
+            }
+          } else {
+            outcomes.push({ index: item.index, outcome: "duplicate" as const, payment: presentExternalPayment(current || payment) });
+          }
+          return;
+        }
+        const processed = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+        if (processed.success && processed.updatedPayment) {
+          try {
+            await postPaymentAtomically(processed.updatedPayment.id, orgId);
+            const posted = await storage.getPayment(processed.updatedPayment.id) || processed.updatedPayment;
+            outcomes.push({ index: item.index, outcome: "posted" as const, payment: presentExternalPayment(posted) });
+          } catch {
+            outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment was charged but posting requires review" });
+          }
+          return;
+        }
+        outcomes.push({
+          index: item.index,
+          outcome: processed.ambiguous ? "needs_review" as const : "declined" as const,
+          message: processed.ambiguous ? "Payment outcome requires review" : "Payment was declined",
+          payment: processed.updatedPayment ? presentExternalPayment(processed.updatedPayment) : undefined,
+        });
+      };
 
-      // Never echo a reusable payment credential back in an API response.
-      res.json({
-        success: true,
-        data: presentExternalPayment(payment),
-      });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to insert payment" });
+      for (const item of items) {
+        try {
+          const debtor = await storage.getDebtorByFileNumber(item.fileNumber, orgId);
+          if (!debtor || debtor.organizationId !== orgId) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "Account not found" });
+            continue;
+          }
+          const identity = chainPaymentIdentity(item);
+          const existing = await storage.getPaymentByIdempotencyKey(orgId, identity);
+          if (existing) {
+            const conflict = chainPaymentConflicts(existing, item, debtor.id);
+            const postedReplay = item.paymentStatus === "posted" && item.paymentDate === today && item.transactionId;
+            const card = postedReplay ? undefined : await storage.getPaymentCardByExternalIdempotencyKey(
+              orgId, chainCardIdentity(orgId, item.invoice),
+            );
+            const credentialConflict = !postedReplay && (
+              !item.cardNumber || (!!card &&
+              !verifyChainCredentialFingerprint(
+                card.externalCredentialFingerprint, orgId, item.invoice, item.cardNumber,
+              ))
+            );
+            if (conflict || credentialConflict) {
+              outcomes.push({ index: item.index, outcome: "unsupported", message: "Payment identity conflicts with an existing request" });
+            } else if (postedReplay &&
+              existing.providerTransactionId === item.transactionId && existing.status === "processed") {
+              await postPaymentAtomically(existing.id, orgId);
+              const posted = await storage.getPayment(existing.id) || existing;
+              outcomes.push({ index: item.index, outcome: "posted", payment: presentExternalPayment(posted) });
+            } else if (!postedReplay && existing.status === "processed") {
+              try {
+                await postPaymentAtomically(existing.id, orgId);
+                const posted = await storage.getPayment(existing.id) || existing;
+                outcomes.push({ index: item.index, outcome: "posted", payment: presentExternalPayment(posted) });
+              } catch {
+                outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment posting requires review" });
+              }
+            } else if (!postedReplay && card?.vaultStatus === "vaulting") {
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting is already in progress" });
+            } else if (!postedReplay && !card) {
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment reservation is already in progress" });
+            } else if (!postedReplay && card?.vaultStatus === "vaulted" && card.processorToken &&
+              existing.status === "needs_review") {
+              await finishReadyPayment(item, existing, card.id);
+            } else if (!postedReplay && card?.vaultStatus === "vault_failed" && existing.status === "needs_review") {
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting outcome requires review" });
+            } else {
+              outcomes.push({ index: item.index, outcome: "duplicate", payment: presentExternalPayment(existing) });
+            }
+            continue;
+          }
+
+          const alreadyPosted = item.paymentStatus === "posted" && item.paymentDate === today && !!item.transactionId;
+          if (item.paymentStatus === "posted" && !alreadyPosted) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "POSTED requires today's date and a transactionid" });
+            continue;
+          }
+          if (alreadyPosted) {
+            const byTransaction = await storage.getPaymentByProviderTransactionId(orgId, item.transactionId!);
+            if (byTransaction) {
+              const conflict = byTransaction.debtorId !== debtor.id || byTransaction.amount !== item.amountCents ||
+                byTransaction.paymentDate !== item.paymentDate;
+              outcomes.push(conflict
+                ? { index: item.index, outcome: "unsupported", message: "transactionid conflicts with an existing payment" }
+                : { index: item.index, outcome: "duplicate", payment: presentExternalPayment(byTransaction) });
+              continue;
+            }
+            let payment;
+            try {
+              payment = await storage.createPayment({
+                organizationId: orgId, debtorId: debtor.id, amount: item.amountCents,
+                paymentDate: item.paymentDate, paymentMethod: item.paymentMethod,
+                status: "processed", referenceNumber: item.transactionId,
+                providerTransactionId: item.transactionId, paymentToken: null,
+                idempotencyKey: identity, notes: null,
+              });
+            } catch {
+              const raced = await storage.getPaymentByIdempotencyKey(orgId, identity) ||
+                await storage.getPaymentByProviderTransactionId(orgId, item.transactionId!);
+              if (!raced) throw new Error("Payment could not be recorded");
+              outcomes.push({ index: item.index, outcome: "duplicate", payment: presentExternalPayment(raced) });
+              continue;
+            }
+            await postPaymentAtomically(payment.id, orgId);
+            payment = await storage.getPayment(payment.id) || payment;
+            outcomes.push({ index: item.index, outcome: "posted", payment: presentExternalPayment(payment) });
+            continue;
+          }
+
+          if (item.paymentMethod !== "card" || item.paymentDate < today) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "Only current or future card installments are supported" });
+            continue;
+          }
+          if (!merchant) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: merchants.length ? "Multiple active processors are configured" : "No active processor is configured" });
+            continue;
+          }
+
+          const digits = item.cardNumber.replace(/[\s-]/g, "");
+          const rawCard = /^\d{13,19}$/.test(digits);
+          if (!item.cardNumber) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "A reusable credential or card is required" });
+            continue;
+          }
+          if (rawCard && merchant.processorType === "stripe") {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "Stripe raw-card collection requires a hosted flow" });
+            continue;
+          }
+          const cardIdentity = chainCardIdentity(orgId, item.invoice);
+          const credentialFingerprint = chainCredentialFingerprint(orgId, item.invoice, item.cardNumber);
+          // Reserve the logical installment before a gateway operation. The
+          // temporary needs_review state is intentionally not runner-eligible.
+          let payment;
+          try {
+            payment = await storage.createPayment({
+              organizationId: orgId, debtorId: debtor.id, amount: item.amountCents,
+              paymentDate: item.paymentDate, paymentMethod: "card", status: "needs_review",
+              referenceNumber: item.invoice, paymentToken: null, idempotencyKey: identity,
+              notes: null, frequency: item.arrangementType || "one_time", isRecurring: false,
+            });
+          } catch {
+            const raced = await storage.getPaymentByIdempotencyKey(orgId, identity);
+            if (!raced) throw new Error("Installment could not be reserved");
+            if (chainPaymentConflicts(raced, item, debtor.id)) {
+              outcomes.push({ index: item.index, outcome: "unsupported", message: "Payment identity conflicts with an existing request" });
+              continue;
+            }
+            const racedCard = await storage.getPaymentCardByExternalIdempotencyKey(orgId, cardIdentity);
+            if (racedCard && !verifyChainCredentialFingerprint(
+              racedCard.externalCredentialFingerprint, orgId, item.invoice, item.cardNumber,
+            )) {
+              outcomes.push({ index: item.index, outcome: "unsupported", message: "Payment credential conflicts with an existing request" });
+            } else if (!racedCard || racedCard.vaultStatus === "vaulting") {
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment reservation is already in progress" });
+            } else {
+              outcomes.push({ index: item.index, outcome: "duplicate", payment: presentExternalPayment(raced) });
+            }
+            continue;
+          }
+          let card = await storage.getPaymentCardByExternalIdempotencyKey(orgId, cardIdentity);
+          let createdCard = false;
+          let parsedRaw: ReturnType<typeof parseExternalFutureCard> | undefined;
+          let token: { processorToken: string; customerId: string | null } | undefined;
+          if (rawCard) {
+            parsedRaw = parseExternalFutureCard({
+              cardNumber: item.cardNumber, cvv: item.cvv, expiryMonth: item.expiryMonth,
+              expiryYear: item.expiryYear, cardholderName: item.payorName,
+              billingZip: item.billingZip, amount: item.amountCents / 100,
+              paymentDate: item.paymentDate, idempotencyKey: item.invoice,
+            }, new Date(), true);
+          } else {
+            token = validateChainToken(merchant, item.cardNumber);
+          }
+          if (card && (card.debtorId !== debtor.id || card.processorType !== merchant.processorType ||
+            !verifyChainCredentialFingerprint(
+              card.externalCredentialFingerprint, orgId, item.invoice, item.cardNumber,
+            ))) {
+            outcomes.push({ index: item.index, outcome: "unsupported", message: "Card identity conflicts with an existing request" });
+            continue;
+          }
+          if (!card) {
+            const safeCard = parsedRaw?.safeCard || {
+              cardType: item.cardType || "card", cardholderName: item.payorName || "Cardholder",
+              cardNumberLast4: "****", expiryMonth: item.expiryMonth || "**",
+              expiryYear: item.expiryYear || "****", billingZip: "",
+            };
+            try {
+              card = await storage.createPaymentCard({
+                ...safeCard, organizationId: orgId, debtorId: debtor.id,
+                processorType: merchant.processorType,
+                processorToken: token?.processorToken || null,
+                processorCustomerId: token?.customerId || null,
+                vaultStatus: token ? "vaulted" : "vaulting",
+                externalIdempotencyKey: cardIdentity, externalCredentialFingerprint: credentialFingerprint, isDefault: false,
+                addedDate: today, addedBy: null,
+              });
+              createdCard = true;
+            } catch {
+              card = await storage.getPaymentCardByExternalIdempotencyKey(orgId, cardIdentity);
+            }
+          }
+          if (!card) throw new Error("Card request could not be reserved");
+          const cardId = card.id;
+          if (!createdCard && card.vaultStatus === "vaulting") {
+            outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting is already in progress" });
+            continue;
+          }
+          if (parsedRaw && card.vaultStatus !== "vaulted") {
+            try {
+              const existingCards = await storage.getPaymentCards(debtor.id);
+              const customer = existingCards.find(candidate =>
+                candidate.processorType === merchant.processorType && candidate.vaultStatus === "vaulted"
+              )?.processorCustomerId || undefined;
+              const vaulted = await vaultCard(merchant, debtor, parsedRaw.card, customer);
+              card = await storage.updatePaymentCard(cardId, { ...vaulted, vaultStatus: "vaulted" });
+            } catch (error) {
+              await storage.updatePaymentCard(cardId, { vaultStatus: "vault_failed" });
+              const ambiguous = error instanceof CardVaultError && /uncertain|review/i.test(error.message);
+              await storage.updatePayment(payment.id, { status: ambiguous ? "needs_review" : "declined" });
+              outcomes.push({
+                index: item.index,
+                outcome: ambiguous ? "needs_review" : "declined",
+                message: ambiguous ? "Card vaulting outcome requires review" : "Card vaulting failed",
+              });
+              continue;
+            }
+          }
+          if (!card?.processorToken || card.vaultStatus !== "vaulted") {
+            outcomes.push({ index: item.index, outcome: "needs_review", message: "Reusable credential is not ready" });
+            continue;
+          }
+
+          await finishReadyPayment(item, payment, card.id);
+        } catch (error: any) {
+          // Do not surface gateway exception text: providers can include a
+          // credential or profile reference in malformed error payloads.
+          outcomes.push({
+            index: item.index,
+            outcome: error instanceof CardVaultError ? "needs_review" : "unsupported",
+            message: error instanceof CardVaultError ? "Card vaulting outcome requires review" : "Payment item could not be processed",
+          });
+        }
+      }
+      const successful = outcomes.every(item => item.outcome === "created" || item.outcome === "posted" || item.outcome === "duplicate");
+      return res.status(successful ? 200 : 207).json({ success: successful, outcomes });
+    } catch {
+      res.status(500).json({ success: false, error: "Failed to insert payments" });
     }
   });
 

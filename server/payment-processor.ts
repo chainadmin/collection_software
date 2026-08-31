@@ -79,7 +79,7 @@ function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
         m.authorizeNetApiLoginId &&
         m.authorizeNetTransactionKey) ||
         (m.processorType === "nmi" && m.nmiSecurityKey) ||
-        (m.processorType === "usaepay" && m.usaepaySourceKey) ||
+         (m.processorType === "usaepay" && m.usaepaySourceKey && m.usaepayPin) ||
         (m.processorType === "stripe" && m.stripeSecretKey))
   );
 }

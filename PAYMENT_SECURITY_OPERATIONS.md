@@ -44,22 +44,43 @@ cardholder/billing metadata, processor type, reusable processor identifiers,
 default selection, and vault status. PAN and CVV exist only in request memory
 for the duration of the processor vault call and are never returned or logged.
 
-Authenticated Chain requests may submit full card details to
-`POST /api/v2/insert_payments_external` only when scheduling a future card
-payment. The request must include a stable idempotency key. DMP reserves one
-vault record for that organization and key, vaults the card immediately, then
-creates the pending payment with the saved-card ID and a null payment token.
-Retries reuse the same reservation. All non-card request fields are screened
-for PAN/CVV values before any row is written, and API responses use an explicit
-payment allowlist.
+Authenticated Chain requests use one contract at
+`POST /api/v2/insert_payments_external`. Lowercase and camel-case aliases are
+normalized and every `paymentdata` installment is handled. A same-business-day
+`POSTED` item with a transaction ID is recorded and posted without a gateway
+call. All future items are pending, linked to a protected saved-card row, and
+charged only by DMP's runner. Invoice/request identity plus installment date is
+the payment idempotency key. Retries return `duplicate`; conflicting reuse is
+rejected per item.
+
+Raw cards are vaulted once before current/future DMP-owned payments are created.
+Current-day items are claimed before their one gateway call. Token inputs are
+accepted only in the active processor's format: USAePay saved-card key, an
+`nmi_vault_` reference, an Authorize.Net `customerProfile|paymentProfile` pair,
+or a Stripe `customer|paymentMethod` pair. Tokens live only in payment-card
+credential columns. Every item returns `created`, `posted`, `declined`,
+`duplicate`, `unsupported`, or `needs_review`; uncertain outcomes are not
+automatically retried.
+
+External credential retry comparisons use a versioned keyed
+`hmac-v1` HMAC-SHA-256 fingerprint. Deployments must configure a stable,
+protected `PAYMENT_FINGERPRINT_KEY`; `SESSION_SECRET` is the failover key only
+when the dedicated key is absent. Startup/request handling fails closed when
+neither is configured. Never log, return, export, or store these keys in the
+database. To rotate the key, set the new current key and provide old keys in
+`PAYMENT_FINGERPRINT_PREVIOUS_KEYS` as a JSON string array (or the single
+`PAYMENT_FINGERPRINT_PREVIOUS_KEY`). Existing fingerprints verify against
+rotation keys with timing-safe comparison; all newly persisted fingerprints
+use only the current key. Keep previous keys protected until all in-flight
+Chain retries using old fingerprints have expired or been reconciled.
 
 Authorize.Net uses CIM customer and payment profiles; subsequent cards reuse
-the debtor's customer profile. Stripe saved-card creation is explicitly
-unsupported until a tenant publishable-key plus Elements/Checkout hosted setup
-flow is implemented; the server never submits raw card data to Stripe's
-PaymentMethod API. NMI uses its `add_customer` customer-vault operation.
-USAePay currently fails explicitly because a no-charge mechanism has not been
-verified for this integration.
+the debtor's customer profile. Stripe raw-card creation is explicitly
+unsupported; the server accepts only an existing reusable
+Customer/PaymentMethod pair. NMI uses its `add_customer` customer-vault
+operation. USAePay uses its documented `cc:save` transaction tokenization
+operation (the returned `savedcard.key` is the card reference) and requires
+both source key and PIN.
 
 Provider calls use a stable per-payment order reference; Stripe additionally
 uses its request-level idempotency key. A transport timeout, malformed response,
@@ -76,7 +97,8 @@ retention and backup-expiry process; never query, export, or print those values.
 
 ## Deployment and live verification
 
-1. Back up the database and apply `0001_payment_safety.sql` before deploying.
+1. Back up the database and apply payment migrations through
+   `0004_chain_payment_contract.sql` before deploying.
 2. Confirm there are no duplicate non-null idempotency/provider transaction IDs
    before index creation; reconcile duplicates rather than deleting payment data.
 3. Exercise each configured provider in sandbox: approval, decline, timeout,

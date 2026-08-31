@@ -169,6 +169,48 @@ async function vaultNmi(merchant: Merchant, card: RawCardInput): Promise<Vaulted
   };
 }
 
+async function vaultUsaepay(merchant: Merchant, card: RawCardInput): Promise<VaultedCard> {
+  if (!merchant.usaepaySourceKey || !merchant.usaepayPin) {
+    throw new CardVaultError("USAePay source key and PIN are required for card vaulting");
+  }
+  const baseUrl = merchant.testMode
+    ? "https://sandbox.usaepay.com/api/v2/transactions"
+    : "https://usaepay.com/api/v2/transactions";
+  try {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(`${merchant.usaepaySourceKey}:${merchant.usaepayPin}`).toString("base64")}`,
+      },
+      body: JSON.stringify({
+        command: "cc:save",
+        creditcard: {
+            cardholder: card.cardholderName,
+            number: card.pan,
+            expiration: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
+            cvc: card.cvv,
+            avs_zip: card.billingZip,
+        },
+      }),
+    });
+    if (!response.ok) throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required");
+    const data: any = await response.json();
+    const token = data.savedcard?.key || null;
+    if (data.result_code !== "A") throw new CardVaultError("USAePay card vaulting failed");
+    if (!token) throw new CardVaultError("USAePay card vaulting returned no reusable card key");
+    return {
+      processorType: "usaepay",
+      processorToken: String(token),
+      processorCustomerId: null,
+      vaultStatus: "vaulted",
+    };
+  } catch (error) {
+    if (error instanceof CardVaultError) throw error;
+    throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required");
+  }
+}
+
 export async function vaultCard(
   merchant: Merchant,
   debtor: Debtor,
@@ -182,8 +224,6 @@ export async function vaultCard(
     return vaultStripe(merchant, debtor, card, existingCustomerId);
   }
   if (merchant.processorType === "nmi") return vaultNmi(merchant, card);
-  if (merchant.processorType === "usaepay") {
-    throw new CardVaultError("USAePay no-charge card vaulting is not available in this integration");
-  }
+  if (merchant.processorType === "usaepay") return vaultUsaepay(merchant, card);
   throw new CardVaultError("The active processor does not support card vaulting");
 }
