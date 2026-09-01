@@ -1,5 +1,6 @@
 import type { Debtor, Organization, Payment } from "@shared/schema";
 import type { IStorage } from "./storage";
+import { createHash } from "crypto";
 
 export interface PaymentMessageAutomationSettings {
   enabled?: boolean;
@@ -9,10 +10,17 @@ export interface PaymentMessageAutomationSettings {
   sendReceiptSms?: boolean;
   callbackPhone?: string;
   callbackEmail?: string;
-  logoUrl?: string;
+  logo?: PaymentMessageLogo;
 }
 
-interface PaymentMessageContext {
+export interface PaymentMessageLogo {
+  dataUrl: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  filename?: string;
+  sha256: string;
+}
+
+export interface PaymentMessageContext {
   payment: Payment;
   success: boolean;
   transactionId: string | null;
@@ -35,18 +43,91 @@ export function getPaymentMessageAutomationSettings(org: Organization | undefine
   return paymentAutomation && typeof paymentAutomation === "object" ? paymentAutomation : {};
 }
 
+export function getPaymentMessageAutomationSettingsResponse(org: Organization): Omit<PaymentMessageAutomationSettings, "logo"> & { logoPreviewUrl: string | null; logoFilename: string | null } {
+  const settings = getPaymentMessageAutomationSettings(org);
+  const logo = existingValidLogo(org);
+  return {
+    ...(typeof settings.enabled === "boolean" ? { enabled: settings.enabled } : {}),
+    ...(typeof settings.sendDeclineEmail === "boolean" ? { sendDeclineEmail: settings.sendDeclineEmail } : {}),
+    ...(typeof settings.sendDeclineSms === "boolean" ? { sendDeclineSms: settings.sendDeclineSms } : {}),
+    ...(typeof settings.sendReceiptEmail === "boolean" ? { sendReceiptEmail: settings.sendReceiptEmail } : {}),
+    ...(typeof settings.sendReceiptSms === "boolean" ? { sendReceiptSms: settings.sendReceiptSms } : {}),
+    ...(typeof settings.callbackPhone === "string" ? { callbackPhone: settings.callbackPhone } : {}),
+    ...(typeof settings.callbackEmail === "string" ? { callbackEmail: settings.callbackEmail } : {}),
+    logoPreviewUrl: logo ? `${paymentMessageLogoUrl(org.id)}?v=${logo.sha256.slice(0, 16)}` : null,
+    logoFilename: logo?.filename || null,
+  };
+}
+
+export function paymentMessageLogoUrl(orgId: string): string {
+  return `/payment-message-automation/logo/${encodeURIComponent(orgId)}`;
+}
+
+function existingValidLogo(org: Organization): PaymentMessageLogo | undefined {
+  const logo = getPaymentMessageAutomationSettings(org).logo;
+  if (!logo || typeof logo !== "object" || typeof logo.dataUrl !== "string") return undefined;
+  const validation = validatePaymentMessageLogo(logo.dataUrl);
+  return validation.ok ? { ...validation.logo, filename: typeof logo.filename === "string" ? logo.filename : undefined } : undefined;
+}
+
 export function mergePaymentMessageAutomationSettings(
   org: Organization,
   paymentMessageAutomation: PaymentMessageAutomationSettings,
 ): string {
   const current = parseOrganizationSettings(org);
+  const { logoUrl: _legacyLogoUrl, ...currentPaymentSettings } = getPaymentMessageAutomationSettings(org) as PaymentMessageAutomationSettings & { logoUrl?: unknown };
   return JSON.stringify({
     ...current,
     paymentMessageAutomation: {
-      ...getPaymentMessageAutomationSettings(org),
+      ...currentPaymentSettings,
       ...paymentMessageAutomation,
+      logo: existingValidLogo(org),
     },
   });
+}
+
+export function mergePaymentMessageAutomationLogo(org: Organization, logo: PaymentMessageLogo | null): string {
+  const current = parseOrganizationSettings(org);
+  const { logo: _oldLogo, logoUrl: _legacyLogoUrl, ...settings } = getPaymentMessageAutomationSettings(org) as PaymentMessageAutomationSettings & { logoUrl?: unknown };
+  return JSON.stringify({
+    ...current,
+    paymentMessageAutomation: { ...settings, ...(logo ? { logo } : {}) },
+  });
+}
+
+export type LogoValidationResult =
+  | { ok: true; logo: PaymentMessageLogo }
+  | { ok: false; status: 400 | 413; error: string };
+
+const LOGO_DATA_URL = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+function imageMimeFromBytes(bytes: Buffer): PaymentMessageLogo["mimeType"] | undefined {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return undefined;
+}
+
+export function validatePaymentMessageLogo(dataUrl: unknown): LogoValidationResult {
+  if (typeof dataUrl !== "string") return { ok: false, status: 400, error: "Logo must be a base64 PNG, JPEG, or WebP data URL." };
+  const match = dataUrl.match(LOGO_DATA_URL);
+  if (!match || match[2].length % 4 !== 0) return { ok: false, status: 400, error: "Logo must be a strictly formatted base64 PNG, JPEG, or WebP data URL." };
+  const bytes = Buffer.from(match[2], "base64");
+  if (bytes.length === 0) return { ok: false, status: 400, error: "Logo image cannot be empty." };
+  if (bytes.toString("base64") !== match[2]) return { ok: false, status: 400, error: "Logo must use canonical base64 encoding." };
+  if (bytes.length > MAX_LOGO_BYTES) return { ok: false, status: 413, error: "Logo image must be 2 MiB or smaller." };
+  const claimedMime = match[1] as PaymentMessageLogo["mimeType"];
+  const detectedMime = imageMimeFromBytes(bytes);
+  if (!detectedMime || detectedMime !== claimedMime) return { ok: false, status: 400, error: "Logo file contents do not match its claimed image type." };
+  return {
+    ok: true,
+    logo: {
+      dataUrl: `data:${claimedMime};base64,${bytes.toString("base64")}`,
+      mimeType: claimedMime,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+  };
 }
 
 function formatMoney(cents: number | null | undefined): string {
@@ -69,9 +150,11 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
-function getCompanyLogoUrl(org: Organization, settings: PaymentMessageAutomationSettings): string {
-  if (settings.logoUrl?.trim()) return settings.logoUrl.trim();
-  return "/logo.png";
+export function getCompanyLogoUrl(org: Organization, settings: PaymentMessageAutomationSettings): string {
+  const stored = existingValidLogo(org);
+  if (stored) return stored.dataUrl;
+  const supplied = validatePaymentMessageLogo(settings.logo?.dataUrl);
+  return supplied.ok ? supplied.logo.dataUrl : "/logo.png";
 }
 
 function buildContactLine(settings: PaymentMessageAutomationSettings): string {
@@ -83,7 +166,7 @@ function buildContactLine(settings: PaymentMessageAutomationSettings): string {
   return "contact our office";
 }
 
-function buildDeclineMessage(org: Organization, debtor: Debtor, payment: Payment, reason: string | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
+export function buildDeclineMessage(org: Organization, debtor: Debtor, payment: Payment, reason: string | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
   const firstName = debtor.firstName || "there";
   const amount = formatMoney(payment.amount);
   const date = formatDate(payment.paymentDate);
@@ -106,7 +189,7 @@ function buildDeclineMessage(org: Organization, debtor: Debtor, payment: Payment
 </div>`.trim();
 }
 
-function buildReceiptMessage(org: Organization, debtor: Debtor, payment: Payment, transactionId: string | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
+export function buildReceiptMessage(org: Organization, debtor: Debtor, payment: Payment, transactionId: string | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
   const firstName = debtor.firstName || "there";
   const amount = formatMoney(payment.amount);
   const date = formatDate(payment.paymentDate);

@@ -6,7 +6,7 @@ import { buildInternalPaymentInsert, rejectRawCardData } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { isActiveGlobalAdminSession } from "./access-control";
+import { isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
 import bcrypt from "bcrypt";
 import { 
   processDebtorCardPayment,
@@ -24,7 +24,7 @@ import {
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
-import { getPaymentMessageAutomationSettings, mergePaymentMessageAutomationSettings } from "./payment-message-automation";
+import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
 import { db } from "./db";
 import {
   emailSettings,
@@ -152,13 +152,9 @@ async function isActiveAdminOrManager(req: any, orgId: string): Promise<boolean>
   const sessionCollector = req.session?.collector;
   if (!sessionCollector?.id) return false;
   const live = await storage.getCollector(sessionCollector.id);
-  return !!(
-    live &&
-    live.status === "active" &&
-    live.organizationId === orgId &&
-    (live.role === "admin" || live.role === "manager")
-  );
+  return isActiveAdminOrManagerRecord(sessionCollector, live, orgId);
 }
+
 
 // Validate that a resource belongs to the authenticated user's organization
 // Returns true if valid, false if the resource doesn't belong to the org
@@ -334,6 +330,7 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  registerPaymentMessagePublicLogoRoute(app, storage);
   
   // Public routes that don't require authentication (paths relative to /api)
   // Note: These should be minimal - only what's needed before login
@@ -1338,50 +1335,7 @@ export async function registerRoutes(
   });
 
 
-  app.get("/api/payment-message-automation", async (req: any, res) => {
-    try {
-      const collector = req.session?.collector;
-      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-        return res.status(403).json({ error: "Only admins and managers can manage payment message automation" });
-      }
-      const orgId = getOrgId(req);
-      const organization = await storage.getOrganization(orgId);
-      if (!organization) return res.status(404).json({ error: "Organization not found" });
-      res.json(getPaymentMessageAutomationSettings(organization));
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch payment message automation settings" });
-    }
-  });
-
-  app.post("/api/payment-message-automation", async (req: any, res) => {
-    try {
-      const collector = req.session?.collector;
-      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-        return res.status(403).json({ error: "Only admins and managers can manage payment message automation" });
-      }
-      const orgId = getOrgId(req);
-      const organization = await storage.getOrganization(orgId);
-      if (!organization) return res.status(404).json({ error: "Organization not found" });
-
-      const clean = {
-        enabled: Boolean(req.body.enabled),
-        sendDeclineEmail: Boolean(req.body.sendDeclineEmail),
-        sendDeclineSms: Boolean(req.body.sendDeclineSms),
-        sendReceiptEmail: Boolean(req.body.sendReceiptEmail),
-        sendReceiptSms: Boolean(req.body.sendReceiptSms),
-        callbackPhone: String(req.body.callbackPhone || "").trim(),
-        callbackEmail: String(req.body.callbackEmail || "").trim(),
-        logoUrl: String(req.body.logoUrl || "").trim(),
-      };
-
-      const updated = await storage.updateOrganization(orgId, {
-        settings: mergePaymentMessageAutomationSettings(organization, clean),
-      });
-      res.json(getPaymentMessageAutomationSettings(updated || organization));
-    } catch (error) {
-      res.status(500).json({ error: "Failed to save payment message automation settings" });
-    }
-  });
+  registerPaymentMessageAutomationRoutes(app, storage);
 
   // Per-organization email settings (recipient addresses for this org's
   // notifications/reports). Tenant isolated by organizationId. The system

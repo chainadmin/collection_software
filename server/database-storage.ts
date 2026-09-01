@@ -155,6 +155,18 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async updateOrganizationSettingsAtomic(id: string, updater: (organization: Organization) => string): Promise<Organization | undefined> {
+    return db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(organizations).where(eq(organizations.id, id)).for("update");
+      if (!existing) return undefined;
+      const [updated] = await tx.update(organizations)
+        .set({ settings: updater(existing) })
+        .where(eq(organizations.id, id))
+        .returning();
+      return updated;
+    });
+  }
+
   async deleteOrganization(id: string): Promise<boolean> {
     const result = await db.delete(organizations).where(eq(organizations.id, id));
     return true;

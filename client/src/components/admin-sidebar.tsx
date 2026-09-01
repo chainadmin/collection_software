@@ -17,7 +17,6 @@ import {
   Layers,
   Banknote,
   Receipt,
-  Upload,
   Clock,
   UserCog,
   DollarSign,
@@ -101,7 +100,6 @@ const adminSections: NavSection[] = [
       { title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard },
       { title: "Merchants", url: "/app/admin/payments/merchants", icon: Banknote },
       { title: "Remittance", url: "/app/admin/payments/remittance", icon: Receipt },
-      { title: "Import Batch", url: "/app/admin/payments/import-batch", icon: Upload },
     ],
   },
   {

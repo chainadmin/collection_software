@@ -101,6 +101,10 @@ export interface IStorage {
   getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
   createOrganization(org: InsertOrganization): Promise<Organization>;
   updateOrganization(id: string, org: Partial<InsertOrganization>): Promise<Organization | undefined>;
+  // Applies a settings-only change against the latest organization row. Database
+  // implementations lock the row so concurrent feature writers cannot clobber
+  // unrelated JSON settings.
+  updateOrganizationSettingsAtomic(id: string, updater: (organization: Organization) => string): Promise<Organization | undefined>;
   deleteOrganization(id: string): Promise<boolean>;
 
   // Users (global - not organization scoped)
@@ -1077,6 +1081,14 @@ export class MemStorage implements IStorage {
     const existing = this.organizations.get(id);
     if (!existing) return undefined;
     const updated = { ...existing, ...org };
+    this.organizations.set(id, updated);
+    return updated;
+  }
+
+  async updateOrganizationSettingsAtomic(id: string, updater: (organization: Organization) => string): Promise<Organization | undefined> {
+    const existing = this.organizations.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, settings: updater(existing) };
     this.organizations.set(id, updated);
     return updated;
   }

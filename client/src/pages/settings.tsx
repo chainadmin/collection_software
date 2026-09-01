@@ -40,7 +40,7 @@ import {
   ExternalLink,
   CreditCard,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/components/theme-provider";
@@ -62,7 +62,8 @@ type PaymentMessageAutomationSettings = {
   sendReceiptSms?: boolean;
   callbackPhone?: string;
   callbackEmail?: string;
-  logoUrl?: string;
+  logoPreviewUrl?: string | null;
+  logoFilename?: string | null;
 };
 
 const blankPaymentAutomation: PaymentMessageAutomationSettings = {
@@ -73,7 +74,8 @@ const blankPaymentAutomation: PaymentMessageAutomationSettings = {
   sendReceiptSms: false,
   callbackPhone: "",
   callbackEmail: "",
-  logoUrl: "",
+  logoPreviewUrl: null,
+  logoFilename: null,
 };
 
 const SYSTEM_STATUSES = [
@@ -113,6 +115,10 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const [newStatus, setNewStatus] = useState("");
   const [paymentAutomation, setPaymentAutomation] = useState<PaymentMessageAutomationSettings>(blankPaymentAutomation);
+  const [uploadingLogoFilename, setUploadingLogoFilename] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const logoSelectionRef = useRef(0);
+  const [isReadingLogo, setIsReadingLogo] = useState(false);
   const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
     queryKey: ["/api/account-statuses"],
   });
@@ -141,6 +147,68 @@ export default function Settings() {
       toast({ title: "Error", description: err?.message || "Failed to save automation settings.", variant: "destructive" });
     },
   });
+
+  const uploadLogoMutation = useMutation({
+    mutationFn: async ({ dataUrl, filename }: { dataUrl: string; filename: string }) => {
+      const res = await apiRequest("POST", "/api/payment-message-automation/logo", { dataUrl, filename });
+      return res.json() as Promise<{ logoPreviewUrl: string; logoFilename: string | null }>;
+    },
+  });
+
+  const removeLogoMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/payment-message-automation/logo"),
+    onSuccess: () => {
+      setPaymentAutomation((current) => ({ ...current, logoPreviewUrl: null, logoFilename: null }));
+      toast({ title: "Logo removed", description: "Payment emails will use the default logo." });
+    },
+    onError: (err: any) => toast({ title: "Logo removal failed", description: err?.message || "Unable to remove logo.", variant: "destructive" }),
+  });
+
+  const handleLogoSelected = (file: File | undefined) => {
+    if (isReadingLogo || uploadLogoMutation.isPending || savePaymentAutomationMutation.isPending || removeLogoMutation.isPending) return;
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast({ title: "Invalid logo type", description: "Choose a PNG, JPEG, or WebP image.", variant: "destructive" });
+      if (logoInputRef.current) logoInputRef.current.value = "";
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "Logo too large", description: "Choose an image 2 MiB or smaller.", variant: "destructive" });
+      if (logoInputRef.current) logoInputRef.current.value = "";
+      return;
+    }
+    const selection = ++logoSelectionRef.current;
+    setIsReadingLogo(true);
+    setUploadingLogoFilename(file.name);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      if (selection === logoSelectionRef.current) {
+        setIsReadingLogo(false);
+        setUploadingLogoFilename(null);
+        toast({ title: "Logo upload failed", description: "Could not read the selected image.", variant: "destructive" });
+      }
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    };
+    reader.onload = () => {
+      if (selection !== logoSelectionRef.current || typeof reader.result !== "string") return;
+      setIsReadingLogo(false);
+      uploadLogoMutation.mutate({ dataUrl: reader.result, filename: file.name }, {
+        onSuccess: (data) => {
+          if (selection !== logoSelectionRef.current) return;
+          setUploadingLogoFilename(null);
+          setPaymentAutomation((current) => ({ ...current, ...data }));
+          toast({ title: "Logo uploaded", description: "Your payment email logo was updated." });
+        },
+        onError: (err: any) => {
+          if (selection !== logoSelectionRef.current) return;
+          setUploadingLogoFilename(null);
+          toast({ title: "Logo upload failed", description: err?.message || "Unable to upload logo.", variant: "destructive" });
+        },
+      });
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    };
+    reader.readAsDataURL(file);
+  };
 
   const accountStatuses = [
     ...SYSTEM_STATUSES.map((s, i) => ({
@@ -344,15 +412,37 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="paymentAutomationLogo">Logo URL</Label>
-                <Input
+              <div className="space-y-2">
+                <Label htmlFor="paymentAutomationLogo">Payment email logo</Label>
+                <input
+                  ref={logoInputRef}
                   id="paymentAutomationLogo"
-                  value={paymentAutomation.logoUrl || ""}
-                  onChange={(e) => setPaymentAutomation((v) => ({ ...v, logoUrl: e.target.value }))}
-                  placeholder="Optional; defaults to the app logo"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={(e) => handleLogoSelected(e.target.files?.[0])}
                   data-testid="input-payment-automation-logo"
                 />
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+                  {paymentAutomation.logoPreviewUrl ? (
+                    <img src={paymentAutomation.logoPreviewUrl} alt="Payment email logo preview" className="h-12 max-w-48 object-contain" />
+                  ) : (
+                    <img src="/logo.png" alt="Default payment email logo" className="h-12 max-w-48 object-contain" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{uploadingLogoFilename || paymentAutomation.logoFilename || "Default application logo"}</p>
+                    <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP; maximum 2 MiB.</p>
+                    {(isReadingLogo || uploadLogoMutation.isPending) && <p className="text-xs text-muted-foreground">{isReadingLogo ? "Reading selected logo…" : "Uploading logo…"}</p>}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => logoInputRef.current?.click()} disabled={isReadingLogo || uploadLogoMutation.isPending || removeLogoMutation.isPending || savePaymentAutomationMutation.isPending} data-testid="button-choose-payment-logo">
+                    {paymentAutomation.logoPreviewUrl ? "Replace logo" : "Choose logo"}
+                  </Button>
+                  {paymentAutomation.logoPreviewUrl && (
+                    <Button type="button" variant="ghost" onClick={() => removeLogoMutation.mutate()} disabled={isReadingLogo || uploadLogoMutation.isPending || removeLogoMutation.isPending || savePaymentAutomationMutation.isPending} data-testid="button-remove-payment-logo">
+                      {removeLogoMutation.isPending ? "Removing…" : "Remove"}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -386,7 +476,7 @@ export default function Settings() {
 
               <Button
                 onClick={() => savePaymentAutomationMutation.mutate(paymentAutomation)}
-                disabled={savePaymentAutomationMutation.isPending}
+                disabled={savePaymentAutomationMutation.isPending || uploadLogoMutation.isPending || removeLogoMutation.isPending}
                 data-testid="button-save-payment-message-automation"
               >
                 Save Payment Automation
