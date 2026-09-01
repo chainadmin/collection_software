@@ -63,7 +63,7 @@ import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
-import { parseCSV, autoMapColumns, systemFields } from "@/lib/csv-import";
+import { parseImportFile, autoMapColumns, systemFields } from "@/lib/csv-import";
 
 type ImportResults = {
   created: number;
@@ -80,7 +80,7 @@ type ImportResponse = {
   results?: ImportResults;
 };
 
-const IDENTIFIER_FIELDS = new Set(["accountNumber", "ssn", "fileNumber"]);
+const IDENTIFIER_FIELDS = new Set(["accountNumber", "ssn"]);
 
 type UpdatePortfolioPayload = {
   name: string;
@@ -123,6 +123,9 @@ export default function Portfolios() {
   const [csvData, setCsvData] = useState<string[][]>([]);
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
   const [importResults, setImportResults] = useState<ImportResults | null>(null);
+  const [fileError, setFileError] = useState("");
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   // Refs avoid stale closures during async create/import vs dialog close.
   const importDoneRef = useRef(false);
   const importStartedRef = useRef(false);
@@ -176,6 +179,9 @@ export default function Portfolios() {
     setCsvData([]);
     setColumnMappings({});
     setImportResults(null);
+    setFileError("");
+    setIsParsingFile(false);
+    setIsDraggingFile(false);
   };
 
   const deletePortfolioSilently = async (id: string) => {
@@ -326,17 +332,31 @@ export default function Portfolios() {
 
   const handleFileSelect = async (file: File | null) => {
     setImportFile(file);
+    setFileError("");
     if (!file) {
       setCsvColumns([]);
       setCsvData([]);
       setColumnMappings({});
       return;
     }
-    const text = await file.text();
-    const { columns, data } = parseCSV(text);
-    setCsvColumns(columns);
-    setCsvData(data);
-    setColumnMappings(autoMapColumns(columns));
+    setCsvColumns([]);
+    setCsvData([]);
+    setColumnMappings({});
+    setIsParsingFile(true);
+    try {
+      const { columns, data } = await parseImportFile(file);
+      setCsvColumns(columns);
+      setCsvData(data);
+      setColumnMappings(autoMapColumns(columns));
+    } catch (error) {
+      setImportFile(null);
+      setCsvColumns([]);
+      setCsvData([]);
+      setColumnMappings({});
+      setFileError(error instanceof Error ? error.message : "The selected file could not be read.");
+    } finally {
+      setIsParsingFile(false);
+    }
   };
 
   const handleSubmitName = () => {
@@ -359,17 +379,17 @@ export default function Portfolios() {
   const handleRunImport = () => {
     if (!newPortfolioId) return;
     if (!importFile || csvData.length === 0) {
-      toast({ title: "File required", description: "Please upload a CSV file to import.", variant: "destructive" });
+      toast({ title: "File required", description: "Please upload a CSV or XLSX file to import.", variant: "destructive" });
       return;
     }
     if (!hasAnyMapping) {
-      toast({ title: "Map at least one column", description: "Map at least one CSV column to a system field.", variant: "destructive" });
+      toast({ title: "Map at least one column", description: "Map at least one file column to a system field.", variant: "destructive" });
       return;
     }
     if (!hasIdentifierMapping) {
       toast({
         title: "Missing identifier",
-        description: "Map at least one column to Account Number, SSN, or File Number — every row needs an identifier.",
+        description: "Map at least one column to Account Number or full SSN — every row needs an identifier.",
         variant: "destructive",
       });
       return;
@@ -614,7 +634,7 @@ export default function Portfolios() {
             <DialogDescription>
               {wizardStep === "name"
                 ? "Step 1 of 2 — name your portfolio. Totals will be calculated from the imported file."
-                : "Step 2 of 2 — pick the client these accounts belong to, upload your CSV, and map the columns."}
+                : "Step 2 of 2 — pick the client these accounts belong to, upload a CSV or XLSX file, and map the columns."}
             </DialogDescription>
           </DialogHeader>
 
@@ -630,7 +650,7 @@ export default function Portfolios() {
                   autoFocus
                 />
                 <p className="text-xs text-muted-foreground">
-                  Face value, account count, and other details will be filled in from your CSV.
+                  Face value, account count, and other details will be filled in from your file.
                 </p>
               </div>
               <DialogFooter>
@@ -678,11 +698,35 @@ export default function Portfolios() {
               </div>
 
               <div className="space-y-2">
-                <Label>CSV File *</Label>
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                <Label>CSV or XLSX File *</Label>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    isDraggingFile ? "border-primary bg-primary/5" : fileError ? "border-destructive" : ""
+                  }`}
+                  onDragEnter={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
+                  onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsDraggingFile(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setIsDraggingFile(false);
+                    handleFileSelect(event.dataTransfer.files?.[0] || null);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Select a CSV or XLSX file"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      document.getElementById("portfolio-import-file")?.click();
+                    }
+                  }}
+                >
                   <Input
                     type="file"
-                    accept=".csv"
+                    accept=".csv,.xlsx"
                     onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
                     className="hidden"
                     id="portfolio-import-file"
@@ -691,11 +735,12 @@ export default function Portfolios() {
                   <label htmlFor="portfolio-import-file" className="cursor-pointer">
                     <FileText className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground mb-1">
-                      {importFile ? importFile.name : "Click to select a CSV file"}
+                      {isParsingFile ? "Reading file..." : importFile ? importFile.name : isDraggingFile ? "Drop file here" : "Click or drag a file here"}
                     </p>
-                    <p className="text-xs text-muted-foreground">CSV files only</p>
+                    <p className="text-xs text-muted-foreground">CSV and XLSX files supported</p>
                   </label>
                 </div>
+                {fileError && <p className="text-sm text-destructive" role="alert">{fileError}</p>}
                 {importFile && csvColumns.length > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {csvColumns.length} columns, {csvData.length} rows detected. Columns auto-mapped where possible — review below.
@@ -708,7 +753,7 @@ export default function Portfolios() {
                   <Label>Column Mapping</Label>
                   <div className="border rounded-lg overflow-hidden">
                     <div className="grid grid-cols-3 gap-3 px-3 py-2 bg-muted text-xs font-medium">
-                      <span>CSV Column</span>
+                      <span>File Column</span>
                       <span>Sample</span>
                       <span>Map To</span>
                     </div>
@@ -745,8 +790,8 @@ export default function Portfolios() {
                       <AlertTriangle className="h-4 w-4" />
                       <AlertTitle>Map a row identifier</AlertTitle>
                       <AlertDescription>
-                        Every row needs at least one of <strong>Account Number</strong>,{" "}
-                        <strong>SSN</strong>, or <strong>File Number</strong> mapped, otherwise
+                        Every row needs an <strong>Account Number</strong> or full{" "}
+                        <strong>SSN</strong> mapped, otherwise
                         every row will be skipped.
                       </AlertDescription>
                     </Alert>
@@ -813,8 +858,8 @@ export default function Portfolios() {
                     importResults.updated === 0 &&
                     importResults.skipped > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        Nothing was imported. Check that an identifier column (Account Number,
-                        SSN, or File Number) is mapped, then try again.
+                        Nothing was imported. Check that an identifier column (Account Number
+                        or full SSN) is mapped, then try again.
                       </p>
                     )}
                 </div>

@@ -54,6 +54,12 @@ import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card
 import { CardVaultError, vaultCard } from "./card-vault";
 import { redactPaymentCard } from "./payment-card-presenter";
 import { getPaymentBusinessDate } from "./payment-date";
+import {
+  debtorMatchesImportIdentifier,
+  normalizeImportSsn,
+  normalizeImportText,
+  sanitizeDebtorImportMappings,
+} from "./import-identification";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -3815,16 +3821,7 @@ export async function registerRoutes(
         }
       }
       
-      const normalizeSsn = (s: any): string | null => {
-        if (s === null || s === undefined) return null;
-        const digits = String(s).replace(/\D/g, "");
-        return digits.length > 0 ? digits : null;
-      };
-      const normalizeText = (s: any): string | null => {
-        if (s === null || s === undefined) return null;
-        const t = String(s).trim();
-        return t.length > 0 ? t : null;
-      };
+      const safeMappings = sanitizeDebtorImportMappings(mappings);
 
       const results = {
         created: 0,
@@ -3855,7 +3852,7 @@ export async function registerRoutes(
         const mappedData: any = {};
         try {
           
-          for (const [csvColumn, systemField] of Object.entries(mappings)) {
+          for (const [csvColumn, systemField] of Object.entries(safeMappings)) {
             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
               let value = record[csvColumn];
               
@@ -3875,35 +3872,27 @@ export async function registerRoutes(
 
           // Normalize key matching fields so dashes/spaces don't create duplicates.
           if (mappedData.accountNumber !== undefined) {
-            mappedData.accountNumber = normalizeText(mappedData.accountNumber);
-          }
-          if (mappedData.fileNumber !== undefined) {
-            mappedData.fileNumber = normalizeText(mappedData.fileNumber);
+            mappedData.accountNumber = normalizeImportText(mappedData.accountNumber);
           }
           if (mappedData.ssn !== undefined) {
-            mappedData.ssn = normalizeSsn(mappedData.ssn);
+            mappedData.ssn = normalizeImportSsn(mappedData.ssn);
             if (mappedData.ssn) mappedData.ssnLast4 = mappedData.ssn.slice(-4);
           }
 
-          if (!mappedData.accountNumber && !mappedData.ssn && !mappedData.fileNumber) {
-            const reason = "Row missing account number, SSN, and file number — skipped";
+          if (!mappedData.accountNumber && !mappedData.ssn) {
+            const reason = "Row missing account number and full SSN — skipped";
             results.skipped++;
             results.errors.push(`Row ${rowNumber}: ${reason}`);
             results.skipReasons.push({ row: rowNumber, reason });
             continue;
           }
 
-          const existingInPortfolio = existingDebtors.find(
-            (d) => (mappedData.accountNumber && d.accountNumber === mappedData.accountNumber) ||
-                   (mappedData.ssn && normalizeSsn(d.ssn) === mappedData.ssn) ||
-                   (mappedData.fileNumber && d.fileNumber === mappedData.fileNumber)
+          const existingInPortfolio = existingDebtors.find((debtor) =>
+            debtorMatchesImportIdentifier(debtor, mappedData),
           );
 
           if (existingInPortfolio) {
-            // A source file number may help identify a re-imported row, but it
-            // must never replace the DMP-generated consumer file number.
-            const { fileNumber: _sourceFileNumber, ...updates } = mappedData;
-            await storage.updateDebtor(existingInPortfolio.id, updates);
+            await storage.updateDebtor(existingInPortfolio.id, mappedData);
             results.updated++;
             continue;
           }
@@ -3911,7 +3900,7 @@ export async function registerRoutes(
           let linkedAccountId: string | null = null;
           if (mappedData.ssn) {
             const linkedDebtor = allDebtors.find(
-              (d) => normalizeSsn(d.ssn) === mappedData.ssn && d.portfolioId !== portfolioId
+              (d) => normalizeImportSsn(d.ssn) === mappedData.ssn && d.portfolioId !== portfolioId
             );
             if (linkedDebtor) {
               linkedAccountId = linkedDebtor.id;
@@ -3929,7 +3918,7 @@ export async function registerRoutes(
           const knownFields = new Set([
             'accountNumber', 'firstName', 'lastName', 'email', 'address', 'city', 'state', 'zipCode',
             'dateOfBirth', 'ssn', 'ssnLast4', 'originalBalance', 'currentBalance', 'originalCreditor',
-            'clientName', 'fileNumber', 'status', 'lastContactDate', 'nextFollowUpDate', 'chargeOffDate',
+            'clientName', 'status', 'lastContactDate', 'nextFollowUpDate', 'chargeOffDate',
             'phone', 'phone1', 'phone2', 'phone3', 'phone4', 'phone5', 
             'phone1Label', 'phone2Label', 'phone3Label', 'phone4Label', 'phone5Label',
             'email1', 'email2', 'email3', 'email1Label', 'email2Label', 'email3Label',
@@ -4075,7 +4064,7 @@ export async function registerRoutes(
             constraint === "debtors_portfolio_file_number_unique" ||
             /debtors_portfolio_file_number_unique/.test(reason)
           ) {
-            reason = `Duplicate file number "${mappedData.fileNumber ?? ''}" already exists in this portfolio`;
+            reason = `The generated DMP file number already exists in this portfolio`;
           }
           results.skipped++;
           results.errors.push(`Row ${rowNumber}: ${reason}`);

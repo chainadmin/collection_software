@@ -11,7 +11,24 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Portfolio, Client } from "@shared/schema";
-import { parseCSV, systemFields, buildSkipMappings } from "@/lib/csv-import";
+import {
+  parseImportFile,
+  systemFields,
+  buildSkipMappings,
+  sanitizeColumnMappings,
+} from "@/lib/csv-import";
+
+type SavedSchema = { name: string; mappings: Record<string, string> };
+
+function sanitizeSavedSchemas(schemas: unknown): SavedSchema[] {
+  if (!Array.isArray(schemas)) return [];
+  return schemas.flatMap((schema): SavedSchema[] => {
+    if (!schema || typeof schema !== "object") return [];
+    const candidate = schema as Partial<SavedSchema>;
+    if (typeof candidate.name !== "string" || !candidate.mappings || typeof candidate.mappings !== "object") return [];
+    return [{ name: candidate.name, mappings: sanitizeColumnMappings(candidate.mappings) }];
+  });
+}
 
 export default function ImportExport() {
   const { toast } = useToast();
@@ -33,11 +50,18 @@ export default function ImportExport() {
   const [selectedSchemaId, setSelectedSchemaId] = useState("");
   const [schemaName, setSchemaName] = useState("");
   const [showSaveSchemaDialog, setShowSaveSchemaDialog] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   
   const [savedSchemas, setSavedSchemas] = useState<{name: string; mappings: Record<string, string>}[]>(() => {
     try {
       const stored = localStorage.getItem("debtflow_schema_mappings");
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const sanitized = sanitizeSavedSchemas(JSON.parse(stored));
+        localStorage.setItem("debtflow_schema_mappings", JSON.stringify(sanitized));
+        return sanitized;
+      }
     } catch (e) {}
     return [
       { name: "Standard Account Import", mappings: { "Account Number": "accountNumber", "First Name": "firstName", "Last Name": "lastName", "Balance": "currentBalance" } },
@@ -101,17 +125,30 @@ export default function ImportExport() {
 
   const handleFileSelect = async (file: File | null) => {
     setImportFile(file);
+    setFileError("");
     if (!file) {
       setCsvColumns([]);
       setCsvData([]);
       return;
     }
-
-    const text = await file.text();
-    const { columns, data } = parseCSV(text);
-    setCsvColumns(columns);
-    setCsvData(data);
-    setColumnMappings(buildSkipMappings(columns));
+    setCsvColumns([]);
+    setCsvData([]);
+    setColumnMappings({});
+    setIsParsingFile(true);
+    try {
+      const { columns, data } = await parseImportFile(file);
+      setCsvColumns(columns);
+      setCsvData(data);
+      setColumnMappings(buildSkipMappings(columns));
+    } catch (error) {
+      setImportFile(null);
+      setCsvColumns([]);
+      setCsvData([]);
+      setColumnMappings({});
+      setFileError(error instanceof Error ? error.message : "The selected file could not be read.");
+    } finally {
+      setIsParsingFile(false);
+    }
   };
 
   const handleContinueToMapping = () => {
@@ -147,9 +184,10 @@ export default function ImportExport() {
     const schema = savedSchemas.find(s => s.name === schemaName);
     if (schema) {
       const newMappings = { ...columnMappings };
+      const safeSchemaMappings = sanitizeColumnMappings(schema.mappings);
       csvColumns.forEach(col => {
-        if (schema.mappings[col]) {
-          newMappings[col] = schema.mappings[col];
+        if (safeSchemaMappings[col]) {
+          newMappings[col] = safeSchemaMappings[col];
         }
       });
       setColumnMappings(newMappings);
@@ -208,6 +246,16 @@ export default function ImportExport() {
   });
 
   const handleImport = async () => {
+    if (importType === "accounts" && !Object.values(columnMappings).some(
+      (field) => field === "accountNumber" || field === "ssn",
+    )) {
+      toast({
+        title: "Missing identifier",
+        description: "Map Account Number or full SSN before importing accounts.",
+        variant: "destructive",
+      });
+      return;
+    }
     const records = csvData.map(row => {
       const record: Record<string, string> = {};
       csvColumns.forEach((col, idx) => {
@@ -366,7 +414,7 @@ export default function ImportExport() {
 
                   {importType === "accounts" && (
                     <div className="space-y-2">
-                      <Label>File Number Starting At</Label>
+                      <Label>DMP File Number Starting At</Label>
                       <Input 
                         type="number"
                         min="1"
@@ -376,17 +424,41 @@ export default function ImportExport() {
                         data-testid="input-file-number-start"
                       />
                       <p className="text-xs text-muted-foreground">
-                        DMP will assign short file numbers starting with {fileNumberStart || "1"}, then {(parseInt(fileNumberStart) + 1 || 2).toString()}, etc. Imported file-number values will not replace these DMP numbers.
+                        DMP will generate short file numbers starting with {fileNumberStart || "1"}, then {(parseInt(fileNumberStart) + 1 || 2).toString()}, etc.
                       </p>
                     </div>
                   )}
 
                   <div className="space-y-2">
                     <Label>File</Label>
-                    <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                    <div
+                      className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                        isDraggingFile ? "border-primary bg-primary/5" : fileError ? "border-destructive" : ""
+                      }`}
+                      onDragEnter={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
+                      onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
+                      onDragLeave={(event) => {
+                        event.preventDefault();
+                        if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsDraggingFile(false);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setIsDraggingFile(false);
+                        handleFileSelect(event.dataTransfer.files?.[0] || null);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Select a CSV or XLSX file"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          document.getElementById("import-file")?.click();
+                        }
+                      }}
+                    >
                       <Input 
                         type="file" 
-                        accept=".csv,.xlsx,.xls"
+                        accept=".csv,.xlsx"
                         onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
                         className="hidden"
                         id="import-file"
@@ -395,11 +467,12 @@ export default function ImportExport() {
                       <label htmlFor="import-file" className="cursor-pointer">
                         <FileText className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground mb-1">
-                          {importFile ? importFile.name : "Click to select file"}
+                          {isParsingFile ? "Reading file..." : importFile ? importFile.name : isDraggingFile ? "Drop file here" : "Click or drag a file here"}
                         </p>
                         <p className="text-xs text-muted-foreground">CSV, XLSX supported</p>
                       </label>
                     </div>
+                    {fileError && <p className="text-sm text-destructive" role="alert">{fileError}</p>}
                   </div>
 
                   {importFile && csvColumns.length > 0 && (
@@ -411,7 +484,7 @@ export default function ImportExport() {
 
                   <Button 
                     onClick={handleContinueToMapping} 
-                    disabled={!importFile || ((importType === "accounts" || importType === "contacts") && !importClientId)}
+                    disabled={isParsingFile || !importFile || ((importType === "accounts" || importType === "contacts") && !importClientId)}
                     className="w-full" 
                     data-testid="button-continue-mapping"
                   >
@@ -429,7 +502,7 @@ export default function ImportExport() {
               <CardHeader>
                 <CardTitle className="text-lg">Map Columns</CardTitle>
                 <CardDescription>
-                  Match your CSV columns to system fields. You can use a saved schema or create a new mapping.
+                  Match your file columns to system fields. You can use a saved schema or create a new mapping.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -459,7 +532,7 @@ export default function ImportExport() {
 
                 <div className="border rounded-lg overflow-hidden">
                   <div className="grid grid-cols-3 gap-4 p-3 bg-muted font-medium text-sm">
-                    <span>CSV Column</span>
+                    <span>File Column</span>
                     <span>Sample Data</span>
                     <span>Map To</span>
                   </div>
