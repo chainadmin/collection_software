@@ -60,6 +60,12 @@ import {
   normalizeImportText,
   sanitizeDebtorImportMappings,
 } from "./import-identification";
+import {
+  accountExportFilename,
+  serializeAccountExport,
+  selectAccountExportRows,
+  type AccountExportFormat,
+} from "./account-export";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -2148,6 +2154,61 @@ export async function registerRoutes(
       res.json(orgDebtors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch debtors" });
+    }
+  });
+
+  app.get("/api/exports/accounts", requireCollectorAuth, async (req: any, res) => {
+    try {
+      const orgId = req.session.collector.organizationId;
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Admin or manager permission required" });
+      }
+
+      const requestedFormat = typeof req.query.format === "string" ? req.query.format.toLowerCase() : "csv";
+      if (!["csv", "xlsx", "json"].includes(requestedFormat)) {
+        return res.status(400).json({ error: "Format must be csv, xlsx, or json" });
+      }
+      const format = requestedFormat as AccountExportFormat;
+      const portfolioId = typeof req.query.portfolioId === "string" &&
+        req.query.portfolioId.trim() &&
+        req.query.portfolioId !== "all"
+        ? req.query.portfolioId.trim()
+        : undefined;
+
+      const allPortfolios = await storage.getPortfolios();
+      const orgPortfolios = allPortfolios.filter((portfolio) => portfolio.organizationId === orgId);
+      if (portfolioId && !orgPortfolios.some((portfolio) => portfolio.id === portfolioId)) {
+        return res.status(404).json({ error: "Portfolio not found in your organization" });
+      }
+
+      const debtors = (await storage.getDebtors(portfolioId))
+        .filter((debtor) => debtor.organizationId === orgId);
+      if (debtors.length === 0) {
+        return res.status(404).json({ error: "No accounts found for the selected portfolio" });
+      }
+      const contactGroups = await Promise.all(debtors.map((debtor) => storage.getDebtorContacts(debtor.id)));
+      const rows = selectAccountExportRows({
+        organizationId: orgId,
+        debtors,
+        portfolios: orgPortfolios,
+        clients: await storage.getClients(orgId),
+        contacts: contactGroups.flat(),
+        portfolioId,
+      });
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "No accounts found for the selected portfolio" });
+      }
+
+      const exported = await serializeAccountExport(rows, format);
+      const filename = accountExportFilename(format);
+      res.setHeader("Content-Type", exported.contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      return res.send(exported.body);
+    } catch (error) {
+      console.error("Account export failed:", error);
+      return res.status(500).json({ error: "Failed to export accounts" });
     }
   });
 

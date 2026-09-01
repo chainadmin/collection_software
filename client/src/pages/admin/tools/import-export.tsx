@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { FileUp, FileDown, Upload, Download, FileText, CheckCircle, Plus, ArrowRight, Save, Trash2 } from "lucide-react";
+import { FileUp, FileDown, Upload, Download, FileText, Plus, ArrowRight, Save, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -42,6 +42,7 @@ export default function ImportExport() {
   const [exportType, setExportType] = useState("accounts");
   const [exportPortfolio, setExportPortfolio] = useState("");
   const [exportFormat, setExportFormat] = useState("csv");
+  const [isExporting, setIsExporting] = useState(false);
   
   const [importStep, setImportStep] = useState<"select" | "mapping" | "preview">("select");
   const [csvColumns, setCsvColumns] = useState<string[]>([]);
@@ -274,11 +275,45 @@ export default function ImportExport() {
     });
   };
 
-  const handleExport = () => {
-    toast({ 
-      title: "Export Started", 
-      description: `Exporting ${exportType} in ${exportFormat.toUpperCase()} format...` 
-    });
+  const handleExport = async () => {
+    if (isExporting || exportType !== "accounts") return;
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams({ format: exportFormat });
+      if (exportPortfolio && exportPortfolio !== "all") {
+        params.set("portfolioId", exportPortfolio);
+      }
+      const response = await fetch(`/api/exports/accounts?${params}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || `Export failed (${response.status})`);
+      }
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/i)?.[1] ||
+        `accounts-export.${exportFormat}`;
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      toast({
+        title: "Export Complete",
+        description: `${filename} has been downloaded.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: error instanceof Error ? error.message : "The account export could not be downloaded.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const getFieldsForType = () => {
@@ -596,9 +631,9 @@ export default function ImportExport() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="accounts">All Accounts</SelectItem>
-                      <SelectItem value="payments">Payment History</SelectItem>
-                      <SelectItem value="performance">Performance Report</SelectItem>
-                      <SelectItem value="collector-summary">Collector Summary</SelectItem>
+                      <SelectItem value="payments" disabled>Payment History (Unavailable)</SelectItem>
+                      <SelectItem value="performance" disabled>Performance Report (Unavailable)</SelectItem>
+                      <SelectItem value="collector-summary" disabled>Collector Summary (Unavailable)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -633,40 +668,23 @@ export default function ImportExport() {
                 </div>
               </div>
 
-              <Button onClick={handleExport} className="mt-4" data-testid="button-export">
-                <Download className="h-4 w-4 mr-2" />
-                Export Data
+              <p className="mt-4 text-sm text-muted-foreground">
+                Payment history, performance, and collector summary exports are not available yet.
+              </p>
+              <Button
+                onClick={handleExport}
+                disabled={isExporting || exportType !== "accounts"}
+                className="mt-4"
+                data-testid="button-export"
+              >
+                {isExporting
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <Download className="h-4 w-4 mr-2" />}
+                {isExporting ? "Exporting..." : "Export Data"}
               </Button>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Recent Exports</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {[
-                  { name: "accounts_export_2024-12-15.csv", date: "Dec 15, 2024", size: "2.4 MB" },
-                  { name: "payments_export_2024-12-10.xlsx", date: "Dec 10, 2024", size: "1.8 MB" },
-                  { name: "performance_q4_2024.csv", date: "Dec 1, 2024", size: "456 KB" },
-                ].map((file) => (
-                  <div key={file.name} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                      <div>
-                        <p className="text-sm font-medium">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">{file.date} - {file.size}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
 
