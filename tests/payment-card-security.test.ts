@@ -8,7 +8,7 @@ import {
   presentExternalPayment,
   rejectExternalCardDataOutsideDesignatedFields,
 } from "../server/external-api";
-import { nextRecurringOccurrence } from "../server/recurring-payments";
+import { nextRecurringOccurrence, paymentPlanDates } from "../server/recurring-payments";
 import { redactPaymentCard } from "../server/payment-card-presenter";
 import { ambiguousGatewayResult, gatewayReferences } from "../server/payment-processor";
 import { buildInternalPaymentInsert } from "../server/payment-input";
@@ -209,6 +209,17 @@ test("recurring occurrence helper advances without replaying completed date", ()
     frequency: "specific_dates",
     specificDates: "2025-01-15, 2025-02-10, 2025-03-10",
   }), "2025-02-10");
+});
+
+test("finite payment plans include the selected start date and requested payment count", () => {
+  assert.deepEqual(paymentPlanDates("2026-09-04", "bi_weekly", 4), [
+    "2026-09-04", "2026-09-18", "2026-10-02", "2026-10-16",
+  ]);
+  assert.deepEqual(paymentPlanDates("2026-01-31", "monthly", 3), [
+    "2026-01-31", "2026-02-28", "2026-03-31",
+  ]);
+  assert.throws(() => paymentPlanDates("2026-02-30", "weekly", 2), /Invalid/);
+  assert.throws(() => paymentPlanDates("2026-09-04", "weekly", 121), /Invalid/);
 });
 
 test("gateway references are stable and ambiguity is not an explicit decline", () => {

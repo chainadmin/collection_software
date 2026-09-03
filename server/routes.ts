@@ -54,6 +54,7 @@ import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card
 import { CardVaultError, vaultCard } from "./card-vault";
 import { redactPaymentCard } from "./payment-card-presenter";
 import { getPaymentBusinessDate } from "./payment-date";
+import { paymentPlanDates, type PaymentPlanFrequency } from "./recurring-payments";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -2657,8 +2658,18 @@ export async function registerRoutes(
       if (!Number.isSafeInteger(amount) || amount <= 0) {
         return res.status(400).json({ error: "Payment amount must be a positive whole number of cents" });
       }
-      if (amount > debtor.currentBalance) {
-        return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
+      const requestedInstallmentCount = req.body.installmentCount;
+      const installmentCount = requestedInstallmentCount === undefined ? 1 : Number(requestedInstallmentCount);
+      const finitePlanFrequencies = new Set<PaymentPlanFrequency>(["weekly", "bi_weekly", "monthly"]);
+      if (!Number.isSafeInteger(installmentCount) || installmentCount < 1 || installmentCount > 120) {
+        return res.status(400).json({ error: "Payment plans must contain between 1 and 120 payments" });
+      }
+      if (installmentCount > 1 && !finitePlanFrequencies.has(req.body.frequency)) {
+        return res.status(400).json({ error: "Multiple payments require a weekly, bi-weekly, or monthly frequency" });
+      }
+      const planTotal = amount * installmentCount;
+      if (!Number.isSafeInteger(planTotal) || planTotal > debtor.currentBalance) {
+        return res.status(400).json({ error: "The total payment plan amount cannot exceed the current balance" });
       }
       try {
         rejectRawCardData(req.body);
@@ -2687,6 +2698,48 @@ export async function registerRoutes(
         p => p.organizationId === orgId && p.idempotencyKey === idempotencyKey,
       );
       if (existing) return res.status(200).json(existing);
+
+      if (installmentCount > 1) {
+        if (req.body.processNow === true) {
+          return res.status(400).json({ error: "Payment plans must be scheduled rather than processed immediately" });
+        }
+        let dates: string[];
+        try {
+          dates = paymentPlanDates(String(req.body.paymentDate ?? ""), req.body.frequency, installmentCount);
+        } catch {
+          return res.status(400).json({ error: "A valid payment plan start date is required" });
+        }
+
+        const existingPayments = await storage.getPaymentsForDebtor(req.params.id);
+        const created = [];
+        for (let index = 0; index < dates.length; index += 1) {
+          const occurrenceKey = `${idempotencyKey}:installment:${index + 1}`;
+          const duplicate = existingPayments.find(
+            item => item.organizationId === orgId && item.idempotencyKey === occurrenceKey,
+          );
+          if (duplicate) {
+            created.push(duplicate);
+            continue;
+          }
+          const nextPaymentDate = dates[index + 1] ?? null;
+          created.push(await storage.createPayment(buildInternalPaymentInsert({
+            ...req.body,
+            paymentDate: dates[index],
+            nextPaymentDate,
+            isRecurring: false,
+          }, {
+            amount,
+            debtorId: req.params.id,
+            organizationId: orgId,
+            idempotencyKey: occurrenceKey,
+            processedBy: req.session?.collectorId ?? null,
+          })));
+        }
+        return res.status(201).json({
+          count: created.length,
+          payments: redactPayments(created),
+        });
+      }
       let payment;
       try {
         const paymentBody = req.body.processNow === true
