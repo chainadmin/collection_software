@@ -51,6 +51,7 @@ export function RecordPaymentDialog({
   const [paymentMethod, setPaymentMethod] = useState("ach");
   const [cardPaymentTiming, setCardPaymentTiming] = useState<"pay_now" | "schedule_future">("pay_now");
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
+  const [installmentCount, setInstallmentCount] = useState("12");
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const [selectedCardId, setSelectedCardId] = useState("");
@@ -73,6 +74,7 @@ export function RecordPaymentDialog({
     setPaymentMethod("ach");
     setCardPaymentTiming("pay_now");
     setPaymentFrequency("one_time");
+    setInstallmentCount("12");
     setPaymentDate(new Date());
     setSelectedDates([]);
     setSelectedCardId("");
@@ -107,10 +109,11 @@ export function RecordPaymentDialog({
     let cardIdToUse = selectedCardId;
 
     try {
+      const isFinitePlan = ["weekly", "bi_weekly", "monthly"].includes(paymentFrequency);
       const paymentDateValue = format(paymentDate, "yyyy-MM-dd");
       const today = format(new Date(), "yyyy-MM-dd");
-      const shouldProcessNow = paymentMethod === "card" && cardPaymentTiming === "pay_now";
-      if (paymentMethod === "card" && cardPaymentTiming === "schedule_future" && paymentDateValue <= today) {
+      const shouldProcessNow = paymentMethod === "card" && paymentFrequency === "one_time" && cardPaymentTiming === "pay_now";
+      if (paymentMethod === "card" && !shouldProcessNow && paymentDateValue <= today) {
         toast({ title: "Choose a future date", description: "Scheduled card payments must be dated after today.", variant: "destructive" });
         return;
       }
@@ -146,14 +149,12 @@ export function RecordPaymentDialog({
       }
 
       const isRecurring = paymentFrequency !== "one_time";
-      let nextPaymentDate = null;
-      if (isRecurring && paymentFrequency !== "specific_dates") {
-        const today = new Date();
-        if (paymentFrequency === "weekly") today.setDate(today.getDate() + 7);
-        else if (paymentFrequency === "bi_weekly") today.setDate(today.getDate() + 14);
-        else if (paymentFrequency === "monthly") today.setMonth(today.getMonth() + 1);
-        nextPaymentDate = today.toISOString().split("T")[0];
+      const planPaymentCount = isFinitePlan ? Number(installmentCount) : 1;
+      if (isFinitePlan && (!Number.isSafeInteger(planPaymentCount) || planPaymentCount < 2 || planPaymentCount > 120)) {
+        toast({ title: "Error", description: "Enter between 2 and 120 payments for the plan.", variant: "destructive" });
+        return;
       }
+      let nextPaymentDate = null;
 
       const paymentResponse = await apiRequest("POST", `/api/debtors/${debtorId}/payments`, {
         debtorId,
@@ -164,12 +165,13 @@ export function RecordPaymentDialog({
         processedBy: collectorId,
         frequency: paymentFrequency,
         isRecurring,
+        installmentCount: planPaymentCount,
         nextPaymentDate,
         specificDates: paymentFrequency === "specific_dates" ? selectedDates.map(d => d.toISOString().split("T")[0]).join(", ") : null,
         cardId: cardIdToUse || null,
         processNow: shouldProcessNow,
       });
-      const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null };
+      const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null; count?: number };
 
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
@@ -183,7 +185,12 @@ export function RecordPaymentDialog({
           variant: approved ? "default" : "destructive",
         });
       } else {
-        toast({ title: "Payment scheduled", description: "No payment was taken today." });
+        toast({
+          title: isFinitePlan ? "Payment plan scheduled" : "Payment scheduled",
+          description: isFinitePlan
+            ? `${processedPayment.count ?? planPaymentCount} payments were added starting ${format(paymentDate, "MMM d, yyyy")}.`
+            : "No payment was taken today.",
+        });
       }
       resetForm();
       onOpenChange(false);
@@ -232,7 +239,7 @@ export function RecordPaymentDialog({
           </div>
           {paymentMethod === "card" && (
             <>
-              <div>
+              {paymentFrequency === "one_time" && <div>
                 <Label>Payment Timing</Label>
                 <RadioGroup
                   value={cardPaymentTiming}
@@ -248,7 +255,7 @@ export function RecordPaymentDialog({
                     Schedule for Future
                   </Label>
                 </RadioGroup>
-              </div>
+              </div>}
               {paymentCards && paymentCards.length > 0 && (
                 <div>
                   <Label>Use Saved Card (Optional)</Label>
@@ -366,6 +373,24 @@ export function RecordPaymentDialog({
               </SelectContent>
             </Select>
           </div>
+          {["weekly", "bi_weekly", "monthly"].includes(paymentFrequency) && (
+            <div>
+              <Label htmlFor="installment-count">Number of Payments</Label>
+              <Input
+                id="installment-count"
+                type="number"
+                min="2"
+                max="120"
+                step="1"
+                value={installmentCount}
+                onChange={(event) => setInstallmentCount(event.target.value)}
+                data-testid="input-installment-count"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                All payments will be added now, beginning on the payment date below.
+              </p>
+            </div>
+          )}
           <div>
             <Label>Payment Date</Label>
             <Popover>
@@ -447,8 +472,8 @@ export function RecordPaymentDialog({
             data-testid="button-confirm-payment"
           >
             {isSubmitting
-              ? (paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
-              : (paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Pay Now" : "Schedule Payment")}
+              ? (paymentMethod === "card" && paymentFrequency === "one_time" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
+              : (paymentMethod === "card" && paymentFrequency === "one_time" && cardPaymentTiming === "pay_now" ? "Pay Now" : "Schedule Payment")}
           </Button>
         </DialogFooter>
       </DialogContent>
