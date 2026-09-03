@@ -344,6 +344,27 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true 
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+export const paymentArrangementAudits = pgTable("payment_arrangement_audits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  debtorId: varchar("debtor_id").notNull(),
+  arrangementId: text("arrangement_id").notNull(),
+  mutationId: text("mutation_id").notNull(),
+  action: text("action").notNull(), // update, cancel
+  collectorId: varchar("collector_id").notNull(),
+  requestState: text("request_state").notNull(),
+  beforeState: text("before_state").notNull(),
+  afterState: text("after_state").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  mutationUnique: uniqueIndex("payment_arrangement_audits_org_mutation_unique")
+    .on(table.organizationId, table.mutationId),
+  arrangementIdx: index("payment_arrangement_audits_arrangement_idx")
+    .on(table.organizationId, table.debtorId, table.arrangementId),
+}));
+
+export type PaymentArrangementAudit = typeof paymentArrangementAudits.$inferSelect;
+
 // Payment Batches (for payment runner)
 export const paymentBatches = pgTable("payment_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

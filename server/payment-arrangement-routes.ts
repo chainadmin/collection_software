@@ -16,11 +16,46 @@ function isCalendarDate(value: string): boolean {
     date.getUTCDate() === day;
 }
 
+function rejectArrangementRawCardData(body: unknown): void {
+  if (!body || typeof body !== "object") return rejectRawCardData(body);
+  const { cardId: _cardId, arrangementId: _arrangementId, mutationId: _mutationId, rows, ...rest } =
+    body as Record<string, unknown>;
+  rejectRawCardData(rest);
+  if (Array.isArray(rows)) {
+    rejectRawCardData(rows.map(row => {
+      if (!row || typeof row !== "object") return row;
+      const { id: _id, ...safeRow } = row as Record<string, unknown>;
+      return safeRow;
+    }));
+  } else {
+    rejectRawCardData(rows);
+  }
+}
+
 export function registerPaymentArrangementRoutes(app: Express, storage: IStorage): void {
+  app.get("/api/debtors/:id/payment-arrangements", async (req: any, res) => {
+    const organizationId = req.session?.collector?.organizationId;
+    if (!organizationId) return res.status(401).json({ error: "Authentication required" });
+    const debtor = await storage.getDebtor(req.params.id);
+    if (!debtor) return res.status(404).json({ error: "Debtor not found" });
+    if (debtor.organizationId !== organizationId) return res.status(403).json({ error: "Access denied" });
+    const payments = await storage.getPaymentsForDebtor(debtor.id);
+    const groups = new Map<string, typeof payments>();
+    payments.filter(payment => payment.arrangementId).forEach(payment => {
+      const group = groups.get(payment.arrangementId!) ?? [];
+      group.push(payment);
+      groups.set(payment.arrangementId!, group);
+    });
+    return res.json(Array.from(groups.entries()).map(([arrangementId, rows]) => ({
+      arrangementId,
+      rows: redactPayments(rows.sort((a, b) => (a.arrangementIndex ?? 0) - (b.arrangementIndex ?? 0))),
+    })));
+  });
+
   app.post("/api/debtors/:id/payment-arrangements", async (req: any, res) => {
     try {
       try {
-        rejectRawCardData(req.body);
+        rejectArrangementRawCardData(req.body);
       } catch {
         return res.status(400).json({ error: "Raw card data is not accepted by this endpoint" });
       }
@@ -97,6 +132,64 @@ export function registerPaymentArrangementRoutes(app: Express, storage: IStorage
     } catch (error: any) {
       if (typeof error?.status === "number") return res.status(error.status).json({ error: error.message });
       return res.status(500).json({ error: "Failed to schedule payment arrangement" });
+    }
+  });
+
+  app.patch("/api/debtors/:id/payment-arrangements/:arrangementId", async (req: any, res) => {
+    try {
+      try { rejectArrangementRawCardData(req.body); } catch {
+        return res.status(400).json({ error: "Raw card data is not accepted by this endpoint" });
+      }
+      const organizationId = req.session?.collector?.organizationId;
+      if (!organizationId) return res.status(401).json({ error: "Authentication required" });
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor) return res.status(404).json({ error: "Debtor not found" });
+      if (debtor.organizationId !== organizationId) return res.status(403).json({ error: "Access denied" });
+      const mutationId = String(req.get("Idempotency-Key") || req.body.mutationId || "");
+      if (!/^[A-Za-z0-9._:-]{8,180}$/.test(mutationId)) {
+        return res.status(400).json({ error: "A valid mutation idempotency key is required" });
+      }
+      const action = req.body.action;
+      if (action !== "update" && action !== "cancel") return res.status(400).json({ error: "Action must be update or cancel" });
+      let rows: Array<{ id: string; amount: number; paymentDate: string }> | undefined;
+      let cardId: string | null | undefined;
+      if (action === "update") {
+        if (!Array.isArray(req.body.rows) || !req.body.rows.length || req.body.rows.length > MAX_ARRANGEMENT_ROWS) {
+          return res.status(400).json({ error: "Pending payment rows are required" });
+        }
+        const today = getPaymentBusinessDate();
+        rows = req.body.rows as Array<{ id: string; amount: number; paymentDate: string }>;
+        for (const row of rows) {
+          if (!row || typeof row.id !== "string" || !Number.isSafeInteger(row.amount) || row.amount <= 0) {
+            return res.status(400).json({ error: "Every payment must have an id and positive whole-number cents" });
+          }
+          if (typeof row.paymentDate !== "string" || !isCalendarDate(row.paymentDate) || row.paymentDate < today) {
+            return res.status(400).json({ error: "Every pending payment date must be today or later" });
+          }
+        }
+        if (req.body.cardId !== undefined) {
+          cardId = req.body.cardId === null ? null : String(req.body.cardId);
+          if (!cardId) return res.status(400).json({ error: "A replacement card id is required" });
+          const card = await storage.getPaymentCard(cardId);
+          if (!card || card.organizationId !== organizationId || card.debtorId !== debtor.id) {
+            return res.status(400).json({ error: "Payment card does not belong to this debtor" });
+          }
+          const activeMerchant = (await storage.getMerchants(organizationId))
+            .find(merchant => merchant.isActive && merchant.id === card.merchantId);
+          if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
+              !activeMerchant || activeMerchant.processorType !== card.processorType) {
+            return res.status(409).json({ error: "Replacement card must be vaulted with its active merchant" });
+          }
+        }
+      }
+      const result = await storage.mutatePaymentArrangement({
+        organizationId, debtorId: debtor.id, arrangementId: req.params.arrangementId,
+        mutationId, collectorId: req.session.collector.id, action, rows, cardId,
+      });
+      return res.json(redactPayments(result));
+    } catch (error: any) {
+      if (typeof error?.status === "number") return res.status(error.status).json({ error: error.message });
+      return res.status(500).json({ error: "Failed to change payment arrangement" });
     }
   });
 }

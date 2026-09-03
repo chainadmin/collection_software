@@ -171,10 +171,14 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
             result.totalSkipped++;
             continue;
           }
-          // The source payment came through the typed storage layer. The raw
-          // SQL claim is used only as an atomic lock result because node-postgres
-          // returns snake_case database column names.
-          const r = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+          // Reload after the atomic claim so a schedule update that committed
+          // immediately before the claim cannot be charged with stale terms.
+          const claimedPayment = await storage.getPayment(payment.id);
+          if (!claimedPayment || claimedPayment.status !== "processing") {
+            result.totalSkipped++;
+            continue;
+          }
+          const r = await processPayment(claimedPayment, storage, orgId);
           orgResult.processed++;
           if (r.success) {
             orgResult.success++;

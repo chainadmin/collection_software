@@ -15,6 +15,7 @@ import {
   bankAccounts,
   paymentCards,
   payments,
+  paymentArrangementAudits,
   paymentBatches,
   notes,
   liquidationSnapshots,
@@ -123,7 +124,7 @@ import {
   type IpWhitelist,
   type InsertIpWhitelist,
 } from "@shared/schema";
-import type { IStorage, PaymentArrangementInput } from "./storage";
+import type { IStorage, PaymentArrangementInput, PaymentArrangementMutationInput } from "./storage";
 import { randomUUID } from "crypto";
 import { ipMatchesAny } from "./ip-address";
 
@@ -669,6 +670,135 @@ export class DatabaseStorage implements IStorage {
       eq(payments.debtorId, debtorId),
       eq(payments.arrangementId, arrangementId),
     )).orderBy(payments.arrangementIndex);
+  }
+
+  async mutatePaymentArrangement(input: PaymentArrangementMutationInput): Promise<Payment[]> {
+    return db.transaction(async (tx) => {
+      // Serialize reuse of one tenant-scoped mutation key even when two
+      // requests target different debtors.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.organizationId}:${input.mutationId}`}, 0))`);
+      await tx.execute(sql`SELECT id FROM debtors WHERE id = ${input.debtorId} FOR UPDATE`);
+      const [debtor] = await tx.select().from(debtors).where(and(
+        eq(debtors.id, input.debtorId),
+        eq(debtors.organizationId, input.organizationId),
+      ));
+      if (!debtor) throw Object.assign(new Error("Debtor not found"), { status: 404 });
+
+      const [existingAudit] = await tx.select().from(paymentArrangementAudits).where(and(
+        eq(paymentArrangementAudits.organizationId, input.organizationId),
+        eq(paymentArrangementAudits.mutationId, input.mutationId),
+      ));
+      const requestState = JSON.stringify({
+        debtorId: input.debtorId, arrangementId: input.arrangementId, action: input.action,
+        cardId: input.cardId ?? null, rows: input.rows ?? [],
+      });
+      if (existingAudit) {
+        if (existingAudit.requestState !== requestState) {
+          throw Object.assign(new Error("Mutation idempotency key conflicts with a different request"), { status: 409 });
+        }
+        return JSON.parse(existingAudit.afterState) as Payment[];
+      }
+
+      await tx.execute(sql`SELECT id FROM payments
+        WHERE organization_id = ${input.organizationId}
+          AND debtor_id = ${input.debtorId}
+          AND arrangement_id = ${input.arrangementId}
+        FOR UPDATE`);
+      const arrangement = await tx.select().from(payments).where(and(
+        eq(payments.organizationId, input.organizationId),
+        eq(payments.debtorId, input.debtorId),
+        eq(payments.arrangementId, input.arrangementId),
+      )).orderBy(payments.arrangementIndex);
+      if (!arrangement.length) throw Object.assign(new Error("Payment arrangement not found"), { status: 404 });
+      const pending = arrangement.filter(payment => payment.status === "pending");
+      if (!pending.length) throw Object.assign(new Error("This arrangement has no pending payments to change"), { status: 409 });
+
+      if (input.action === "update") {
+        if (!input.rows || input.rows.length !== pending.length ||
+            new Set(input.rows.map(row => row.id)).size !== pending.length ||
+            input.rows.some(row => !pending.some(payment => payment.id === row.id))) {
+          throw Object.assign(new Error("Every pending payment must be included exactly once"), { status: 409 });
+        }
+        if (input.cardId !== undefined && pending.some(payment => payment.paymentMethod !== "card")) {
+          throw Object.assign(new Error("A replacement card can only be applied to a card payment arrangement"), { status: 400 });
+        }
+        if (input.cardId !== undefined) {
+          const replacementCardId = input.cardId;
+          if (typeof replacementCardId !== "string" || !replacementCardId) {
+            throw Object.assign(new Error("A replacement card id is required"), { status: 400 });
+          }
+          await tx.execute(sql`SELECT id FROM payment_cards
+            WHERE id = ${replacementCardId}
+              AND organization_id = ${input.organizationId}
+              AND debtor_id = ${input.debtorId}
+            FOR UPDATE`);
+          const [card] = await tx.select().from(paymentCards).where(and(
+            eq(paymentCards.id, replacementCardId),
+            eq(paymentCards.organizationId, input.organizationId),
+            eq(paymentCards.debtorId, input.debtorId),
+          ));
+          if (!card) throw Object.assign(new Error("Payment card does not belong to this debtor"), { status: 400 });
+          if (!card.merchantId) throw Object.assign(new Error("Replacement card is not bound to a merchant"), { status: 409 });
+          await tx.execute(sql`SELECT id FROM merchants
+            WHERE id = ${card.merchantId}
+              AND organization_id = ${input.organizationId}
+            FOR UPDATE`);
+          const [merchant] = await tx.select().from(merchants).where(and(
+            eq(merchants.id, card.merchantId),
+            eq(merchants.organizationId, input.organizationId),
+          ));
+          if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
+              !merchant?.isActive || merchant.processorType !== card.processorType) {
+            throw Object.assign(new Error("Replacement card must be vaulted with its active merchant"), { status: 409 });
+          }
+        }
+        const otherOutstandingRows = await tx.select({ amount: payments.amount }).from(payments).where(and(
+          eq(payments.debtorId, input.debtorId),
+          sql`${payments.status} IN ('pending', 'processing', 'needs_review')`,
+          sql`${payments.id} NOT IN (${sql.join(pending.map(payment => sql`${payment.id}`), sql`, `)})`,
+        ));
+        const otherOutstanding = otherOutstandingRows.reduce((sum, payment) => sum + payment.amount, 0);
+        const revisedTotal = input.rows.reduce((sum, row) => sum + row.amount, 0);
+        if (otherOutstanding + revisedTotal > debtor.currentBalance) {
+          throw Object.assign(new Error("Updated payments plus other outstanding payments cannot exceed the current balance"), { status: 400 });
+        }
+        for (const row of input.rows) {
+          const [updated] = await tx.update(payments).set({
+            amount: row.amount,
+            paymentDate: row.paymentDate,
+            ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
+          }).where(and(eq(payments.id, row.id), eq(payments.status, "pending"))).returning();
+          if (!updated) throw Object.assign(new Error("A payment began processing while the arrangement was being changed"), { status: 409 });
+        }
+      } else {
+        await tx.update(payments).set({ status: "cancelled" }).where(and(
+          eq(payments.organizationId, input.organizationId),
+          eq(payments.debtorId, input.debtorId),
+          eq(payments.arrangementId, input.arrangementId),
+          eq(payments.status, "pending"),
+        ));
+      }
+
+      const result = await tx.select().from(payments).where(and(
+        eq(payments.organizationId, input.organizationId),
+        eq(payments.debtorId, input.debtorId),
+        eq(payments.arrangementId, input.arrangementId),
+      )).orderBy(payments.arrangementIndex);
+      const auditSnapshot = (rows: Payment[]) => rows.map(payment => ({ ...payment, paymentToken: null }));
+      await tx.insert(paymentArrangementAudits).values({
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        debtorId: input.debtorId,
+        arrangementId: input.arrangementId,
+        mutationId: input.mutationId,
+        action: input.action,
+        collectorId: input.collectorId,
+        requestState,
+        beforeState: JSON.stringify(auditSnapshot(arrangement)),
+        afterState: JSON.stringify(auditSnapshot(result)),
+      });
+      return result;
+    });
   }
 
   async updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined> {

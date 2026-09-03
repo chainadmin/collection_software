@@ -11,6 +11,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,7 +37,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { PaymentCard } from "@shared/schema";
+import type { Payment, PaymentCard } from "@shared/schema";
 import { formatCardNumber, getCardTypeFromNumber, lookupBin } from "@/lib/bin-lookup";
 import { CardValidationFeedback } from "@/components/card-validation-feedback";
 import {
@@ -45,7 +55,8 @@ interface RecordPaymentDialogProps {
   collectorId: string;
 }
 
-type ScheduleMode = "single" | "manual" | "generated";
+type ScheduleMode = "single" | "manual" | "generated" | "manage";
+type ArrangementGroup = { arrangementId: string; rows: Payment[] };
 
 export function RecordPaymentDialog({
   open,
@@ -80,6 +91,11 @@ export function RecordPaymentDialog({
   const [cardHolderName, setCardHolderName] = useState("");
   const [cardBillingZip, setCardBillingZip] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedArrangementId, setSelectedArrangementId] = useState("");
+  const [manageRows, setManageRows] = useState<Array<{ id: string; amount: string; paymentDate: string }>>([]);
+  const [manageOriginalCardId, setManageOriginalCardId] = useState<string | null>(null);
+  const [manageMutationId, setManageMutationId] = useState(() => crypto.randomUUID());
+  const [confirmManageAction, setConfirmManageAction] = useState<"update" | "cancel" | null>(null);
   const cardValidation = cardNumber ? lookupBin(cardNumber) : null;
 
   const { data: paymentCards } = useQuery<PaymentCard[]>({
@@ -88,6 +104,10 @@ export function RecordPaymentDialog({
   });
   const { data: debtor } = useQuery<{ currentBalance: number }>({
     queryKey: ["/api/debtors", debtorId],
+    enabled: !!debtorId && open,
+  });
+  const { data: arrangements } = useQuery<ArrangementGroup[]>({
+    queryKey: ["/api/debtors", debtorId, "payment-arrangements"],
     enabled: !!debtorId && open,
   });
 
@@ -112,6 +132,26 @@ export function RecordPaymentDialog({
     setCardCvv("");
     setCardHolderName("");
     setCardBillingZip("");
+    setSelectedArrangementId("");
+    setManageRows([]);
+    setManageOriginalCardId(null);
+    setManageMutationId(crypto.randomUUID());
+    setConfirmManageAction(null);
+  };
+
+  const selectArrangement = (id: string) => {
+    setSelectedArrangementId(id);
+    const arrangement = arrangements?.find(item => item.arrangementId === id);
+    const first = arrangement?.rows[0];
+    setManageRows((arrangement?.rows ?? []).filter(row => row.status === "pending").map(row => ({
+      id: row.id,
+      amount: (row.amount / 100).toFixed(2),
+      paymentDate: row.paymentDate,
+    })));
+    setPaymentMethod(first?.paymentMethod ?? "ach");
+    setManageOriginalCardId(first?.cardId ?? null);
+    setSelectedCardId(first?.cardId ?? "");
+    setManageMutationId(crypto.randomUUID());
   };
 
   const addSelectedDate = (date: Date | undefined) => {
@@ -124,21 +164,23 @@ export function RecordPaymentDialog({
     setSelectedDates(selectedDates.filter(d => d.toDateString() !== dateToRemove.toDateString()));
   };
 
-  const handleRecordPayment = async () => {
+  const handleRecordPayment = async (manageAction?: "update" | "cancel") => {
     if (!debtorId || !collectorId) return;
-    const activeRows = scheduleMode === "single"
+    const activeRows = scheduleMode === "manage"
+      ? manageRows
+      : scheduleMode === "single"
       ? [{ amount: paymentAmount, paymentDate: localCalendarYmd(paymentDate) }]
       : scheduleRows;
     const rows = activeRows.map(row => ({
       amount: Math.round(Number(row.amount) * 100),
       paymentDate: row.paymentDate,
     }));
-    if (rows.length === 0 || rows.some(row => !Number.isSafeInteger(row.amount) || row.amount <= 0 || !row.paymentDate)) {
+    if (manageAction !== "cancel" && (rows.length === 0 || rows.some(row => !Number.isSafeInteger(row.amount) || row.amount <= 0 || !row.paymentDate))) {
       toast({ title: "Error", description: "Please enter a valid payment amount.", variant: "destructive" });
       return;
     }
     const total = rows.reduce((sum, row) => sum + row.amount, 0);
-    if (debtor && total > debtor.currentBalance) {
+    if (manageAction !== "cancel" && debtor && total > debtor.currentBalance) {
       toast({ title: "Total exceeds balance", description: "Reduce the scheduled total before continuing.", variant: "destructive" });
       return;
     }
@@ -155,7 +197,7 @@ export function RecordPaymentDialog({
         return;
       }
 
-      if (paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
+      if (manageAction !== "cancel" && paymentMethod === "card" && (!selectedCardId || selectedCardId === "") && cardNumber) {
         if (!cardValidation?.isValid) {
           toast({ title: "Error", description: "Please check the card number.", variant: "destructive" });
           setIsSubmitting(false);
@@ -171,7 +213,9 @@ export function RecordPaymentDialog({
 
         const cardRequestKey = scheduleMode === "single"
           ? `single-card:${singleSubmissionId}`
-          : `arrangement-card:${arrangementId}`;
+          : scheduleMode === "manage"
+            ? `arrangement-replacement-card:${manageMutationId}`
+            : `arrangement-card:${arrangementId}`;
         const newCardResponse = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
           debtorId,
           cardType,
@@ -190,6 +234,28 @@ export function RecordPaymentDialog({
         // already-vaulted card instead of posting the PAN a second time.
         setSelectedCardId(newCard.id);
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
+      }
+
+      if (scheduleMode === "manage") {
+        if (!selectedArrangementId || !manageAction) return;
+        await apiRequest("PATCH", `/api/debtors/${debtorId}/payment-arrangements/${encodeURIComponent(selectedArrangementId)}`, {
+          mutationId: manageMutationId,
+          action: manageAction,
+          ...(manageAction === "update" ? {
+            rows: manageRows.map(row => ({ id: row.id, amount: Math.round(Number(row.amount) * 100), paymentDate: row.paymentDate })),
+            ...(paymentMethod === "card" && cardIdToUse !== manageOriginalCardId ? { cardId: cardIdToUse } : {}),
+          } : {}),
+        }, { headers: { "Idempotency-Key": manageMutationId } });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payment-arrangements"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+        toast({
+          title: manageAction === "cancel" ? "Schedule cancelled" : "Schedule updated",
+          description: manageAction === "cancel" ? "All remaining pending payments were cancelled." : "The remaining pending payments were updated.",
+        });
+        resetForm();
+        onOpenChange(false);
+        return;
       }
 
       if (scheduleMode !== "single") {
@@ -279,6 +345,7 @@ export function RecordPaymentDialog({
                 <SelectItem value="single">Single payment</SelectItem>
                 <SelectItem value="manual">Multiple payments — enter manually</SelectItem>
                 <SelectItem value="generated">Multiple payments — generate schedule</SelectItem>
+                <SelectItem value="manage">Manage existing schedule</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -341,7 +408,59 @@ export function RecordPaymentDialog({
               </Button>
             </div>
           )}
-          {scheduleMode !== "single" && (
+          {scheduleMode === "manage" && (
+            <div className="space-y-4">
+              <div>
+                <Label>Payment schedule</Label>
+                <Select value={selectedArrangementId} onValueChange={selectArrangement}>
+                  <SelectTrigger data-testid="select-existing-arrangement">
+                    <SelectValue placeholder="Choose a schedule" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(arrangements ?? []).map(arrangement => (
+                      <SelectItem key={arrangement.arrangementId} value={arrangement.arrangementId}>
+                        {arrangement.rows.length} payments · {(arrangement.rows.reduce((sum, row) => sum + row.amount, 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {arrangements?.length === 0 && <p className="mt-1 text-sm text-muted-foreground">No payment schedules found.</p>}
+              </div>
+              {selectedArrangementId && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Remaining pending payments</Label>
+                    {manageRows.length ? manageRows.map((row, index) => (
+                      <div key={row.id} className="grid grid-cols-2 gap-2">
+                        <Input
+                          type="number" min="0.01" step="0.01" value={row.amount}
+                          aria-label={`Pending payment ${index + 1} amount`}
+                          onChange={event => setManageRows(items => items.map(item => item.id === row.id ? { ...item, amount: event.target.value } : item))}
+                        />
+                        <Input
+                          type="date" min={easternBusinessDate()} value={row.paymentDate}
+                          aria-label={`Pending payment ${index + 1} date`}
+                          onChange={event => setManageRows(items => items.map(item => item.id === row.id ? { ...item, paymentDate: event.target.value } : item))}
+                        />
+                      </div>
+                    )) : <p className="text-sm text-muted-foreground">This schedule has no pending payments that can be changed.</p>}
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <Label>Immutable payment history</Label>
+                    {(arrangements?.find(item => item.arrangementId === selectedArrangementId)?.rows ?? [])
+                      .filter(row => row.status !== "pending")
+                      .map(row => (
+                        <div key={row.id} className="mt-2 flex justify-between text-sm text-muted-foreground">
+                          <span>{row.paymentDate} · {(row.amount / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</span>
+                          <Badge variant="outline">{row.status}</Badge>
+                        </div>
+                      ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {scheduleMode !== "single" && scheduleMode !== "manage" && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>{scheduleMode === "generated" ? "Schedule preview" : "Payments"}</Label>
@@ -391,7 +510,7 @@ export function RecordPaymentDialog({
               </p>
             </div>
           )}
-          <div>
+          {scheduleMode !== "manage" && <div>
             <Label>Payment Method</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
               <SelectTrigger data-testid="select-payment-method">
@@ -403,7 +522,10 @@ export function RecordPaymentDialog({
                 <SelectItem value="check">Check</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </div>}
+          {scheduleMode === "manage" && selectedArrangementId && paymentMethod === "card" && (
+            <p className="text-sm text-muted-foreground">Choose a different saved card below, or enter a new card to vault it before updating the schedule.</p>
+          )}
           {paymentMethod === "card" && (
             <>
               {scheduleMode === "single" && <div>
@@ -615,17 +737,57 @@ export function RecordPaymentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleRecordPayment}
+          {scheduleMode === "manage" ? <>
+            <Button
+              variant="destructive"
+              onClick={() => setConfirmManageAction("cancel")}
+              disabled={isSubmitting || !selectedArrangementId || manageRows.length === 0}
+              data-testid="button-cancel-schedule"
+            >
+              Cancel Remaining
+            </Button>
+            <Button
+              onClick={() => setConfirmManageAction("update")}
+              disabled={isSubmitting || !selectedArrangementId || manageRows.length === 0}
+              data-testid="button-update-schedule"
+            >
+              Update Schedule
+            </Button>
+          </> : <Button
+            onClick={() => void handleRecordPayment()}
             disabled={isSubmitting || (scheduleMode === "single" ? !paymentAmount : scheduleRows.length < 2)}
             data-testid="button-confirm-payment"
           >
             {isSubmitting
               ? (scheduleMode === "single" && paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
               : (scheduleMode === "single" && paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Pay Now" : scheduleMode === "single" ? "Schedule Payment" : "Schedule Payments")}
-          </Button>
+          </Button>}
         </DialogFooter>
       </DialogContent>
+      <AlertDialog open={confirmManageAction !== null} onOpenChange={open => { if (!open) setConfirmManageAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmManageAction === "cancel" ? "Cancel remaining payments?" : "Update remaining payments?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmManageAction === "cancel"
+                ? "This cancels every payment in this schedule that is still pending. Processing and completed history will not change."
+                : "Only payments that are still pending will change. Processing and completed history will remain unchanged."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go Back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const action = confirmManageAction;
+                setConfirmManageAction(null);
+                if (action) void handleRecordPayment(action);
+              }}
+            >
+              {confirmManageAction === "cancel" ? "Cancel Remaining Payments" : "Confirm Update"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

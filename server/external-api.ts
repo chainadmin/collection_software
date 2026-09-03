@@ -1167,7 +1167,12 @@ export function registerExternalApiRoutes(app: Express) {
           }
           return;
         }
-        const processed = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+        const claimedPayment = await storage.getPayment(payment.id);
+        if (!claimedPayment || claimedPayment.status !== "processing") {
+          outcomes.push({ index: item.index, outcome: "duplicate" as const, payment: presentExternalPayment(claimedPayment || payment) });
+          return;
+        }
+        const processed = await processPayment(claimedPayment, storage, orgId);
         if (processed.success && processed.updatedPayment) {
           try {
             await postPaymentAtomically(processed.updatedPayment.id, orgId);

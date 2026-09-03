@@ -666,6 +666,26 @@ export async function runMigrations() {
       CREATE UNIQUE INDEX IF NOT EXISTS payments_org_arrangement_row_unique
         ON payments (organization_id, arrangement_id, arrangement_index)
         WHERE arrangement_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS payment_arrangement_audits (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar NOT NULL,
+        debtor_id varchar NOT NULL,
+        arrangement_id text NOT NULL,
+        mutation_id text NOT NULL,
+        action text NOT NULL,
+        collector_id varchar NOT NULL,
+        request_state text NOT NULL,
+        before_state text NOT NULL,
+        after_state text NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS payment_arrangement_audits_org_mutation_unique
+        ON payment_arrangement_audits (organization_id, mutation_id);
+      CREATE INDEX IF NOT EXISTS payment_arrangement_audits_arrangement_idx
+        ON payment_arrangement_audits (organization_id, debtor_id, arrangement_id);
+      ALTER TABLE payment_arrangement_audits ADD COLUMN IF NOT EXISTS request_state text;
+      UPDATE payment_arrangement_audits SET request_state = before_state WHERE request_state IS NULL;
+      ALTER TABLE payment_arrangement_audits ALTER COLUMN request_state SET NOT NULL;
     `);
     
     // Add username column to global_admins if it doesn't exist

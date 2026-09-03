@@ -2733,7 +2733,11 @@ export async function registerRoutes(
         }
         const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
         if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
-        const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+        const claimedPayment = await storage.getPayment(payment.id);
+        if (!claimedPayment || claimedPayment.status !== "processing") {
+          return res.status(409).json({ error: "Payment is no longer available for processing" });
+        }
+        const result = await processPayment(claimedPayment, storage, orgId);
         const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
         if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
         return res.status(201).json({
@@ -3421,7 +3425,11 @@ export async function registerRoutes(
       }
       const claimed = await claimPaymentForProcessing(payment.id, orgId, getPaymentBusinessDate());
       if (!claimed) return res.status(409).json({ error: "Payment is not due or is already being processed" });
-      const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+      const claimedPayment = await storage.getPayment(payment.id);
+      if (!claimedPayment || claimedPayment.status !== "processing") {
+        return res.status(409).json({ error: "Payment is no longer available for processing" });
+      }
+      const result = await processPayment(claimedPayment, storage, orgId);
       const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
       if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
       res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });
@@ -3449,7 +3457,11 @@ export async function registerRoutes(
       if (!claimed) {
         return res.status(409).json({ error: "Payment is already being processed or is no longer declined" });
       }
-      const result = await processPayment({ ...payment, status: "processing" }, storage, orgId);
+      const claimedPayment = await storage.getPayment(payment.id);
+      if (!claimedPayment || claimedPayment.status !== "processing") {
+        return res.status(409).json({ error: "Payment is no longer available for processing" });
+      }
+      const result = await processPayment(claimedPayment, storage, orgId);
       const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
       if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
       res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });

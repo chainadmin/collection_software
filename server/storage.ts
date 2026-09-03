@@ -104,6 +104,17 @@ export interface PaymentArrangementInput {
   rows: Array<{ amount: number; paymentDate: string }>;
 }
 
+export interface PaymentArrangementMutationInput {
+  organizationId: string;
+  debtorId: string;
+  arrangementId: string;
+  mutationId: string;
+  collectorId: string;
+  action: "update" | "cancel";
+  cardId?: string | null;
+  rows?: Array<{ id: string; amount: number; paymentDate: string }>;
+}
+
 export interface IStorage {
   // Organizations
   getOrganizations(): Promise<Organization[]>;
@@ -202,6 +213,7 @@ export interface IStorage {
   createPayment(payment: InsertPayment): Promise<Payment>;
   getPaymentArrangement(organizationId: string, debtorId: string, arrangementId: string): Promise<Payment[]>;
   createPaymentArrangement(input: PaymentArrangementInput): Promise<Payment[]>;
+  mutatePaymentArrangement(input: PaymentArrangementMutationInput): Promise<Payment[]>;
   updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
   promoteChainPaymentReservation(id: string, organizationId: string, cardId: string): Promise<Payment | undefined>;
 
@@ -393,6 +405,7 @@ export class MemStorage implements IStorage {
   private bankAccounts: Map<string, BankAccount>;
   private paymentCards: Map<string, PaymentCard>;
   private payments: Map<string, Payment>;
+  private paymentArrangementMutations = new Map<string, { signature: string; payments: Payment[] }>();
   private paymentBatches: Map<string, PaymentBatch>;
   private notes: Map<string, Note>;
   private liquidationSnapshots: Map<string, LiquidationSnapshot>;
@@ -1828,6 +1841,68 @@ export class MemStorage implements IStorage {
         payment.debtorId === debtorId &&
         payment.arrangementId === arrangementId)
       .sort((a, b) => (a.arrangementIndex ?? 0) - (b.arrangementIndex ?? 0));
+  }
+
+  async mutatePaymentArrangement(input: PaymentArrangementMutationInput): Promise<Payment[]> {
+    const mutationKey = `${input.organizationId}:${input.mutationId}`;
+    const signature = JSON.stringify({
+      debtorId: input.debtorId, arrangementId: input.arrangementId, action: input.action,
+      cardId: input.cardId ?? null, rows: input.rows ?? [],
+    });
+    const replay = this.paymentArrangementMutations.get(mutationKey);
+    if (replay) {
+      if (replay.signature !== signature) throw Object.assign(new Error("Mutation idempotency key conflicts with a different request"), { status: 409 });
+      return replay.payments;
+    }
+    const arrangement = await this.getPaymentArrangement(input.organizationId, input.debtorId, input.arrangementId);
+    if (!arrangement.length) throw Object.assign(new Error("Payment arrangement not found"), { status: 404 });
+    const pending = arrangement.filter(payment => payment.status === "pending");
+    if (!pending.length) throw Object.assign(new Error("This arrangement has no pending payments to change"), { status: 409 });
+
+    if (input.action === "update") {
+      if (!input.rows || input.rows.length !== pending.length ||
+          new Set(input.rows.map(row => row.id)).size !== pending.length ||
+          input.rows.some(row => !pending.some(payment => payment.id === row.id))) {
+        throw Object.assign(new Error("Every pending payment must be included exactly once"), { status: 409 });
+      }
+      if (input.cardId !== undefined && pending.some(payment => payment.paymentMethod !== "card")) {
+        throw Object.assign(new Error("A replacement card can only be applied to a card payment arrangement"), { status: 400 });
+      }
+      if (input.cardId !== undefined) {
+        const replacementCardId = input.cardId;
+        if (typeof replacementCardId !== "string" || !replacementCardId) {
+          throw Object.assign(new Error("A replacement card id is required"), { status: 400 });
+        }
+        const card = this.paymentCards.get(replacementCardId);
+        const merchant = card?.merchantId ? this.merchants.get(card.merchantId) : undefined;
+        if (!card || card.organizationId !== input.organizationId || card.debtorId !== input.debtorId) {
+          throw Object.assign(new Error("Payment card does not belong to this debtor"), { status: 400 });
+        }
+        if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
+            !merchant?.isActive || merchant.organizationId !== input.organizationId ||
+            merchant.processorType !== card.processorType) {
+          throw Object.assign(new Error("Replacement card must be vaulted with its active merchant"), { status: 409 });
+        }
+      }
+      const debtor = this.debtors.get(input.debtorId);
+      if (!debtor || debtor.organizationId !== input.organizationId) throw Object.assign(new Error("Debtor not found"), { status: 404 });
+      const otherOutstanding = Array.from(this.payments.values()).reduce((sum, payment) =>
+        payment.debtorId === input.debtorId && !pending.some(item => item.id === payment.id) &&
+        ["pending", "processing", "needs_review"].includes(payment.status) ? sum + payment.amount : sum, 0);
+      const revisedTotal = input.rows.reduce((sum, row) => sum + row.amount, 0);
+      if (otherOutstanding + revisedTotal > debtor.currentBalance) {
+        throw Object.assign(new Error("Updated payments plus other outstanding payments cannot exceed the current balance"), { status: 400 });
+      }
+      input.rows.forEach(row => {
+        const current = this.payments.get(row.id)!;
+        this.payments.set(row.id, { ...current, amount: row.amount, paymentDate: row.paymentDate, ...(input.cardId !== undefined ? { cardId: input.cardId } : {}) });
+      });
+    } else {
+      pending.forEach(payment => this.payments.set(payment.id, { ...payment, status: "cancelled" }));
+    }
+    const result = await this.getPaymentArrangement(input.organizationId, input.debtorId, input.arrangementId);
+    this.paymentArrangementMutations.set(mutationKey, { signature, payments: result });
+    return result;
   }
 
   async updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined> {
