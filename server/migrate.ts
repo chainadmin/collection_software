@@ -608,6 +608,7 @@ export async function runMigrations() {
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_type text;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_token text;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_customer_id text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS merchant_id varchar;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS vault_status text;
       DO $$
       BEGIN
@@ -653,6 +654,8 @@ export async function runMigrations() {
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_transaction_id text;
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS processing_started_at timestamp;
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS completed_at timestamp;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS arrangement_id text;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS arrangement_index integer;
       DROP INDEX IF EXISTS payments_provider_transaction_unique;
       CREATE UNIQUE INDEX IF NOT EXISTS payments_org_idempotency_unique
         ON payments (organization_id, idempotency_key)
@@ -660,6 +663,9 @@ export async function runMigrations() {
       CREATE UNIQUE INDEX IF NOT EXISTS payments_org_provider_transaction_unique
         ON payments (organization_id, provider_transaction_id)
         WHERE provider_transaction_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS payments_org_arrangement_row_unique
+        ON payments (organization_id, arrangement_id, arrangement_index)
+        WHERE arrangement_id IS NOT NULL;
     `);
     
     // Add username column to global_admins if it doesn't exist

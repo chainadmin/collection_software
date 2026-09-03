@@ -568,7 +568,22 @@ export async function processPayment(
   const debtor = await storage.getDebtor(payment.debtorId);
 
   const merchants = await storage.getMerchants(orgId);
-  const activeMerchant = getActiveMerchant(merchants);
+  let activeMerchant = getActiveMerchant(merchants);
+  // A token belongs to the merchant that vaulted it. Legacy rows predate this
+  // binding and are usable only when their processor has one unambiguous,
+  // configured active merchant.
+  if (payment.paymentMethod === "card" && payment.cardId) {
+    const card = await storage.getPaymentCard(payment.cardId);
+    if (card?.merchantId) {
+      activeMerchant = merchants.find(merchant => merchant.id === card.merchantId && merchant.isActive);
+    } else if (card?.processorType) {
+      const matching = merchants.filter(merchant =>
+        merchant.isActive && merchant.processorType === card.processorType &&
+        getActiveMerchant([merchant]),
+      );
+      activeMerchant = matching.length === 1 ? matching[0] : undefined;
+    }
+  }
 
   let result: ProcessPaymentResult;
 
@@ -600,6 +615,8 @@ export async function processPayment(
         card.organizationId === orgId &&
         card.debtorId === payment.debtorId &&
         card.vaultStatus === "vaulted" &&
+        (card.merchantId === activeMerchant.id ||
+          (!card.merchantId && merchants.filter(m => m.isActive && m.processorType === card.processorType && getActiveMerchant([m])).length === 1)) &&
         card.processorType === activeMerchant.processorType &&
         card.processorToken
       ) {

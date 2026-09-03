@@ -279,6 +279,8 @@ export const paymentCards = pgTable("payment_cards", {
   processorType: text("processor_type"),
   processorToken: text("processor_token"),
   processorCustomerId: text("processor_customer_id"),
+  // Exact merchant configuration that created the processor token.
+  merchantId: varchar("merchant_id"),
   vaultStatus: text("vault_status").notNull().default("legacy_unvaulted"),
   // External future-card requests reserve a safe row before vaulting. This
   // contains only the caller's opaque retry key, never PAN/CVV.
@@ -326,11 +328,16 @@ export const payments = pgTable("payments", {
   providerTransactionId: text("provider_transaction_id"),
   processingStartedAt: timestamp("processing_started_at"),
   completedAt: timestamp("completed_at"),
+  // All rows created by one multi-payment request share this retry identity.
+  arrangementId: text("arrangement_id"),
+  arrangementIndex: integer("arrangement_index"),
 }, (table) => ({
   organizationIdempotencyUnique: uniqueIndex("payments_org_idempotency_unique")
     .on(table.organizationId, table.idempotencyKey),
   providerTransactionUnique: uniqueIndex("payments_org_provider_transaction_unique")
     .on(table.organizationId, table.providerTransactionId),
+  arrangementRowUnique: uniqueIndex("payments_org_arrangement_row_unique")
+    .on(table.organizationId, table.arrangementId, table.arrangementIndex),
 }));
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true });

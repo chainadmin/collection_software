@@ -25,6 +25,8 @@ import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
 import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
+import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
+import { registerPaymentCardRoutes } from "./payment-card-routes";
 import { db } from "./db";
 import {
   emailSettings,
@@ -50,9 +52,6 @@ import {
   exportBatch,
   previewReturn,
 } from "./enrichment-batches";
-import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card-validation";
-import { CardVaultError, vaultCard } from "./card-vault";
-import { redactPaymentCard } from "./payment-card-presenter";
 import { getPaymentBusinessDate } from "./payment-date";
 import {
   debtorMatchesImportIdentifier,
@@ -443,6 +442,9 @@ export async function registerRoutes(
     
     return res.status(401).json({ error: "Authentication required" });
   });
+
+  registerPaymentArrangementRoutes(app, storage);
+  registerPaymentCardRoutes(app, storage);
   
   app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
@@ -2489,22 +2491,10 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/debtors/:id/cards", async (req: any, res) => {
-    try {
-      const orgId = getOrgId(req);
-      const debtor = await storage.getDebtor(req.params.id);
-      if (!debtor) return res.status(404).json({ error: "Debtor not found" });
-      if (!validateOrgOwnership(debtor.organizationId, orgId)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-      const cards = await storage.getPaymentCards(req.params.id);
-      res.json(cards.filter(card => card.organizationId === orgId).map(redactPaymentCard));
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch payment cards" });
-    }
-  });
-
-  app.post("/api/debtors/:id/cards", async (req: any, res) => {
+  /* Historical inline card route implementation removed in favor of
+  registerPaymentCardRoutes. The remaining commented text is retained only
+  temporarily in this migration diff and does not register Express handlers.
+  legacyPostCards("/api/debtors/:id/cards", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
       const debtor = await storage.getDebtor(req.params.id);
@@ -2564,39 +2554,64 @@ export async function registerRoutes(
       if (!merchant) return res.status(409).json({ error: "No active card processor is configured" });
       const existingCards = (await storage.getPaymentCards(req.params.id))
         .filter(card => card.organizationId === orgId);
+      const vaultKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || "");
+      if (vaultKey && (!/^[A-Za-z0-9._:-]{8,180}$/.test(vaultKey))) {
+        return res.status(400).json({ error: "Invalid idempotency key" });
+      }
+      const credentialFingerprint = vaultKey
+        ? chainCredentialFingerprint(orgId, `ui-card:${vaultKey}`, pan)
+        : null;
+      let reservation = vaultKey
+        ? await storage.getPaymentCardByExternalIdempotencyKey(orgId, `ui-card:${vaultKey}`)
+        : undefined;
+      if (reservation) {
+        const immutableMatch = reservation.debtorId === debtor.id &&
+          reservation.merchantId === merchant.id &&
+          reservation.externalCredentialFingerprint === credentialFingerprint &&
+          reservation.cardNumberLast4 === pan.slice(-4) &&
+          reservation.expiryMonth === expiryMonth && reservation.expiryYear === expiryYear &&
+          reservation.cardholderName === cardholderName && reservation.billingZip === billingZip;
+        if (!immutableMatch) return res.status(409).json({ error: "Card idempotency key conflicts with a different request" });
+        if (reservation.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
+        // A prior response loss during/after a gateway call is deliberately
+        // never retried automatically; reconciliation is required.
+        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
+      }
       const existingCustomerId = existingCards.find(card =>
+        card.merchantId === merchant.id &&
         card.processorType === merchant.processorType &&
         card.vaultStatus === "vaulted" &&
         card.processorCustomerId
       )?.processorCustomerId || undefined;
-      const vaulted = await vaultCard(merchant, debtor, {
-        pan,
-        cvv,
-        expiryMonth,
-        expiryYear,
-        cardholderName,
-        billingZip,
-      }, existingCustomerId);
       const vaultedCards = existingCards.filter(card => card.vaultStatus === "vaulted");
       const makeDefault = req.body.isDefault === true || vaultedCards.length === 0;
-      if (makeDefault) {
-        await Promise.all(existingCards.filter(card => card.isDefault)
-          .map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
+      try {
+        reservation = await storage.createPaymentCard({
+          cardType: networkType[network], cardholderName, cardNumberLast4: pan.slice(-4),
+          expiryMonth, expiryYear, billingZip, isDefault: false, processorType: merchant.processorType,
+          merchantId: merchant.id, vaultStatus: "vaulting",
+          externalIdempotencyKey: vaultKey ? `ui-card:${vaultKey}` : null,
+          externalCredentialFingerprint: credentialFingerprint,
+          debtorId: req.params.id, addedDate: new Date().toISOString().split("T")[0],
+          addedBy: req.session?.collector?.id || null, organizationId: orgId,
+        });
+      } catch (error: any) {
+        if (error?.code !== "23505" || !vaultKey) throw error;
+        reservation = await storage.getPaymentCardByExternalIdempotencyKey(orgId, `ui-card:${vaultKey}`);
+        if (reservation?.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
+        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
       }
-      const card = await storage.createPaymentCard({
-        cardType: networkType[network],
-        cardholderName,
-        cardNumberLast4: pan.slice(-4),
-        expiryMonth,
-        expiryYear,
-        billingZip,
-        isDefault: makeDefault,
-        ...vaulted,
-        debtorId: req.params.id,
-        addedDate: new Date().toISOString().split("T")[0],
-        addedBy: req.session?.collector?.id || null,
-        organizationId: orgId,
-      });
+      let vaulted;
+      try {
+        vaulted = await vaultCard(merchant, debtor, { pan, cvv, expiryMonth, expiryYear, cardholderName, billingZip }, existingCustomerId);
+      } catch (error) {
+        await storage.updatePaymentCard(reservation.id, { vaultStatus: "vault_failed" });
+        throw error;
+      }
+      if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault)
+        .map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
+      const card = await storage.updatePaymentCard(reservation.id, { ...vaulted, merchantId: merchant.id, isDefault: makeDefault });
+      if (!card) throw new Error("Card vault reservation disappeared");
       res.status(201).json(redactPaymentCard(card));
     } catch (error) {
       if (error instanceof CardVaultError) return res.status(422).json({ error: error.message });
@@ -2604,7 +2619,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cards/:id", async (req: any, res) => {
+  legacyDeleteCard("/api/cards/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
       const existing = await storage.getPaymentCard(req.params.id);
@@ -2630,6 +2645,7 @@ export async function registerRoutes(
     }
   });
 
+  */
   app.get("/api/debtors/:id/payments", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2676,9 +2692,9 @@ export async function registerRoutes(
         if (card.vaultStatus !== "vaulted" || !card.processorToken || !card.processorType) {
           return res.status(409).json({ error: "Payment card is not vaulted and cannot be scheduled" });
         }
-        const activeProcessor = (await storage.getMerchants(orgId)).find(item => item.isActive)?.processorType;
-        if (activeProcessor !== card.processorType) {
-          return res.status(409).json({ error: "Payment card is not vaulted with the active processor" });
+        const activeMerchant = (await storage.getMerchants(orgId)).find(item => item.isActive && item.id === card.merchantId);
+        if (!activeMerchant || activeMerchant.processorType !== card.processorType) {
+          return res.status(409).json({ error: "Payment card is not vaulted with its active merchant" });
         }
       }
       const idempotencyKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || crypto.randomUUID());

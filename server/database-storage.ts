@@ -123,7 +123,7 @@ import {
   type IpWhitelist,
   type InsertIpWhitelist,
 } from "@shared/schema";
-import type { IStorage } from "./storage";
+import type { IStorage, PaymentArrangementInput } from "./storage";
 import { randomUUID } from "crypto";
 import { ipMatchesAny } from "./ip-address";
 
@@ -602,6 +602,73 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [created] = await db.insert(payments).values({ ...payment, id }).returning();
     return created;
+  }
+
+  async createPaymentArrangement(input: PaymentArrangementInput): Promise<Payment[]> {
+    return db.transaction(async (tx) => {
+      // The debtor lock serializes arrangements for one balance and also makes
+      // the idempotency lookup/inserts one atomic operation.
+      await tx.execute(sql`SELECT id FROM debtors WHERE id = ${input.debtorId} FOR UPDATE`);
+      const [debtor] = await tx.select().from(debtors).where(and(
+        eq(debtors.id, input.debtorId),
+        eq(debtors.organizationId, input.organizationId),
+      ));
+      if (!debtor) throw Object.assign(new Error("Debtor not found"), { status: 404 });
+
+      const existing = await tx.select().from(payments).where(and(
+        eq(payments.organizationId, input.organizationId),
+        eq(payments.arrangementId, input.arrangementId),
+      )).orderBy(payments.arrangementIndex);
+      if (existing.length) {
+        if (existing[0].debtorId !== input.debtorId) {
+          throw Object.assign(new Error("Arrangement idempotency key is already in use"), { status: 409 });
+        }
+        const matches = existing.length === input.rows.length && existing.every((payment, index) =>
+          payment.arrangementIndex === index &&
+          payment.amount === input.rows[index].amount &&
+          payment.paymentDate === input.rows[index].paymentDate &&
+          payment.paymentMethod === input.paymentMethod &&
+          payment.cardId === (input.cardId ?? null));
+        if (!matches) throw Object.assign(new Error("Arrangement idempotency key conflicts with a different request"), { status: 409 });
+        return existing;
+      }
+
+      const total = input.rows.reduce((sum, row) => sum + row.amount, 0);
+      const outstandingRows = await tx.select({ amount: payments.amount }).from(payments).where(and(
+        eq(payments.debtorId, input.debtorId),
+        sql`${payments.status} IN ('pending', 'processing', 'needs_review')`,
+        sql`(${payments.arrangementId} IS NULL OR ${payments.arrangementId} <> ${input.arrangementId})`,
+      ));
+      const outstanding = outstandingRows.reduce((sum, payment) => sum + payment.amount, 0);
+      if (outstanding + total > debtor.currentBalance) {
+        throw Object.assign(new Error("Payment total plus outstanding scheduled payments cannot exceed the current balance"), { status: 400 });
+      }
+
+      return tx.insert(payments).values(input.rows.map((row, index) => ({
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        debtorId: input.debtorId,
+        amount: row.amount,
+        paymentDate: row.paymentDate,
+        paymentMethod: input.paymentMethod,
+        status: "pending",
+        cardId: input.cardId ?? null,
+        processedBy: input.processedBy ?? null,
+        frequency: "specific_dates",
+        isRecurring: false,
+        idempotencyKey: `arr:${input.arrangementId}:${index}`,
+        arrangementId: input.arrangementId,
+        arrangementIndex: index,
+      }))).returning();
+    });
+  }
+
+  async getPaymentArrangement(organizationId: string, debtorId: string, arrangementId: string): Promise<Payment[]> {
+    return db.select().from(payments).where(and(
+      eq(payments.organizationId, organizationId),
+      eq(payments.debtorId, debtorId),
+      eq(payments.arrangementId, arrangementId),
+    )).orderBy(payments.arrangementIndex);
   }
 
   async updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined> {

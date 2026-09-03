@@ -1338,7 +1338,7 @@ export function registerExternalApiRoutes(app: Express) {
           } else {
             token = validateChainToken(merchant, item.cardNumber);
           }
-          if (card && (card.debtorId !== debtor.id || card.processorType !== merchant.processorType ||
+          if (card && (card.debtorId !== debtor.id || card.processorType !== merchant.processorType || card.merchantId !== merchant.id ||
             !verifyChainCredentialFingerprint(
               card.externalCredentialFingerprint, orgId, item.invoice, item.cardNumber,
             ))) {
@@ -1355,6 +1355,7 @@ export function registerExternalApiRoutes(app: Express) {
               card = await storage.createPaymentCard({
                 ...safeCard, organizationId: orgId, debtorId: debtor.id,
                 processorType: merchant.processorType,
+                merchantId: merchant.id,
                 processorToken: token?.processorToken || null,
                 processorCustomerId: token?.customerId || null,
                 vaultStatus: token ? "vaulted" : "vaulting",
@@ -1376,10 +1377,10 @@ export function registerExternalApiRoutes(app: Express) {
             try {
               const existingCards = await storage.getPaymentCards(debtor.id);
               const customer = existingCards.find(candidate =>
-                candidate.processorType === merchant.processorType && candidate.vaultStatus === "vaulted"
+                candidate.merchantId === merchant.id && candidate.processorType === merchant.processorType && candidate.vaultStatus === "vaulted"
               )?.processorCustomerId || undefined;
               const vaulted = await vaultCard(merchant, debtor, parsedRaw.card, customer);
-              card = await storage.updatePaymentCard(cardId, { ...vaulted, vaultStatus: "vaulted" });
+              card = await storage.updatePaymentCard(cardId, { ...vaulted, merchantId: merchant.id, vaultStatus: "vaulted" });
             } catch (error) {
               await storage.updatePaymentCard(cardId, { vaultStatus: "vault_failed" });
               const ambiguous = error instanceof CardVaultError && /uncertain|review/i.test(error.message);

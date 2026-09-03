@@ -11,6 +11,7 @@ export function redactPaymentCard(card: PaymentCard) {
     expiryYear: card.expiryYear,
     isDefault: card.isDefault,
     processorType: card.processorType,
+    merchantId: card.merchantId,
     vaultStatus: card.vaultStatus,
   };
 }

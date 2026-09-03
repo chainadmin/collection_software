@@ -83,12 +83,12 @@ test("card responses omit vault credentials and sensitive metadata", () => {
     cardType: "visa", cardholderName: "Jane Doe", cardNumberLast4: "4242",
     expiryMonth: "12", expiryYear: "2030", billingZip: "12345",
     processorType: "stripe", processorToken: "pm_secret", processorCustomerId: "cus_secret",
-    vaultStatus: "vaulted", externalIdempotencyKey: null,
+    vaultStatus: "vaulted", merchantId: "merchant-config-1", externalIdempotencyKey: null,
     isDefault: true, addedDate: "2025-01-01", addedBy: null,
   });
   assert.deepEqual(response, {
     id: "card-1", debtorId: "debtor-1", cardType: "visa", cardNumberLast4: "4242",
-    expiryMonth: "12", expiryYear: "2030", isDefault: true, processorType: "stripe", vaultStatus: "vaulted",
+    expiryMonth: "12", expiryYear: "2030", isDefault: true, processorType: "stripe", merchantId: "merchant-config-1", vaultStatus: "vaulted",
   });
 });
 

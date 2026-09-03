@@ -94,6 +94,16 @@ function hashPasswordLegacy(password: string): string {
 // Default organization ID for existing data
 const DEFAULT_ORG_ID = "default-org";
 
+export interface PaymentArrangementInput {
+  organizationId: string;
+  debtorId: string;
+  arrangementId: string;
+  paymentMethod: string;
+  cardId?: string | null;
+  processedBy?: string | null;
+  rows: Array<{ amount: number; paymentDate: string }>;
+}
+
 export interface IStorage {
   // Organizations
   getOrganizations(): Promise<Organization[]>;
@@ -190,6 +200,8 @@ export interface IStorage {
   getPendingPayments(organizationId?: string): Promise<Payment[]>;
   getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
+  getPaymentArrangement(organizationId: string, debtorId: string, arrangementId: string): Promise<Payment[]>;
+  createPaymentArrangement(input: PaymentArrangementInput): Promise<Payment[]>;
   updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
   promoteChainPaymentReservation(id: string, organizationId: string, cardId: string): Promise<Payment | undefined>;
 
@@ -870,6 +882,8 @@ export class MemStorage implements IStorage {
       providerTransactionId: null,
       processingStartedAt: null,
       completedAt: null,
+      arrangementId: null,
+      arrangementIndex: null,
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
@@ -893,6 +907,8 @@ export class MemStorage implements IStorage {
       providerTransactionId: null,
       processingStartedAt: null,
       completedAt: null,
+      arrangementId: null,
+      arrangementIndex: null,
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
@@ -916,6 +932,8 @@ export class MemStorage implements IStorage {
       providerTransactionId: null,
       processingStartedAt: null,
       completedAt: null,
+      arrangementId: null,
+      arrangementIndex: null,
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
@@ -939,6 +957,8 @@ export class MemStorage implements IStorage {
       providerTransactionId: null,
       processingStartedAt: null,
       completedAt: null,
+      arrangementId: null,
+      arrangementIndex: null,
     });
 
     const batch1Id = randomUUID();
@@ -1614,6 +1634,7 @@ export class MemStorage implements IStorage {
       processorType: card.processorType ?? null,
       processorToken: card.processorToken ?? null,
       processorCustomerId: card.processorCustomerId ?? null,
+      merchantId: card.merchantId ?? null,
       vaultStatus: card.vaultStatus ?? "legacy_unvaulted",
       externalIdempotencyKey: card.externalIdempotencyKey ?? null,
       externalCredentialFingerprint: card.externalCredentialFingerprint ?? null,
@@ -1723,9 +1744,90 @@ export class MemStorage implements IStorage {
       providerTransactionId: payment.providerTransactionId ?? null,
       processingStartedAt: payment.processingStartedAt ?? null,
       completedAt: payment.completedAt ?? null,
+      arrangementId: payment.arrangementId ?? null,
+      arrangementIndex: payment.arrangementIndex ?? null,
     };
     this.payments.set(id, newPayment);
     return newPayment;
+  }
+
+  async createPaymentArrangement(input: PaymentArrangementInput): Promise<Payment[]> {
+    const existing = Array.from(this.payments.values())
+      .filter(payment => payment.organizationId === input.organizationId && payment.arrangementId === input.arrangementId)
+      .sort((a, b) => (a.arrangementIndex ?? 0) - (b.arrangementIndex ?? 0));
+    if (existing.length) {
+      if (existing[0].debtorId !== input.debtorId) {
+        throw Object.assign(new Error("Arrangement idempotency key is already in use"), { status: 409 });
+      }
+      const matches = existing.length === input.rows.length && existing.every((payment, index) =>
+        payment.arrangementIndex === index &&
+        payment.amount === input.rows[index].amount &&
+        payment.paymentDate === input.rows[index].paymentDate &&
+        payment.paymentMethod === input.paymentMethod &&
+        payment.cardId === (input.cardId ?? null));
+      if (!matches) throw Object.assign(new Error("Arrangement idempotency key conflicts with a different request"), { status: 409 });
+      return existing;
+    }
+
+    // This method deliberately contains no await before commit. JavaScript's
+    // run-to-completion rule serializes balance checking and insertion in tests.
+    const debtor = this.debtors.get(input.debtorId);
+    if (!debtor || debtor.organizationId !== input.organizationId) {
+      throw Object.assign(new Error("Debtor not found"), { status: 404 });
+    }
+    const total = input.rows.reduce((sum, row) => sum + row.amount, 0);
+    const outstanding = Array.from(this.payments.values()).reduce((sum, payment) =>
+      payment.debtorId === input.debtorId && ["pending", "processing", "needs_review"].includes(payment.status)
+        ? sum + payment.amount : sum, 0);
+    if (outstanding + total > debtor.currentBalance) {
+        throw Object.assign(new Error("Payment total plus outstanding scheduled payments cannot exceed the current balance"), { status: 400 });
+    }
+
+    const inserted: Payment[] = [];
+    try {
+      input.rows.forEach((row, index) => {
+        const id = randomUUID();
+        const payment: Payment = {
+          id,
+          organizationId: input.organizationId,
+          debtorId: input.debtorId,
+          batchId: null,
+          cardId: input.cardId ?? null,
+          amount: row.amount,
+          paymentDate: row.paymentDate,
+          paymentMethod: input.paymentMethod,
+          status: "pending",
+          referenceNumber: null,
+          paymentToken: null,
+          processedBy: input.processedBy ?? null,
+          notes: null,
+          frequency: "specific_dates",
+          nextPaymentDate: null,
+          specificDates: null,
+          isRecurring: false,
+          idempotencyKey: `arr:${input.arrangementId}:${index}`,
+          providerTransactionId: null,
+          processingStartedAt: null,
+          completedAt: null,
+          arrangementId: input.arrangementId,
+          arrangementIndex: index,
+        };
+        this.payments.set(id, payment);
+        inserted.push(payment);
+      });
+      return inserted;
+    } catch (error) {
+      inserted.forEach(payment => this.payments.delete(payment.id));
+      throw error;
+    }
+  }
+
+  async getPaymentArrangement(organizationId: string, debtorId: string, arrangementId: string): Promise<Payment[]> {
+    return Array.from(this.payments.values())
+      .filter(payment => payment.organizationId === organizationId &&
+        payment.debtorId === debtorId &&
+        payment.arrangementId === arrangementId)
+      .sort((a, b) => (a.arrangementIndex ?? 0) - (b.arrangementIndex ?? 0));
   }
 
   async updatePayment(id: string, payment: Partial<InsertPayment>): Promise<Payment | undefined> {
