@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -182,6 +183,49 @@
     background: hsl(var(--primary) / 0.18);
   }
 }
+
+@layer components {
+  .public-shell {
+    --background: 44 28% 96%;
+    --foreground: 207 38% 16%;
+    --border: 204 18% 81%;
+    --card: 42 33% 98%;
+    --card-foreground: 207 38% 16%;
+    --card-border: 204 20% 85%;
+    --primary: 200 65% 25%;
+    --primary-foreground: 45 35% 97%;
+    --secondary: 39 30% 89%;
+    --secondary-foreground: 207 38% 18%;
+    --muted: 42 23% 90%;
+    --muted-foreground: 207 17% 38%;
+    --accent: 183 30% 88%;
+    --accent-foreground: 200 65% 20%;
+    --ring: 200 65% 25%;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: Manrope, sans-serif;
+  }
+  .dark .public-shell {
+    --background: 207 30% 10%;
+    --foreground: 44 25% 92%;
+    --border: 201 23% 24%;
+    --card: 207 29% 13%;
+    --card-foreground: 44 25% 92%;
+    --card-border: 201 23% 19%;
+    --primary: 183 39% 61%;
+    --primary-foreground: 207 38% 13%;
+    --muted: 203 21% 18%;
+    --muted-foreground: 44 13% 67%;
+  }
+  .public-grid { background-image: linear-gradient(hsl(var(--primary) / .055) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--primary) / .055) 1px, transparent 1px); background-size: 48px 48px; }
+  .public-kicker { font-family: var(--font-mono); letter-spacing: .13em; text-transform: uppercase; font-size: .68rem; }
+  .public-display { font-family: var(--font-serif); letter-spacing: -.045em; }
+  .reveal-up { animation: reveal-up .7s cubic-bezier(.2,.8,.2,1) both; }
+  .reveal-up-delay { animation: reveal-up .7s .12s cubic-bezier(.2,.8,.2,1) both; }
+  .plan-choice { transition: transform .2s ease, border-color .2s ease, background-color .2s ease; }
+  .plan-choice:hover { transform: translateY(-2px); }
+}
+@keyframes reveal-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
 @layer components {
   .app-scroll-area {

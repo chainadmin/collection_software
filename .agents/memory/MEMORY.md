@@ -1,1 +1,2 @@
 - [Multi-tenant org isolation](org-isolation.md) — per-route getOrgId + validateOrgOwnership; consolidation_cases & work_queue_items have no org column, scope via related company/collector.
+- [Portable npm lockfiles](portable-npm-lockfiles.md) — external deployments require public resolved URLs; Replit package-firewall URLs can surface as misleading npm crashes.

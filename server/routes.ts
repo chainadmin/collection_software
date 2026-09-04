@@ -23,7 +23,12 @@ import {
 } from "./stripe";
 import { processPayment } from "./payment-processor";
 import { getAutoRunnerStatus, runAutoPayments } from "./auto-payment-runner";
-import { getSuperAdminEmailSettings, getOrgEmailSettings, sendNewOrgNotificationEmail } from "./email";
+import {
+  getSuperAdminEmailSettings,
+  getOrgEmailSettings,
+  sendNewOrgNotificationEmail,
+  sendSignupWelcomeEmail,
+} from "./email";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
@@ -641,18 +646,24 @@ export async function registerRoutes(
         createdDate: new Date().toISOString(),
       });
 
-      // Send email notification to super admin
+      // Send registration notifications without delaying account creation.
       sendNewOrgNotificationEmail(companyName, name, email, phone || "").catch((err) => {
         console.error("Failed to send new org email notification:", err);
       });
+      const welcomeEmailResult = await sendSignupWelcomeEmail(email, name, companyName, collector.email);
+      if (!welcomeEmailResult.success) {
+        console.error("Failed to send signup welcome email:", welcomeEmailResult.error);
+      }
 
-      // Return success with user info for auto-login
+      // Return account details for the confirmation and download step.
       res.status(201).json({
         message: "Account created successfully",
+        welcomeEmailSent: welcomeEmailResult.success,
         collector: {
           id: collector.id,
           name: collector.name,
           email: collector.email,
+          username: collector.email,
           role: collector.role,
         },
         organizationId: organization.id,
