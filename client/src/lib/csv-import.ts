@@ -32,6 +32,10 @@ export const systemFields: SystemField[] = [
   { value: "phone4Label", label: "Phone 4 Label" },
   { value: "phone5", label: "Phone 5" },
   { value: "phone5Label", label: "Phone 5 Label" },
+  { value: "phone6", label: "Phone 6" },
+  { value: "phone6Label", label: "Phone 6 Label" },
+  { value: "phone7", label: "Phone 7" },
+  { value: "phone7Label", label: "Phone 7 Label" },
   { value: "email1", label: "Email 1" },
   { value: "email1Label", label: "Email 1 Label" },
   { value: "email2", label: "Email 2" },
@@ -45,21 +49,27 @@ export const systemFields: SystemField[] = [
   { value: "salary", label: "Salary (Annual)" },
   { value: "ref1Name", label: "Reference 1 Name" },
   { value: "ref1Relationship", label: "Reference 1 Relationship" },
-  { value: "ref1Phone", label: "Reference 1 Phone" },
+  { value: "ref1Phone", label: "Reference 1 Phone 1" },
+  { value: "ref1Phone2", label: "Reference 1 Phone 2" },
+  { value: "ref1Phone3", label: "Reference 1 Phone 3" },
   { value: "ref1Address", label: "Reference 1 Address" },
   { value: "ref1City", label: "Reference 1 City" },
   { value: "ref1State", label: "Reference 1 State" },
   { value: "ref1ZipCode", label: "Reference 1 ZIP Code" },
   { value: "ref2Name", label: "Reference 2 Name" },
   { value: "ref2Relationship", label: "Reference 2 Relationship" },
-  { value: "ref2Phone", label: "Reference 2 Phone" },
+  { value: "ref2Phone", label: "Reference 2 Phone 1" },
+  { value: "ref2Phone2", label: "Reference 2 Phone 2" },
+  { value: "ref2Phone3", label: "Reference 2 Phone 3" },
   { value: "ref2Address", label: "Reference 2 Address" },
   { value: "ref2City", label: "Reference 2 City" },
   { value: "ref2State", label: "Reference 2 State" },
   { value: "ref2ZipCode", label: "Reference 2 ZIP Code" },
   { value: "ref3Name", label: "Reference 3 Name" },
   { value: "ref3Relationship", label: "Reference 3 Relationship" },
-  { value: "ref3Phone", label: "Reference 3 Phone" },
+  { value: "ref3Phone", label: "Reference 3 Phone 1" },
+  { value: "ref3Phone2", label: "Reference 3 Phone 2" },
+  { value: "ref3Phone3", label: "Reference 3 Phone 3" },
   { value: "ref3Address", label: "Reference 3 Address" },
   { value: "ref3City", label: "Reference 3 City" },
   { value: "ref3State", label: "Reference 3 State" },
@@ -68,8 +78,10 @@ export const systemFields: SystemField[] = [
   { value: "ref2Notes", label: "Reference 2 Notes" },
   { value: "ref3Notes", label: "Reference 3 Notes" },
   { value: "phone", label: "Phone (Legacy)" },
+  { value: "phoneLabel", label: "Phone Label (Legacy)" },
   { value: "email", label: "Email (Legacy)" },
-  { value: "custom1", label: "→ Custom Field (uses column name)" },
+  { value: "emailLabel", label: "Email Label (Legacy)" },
+  { value: "custom1", label: "→ Custom Field 1 (uses column name)" },
   { value: "custom2", label: "→ Custom Field 2" },
   { value: "custom3", label: "→ Custom Field 3" },
   { value: "custom4", label: "→ Custom Field 4" },
@@ -80,6 +92,16 @@ export const systemFields: SystemField[] = [
   { value: "custom9", label: "→ Custom Field 9" },
   { value: "custom10", label: "→ Custom Field 10" },
 ];
+
+// Both import screens share the same contact/reference/custom mapping options.
+export const contactFields = systemFields.filter(({ value }) =>
+  ["skip", "accountNumber", "ssn"].includes(value) ||
+  /^(phone|email|ref|custom)/.test(value),
+).map((field) => (
+  field.value === "accountNumber" || field.value === "ssn"
+    ? { ...field, label: `${field.label} (to match)` }
+    : field
+));
 
 export type ParsedImportFile = { columns: string[]; data: string[][] };
 
@@ -279,7 +301,22 @@ const HEADER_ALIASES: Record<string, string> = {
   phone1: "phone1",
   email: "email1",
   email1: "email1",
+  customfield: "custom1",
 };
+
+// Keep the original reference-phone headers and explicit Phone 1 aliases usable.
+for (let reference = 1; reference <= 3; reference++) {
+  HEADER_ALIASES[`reference${reference}phone`] = `ref${reference}Phone`;
+  HEADER_ALIASES[`ref${reference}phone1`] = `ref${reference}Phone`;
+  for (let phone = 1; phone <= 3; phone++) {
+    HEADER_ALIASES[`relative${reference}phone${phone}`] =
+      `ref${reference}Phone${phone === 1 ? "" : phone}`;
+  }
+  HEADER_ALIASES[`relative${reference}phone`] = `ref${reference}Phone`;
+}
+for (let slot = 1; slot <= 10; slot++) {
+  HEADER_ALIASES[`customfield${slot}`] = `custom${slot}`;
+}
 
 export function autoMapColumns(columns: string[]): Record<string, string> {
   const lookup: Record<string, string> = {};
@@ -308,9 +345,9 @@ export function sanitizeColumnMappings(
 ): Record<string, string> {
   const validFields = new Set(systemFields.map((field) => field.value));
   return Object.fromEntries(
-    Object.entries(mappings).map(([column, field]) => [
-      column,
-      validFields.has(field) ? field : "skip",
-    ]),
+    Object.entries(mappings).map(([column, field]) => {
+      const canonical = /^ref[1-3]Phone1$/.test(field) ? field.slice(0, -1) : field;
+      return [column, validFields.has(canonical) ? canonical : "skip"];
+    }),
   );
 }

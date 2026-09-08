@@ -177,6 +177,9 @@ export async function runMigrations() {
         "name" text NOT NULL,
         "relationship" text,
         "phone" text,
+        "phone2" text,
+        "phone3" text,
+        "import_slot" integer,
         "address" text,
         "city" text,
         "state" text,
@@ -599,6 +602,14 @@ export async function runMigrations() {
 
     // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
     console.log("Running safe schema updates...");
+
+    // Additive account-reference phone slots. `phone` deliberately remains
+    // Phone 1 so existing data and integrations do not need a data rewrite.
+    await db.execute(sql`
+      ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS phone2 text;
+      ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS phone3 text;
+      ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS import_slot integer;
+    `);
 
     // Legacy PAN is left in place for a non-destructive migration but is no
     // longer mapped by the application. CVV retention is prohibited, so any

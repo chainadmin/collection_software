@@ -25,3 +25,24 @@ test("backend mapping sanitizer rejects file number and arbitrary debtor fields"
     { Account: "accountNumber", Notes: "custom1", Ignored: "skip" },
   );
 });
+
+test("expanded slots, legacy labels, and Phone 1 reference alias are accepted", () => {
+  assert.deepEqual(
+    sanitizeDebtorImportMappings({
+      Phone7: "phone7",
+      PhoneLabel: "phoneLabel",
+      EmailLabel: "emailLabel",
+      RelativePhoneOne: "ref2Phone1",
+      RelativePhoneThree: "ref2Phone3",
+      Custom: "custom10",
+    }),
+    {
+      Phone7: "phone7",
+      PhoneLabel: "phoneLabel",
+      EmailLabel: "emailLabel",
+      RelativePhoneOne: "ref2Phone",
+      RelativePhoneThree: "ref2Phone3",
+      Custom: "custom10",
+    },
+  );
+});

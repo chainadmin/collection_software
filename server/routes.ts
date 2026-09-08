@@ -73,6 +73,24 @@ import {
 
 const BCRYPT_ROUNDS = 12;
 
+function normalizedContactValue(type: string, value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  return type === "phone" ? trimmed.replace(/\D/g, "") : trimmed;
+}
+
+function referencePayload(input: any, partial = false): Record<string, any> {
+  const output: Record<string, any> = {};
+  for (const key of ["name", "relationship", "phone", "phone2", "phone3", "address", "city", "state", "zipCode", "notes"]) {
+    if (!(key in (input || {}))) continue;
+    const value = input[key];
+    if (value !== null && typeof value !== "string") throw new Error(`${key} must be a string or null`);
+    output[key] = value === null ? null : value.trim() || null;
+  }
+  if (!partial && !output.name) throw new Error("Reference name is required");
+  if (partial && "name" in output && !output.name) throw new Error("Reference name must be non-blank");
+  return output;
+}
+
 async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
@@ -2223,8 +2241,77 @@ export async function registerRoutes(
   app.post("/api/debtors", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
-      if (req.body.assignedCollectorId) {
-        const target = await storage.getCollector(req.body.assignedCollectorId);
+      const { contacts: rawContacts, references: rawReferences, ...debtorBody } = req.body || {};
+      if (rawContacts !== undefined && !Array.isArray(rawContacts)) {
+        return res.status(400).json({ error: "contacts must be an array" });
+      }
+      if (rawReferences !== undefined && !Array.isArray(rawReferences)) {
+        return res.status(400).json({ error: "references must be an array" });
+      }
+      const trimOptional = (value: unknown, field: string): string | null => {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== "string") throw new Error(`${field} must be a string`);
+        return value.trim() || null;
+      };
+      let contacts: any[];
+      let references: any[];
+      try {
+        contacts = (rawContacts || []).flatMap((input: any, index: number) => {
+          if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`contacts[${index}] must be an object`);
+          if (input.type !== "phone" && input.type !== "email") throw new Error(`contacts[${index}].type must be phone or email`);
+          const value = trimOptional(input.value, `contacts[${index}].value`);
+          if (!value) return []; // optional blank slots are intentionally ignored
+          const label = trimOptional(input.label, `contacts[${index}].label`);
+          if (input.isPrimary !== undefined && typeof input.isPrimary !== "boolean") throw new Error(`contacts[${index}].isPrimary must be boolean`);
+          return [{ type: input.type, value, label, isPrimary: input.isPrimary ?? false, isValid: true }];
+        });
+        const primaryPhoneCount = contacts.filter((contact) => contact.type === "phone" && contact.isPrimary).length;
+        if (primaryPhoneCount > 1) throw new Error("Only one phone contact can be primary");
+        const contactKeys = new Set<string>();
+        contacts = contacts.filter((contact) => {
+          const key = `${contact.type}:${normalizedContactValue(contact.type, contact.value)}`;
+          if (contactKeys.has(key)) return false;
+          contactKeys.add(key);
+          return true;
+        });
+        references = (rawReferences || []).flatMap((input: any, index: number) => {
+          if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`references[${index}] must be an object`);
+          const name = trimOptional(input.name, `references[${index}].name`);
+          const fields = ["relationship", "phone", "phone2", "phone3", "address", "city", "state", "zipCode", "notes"];
+          const reference: any = { name };
+          for (const field of fields) reference[field] = trimOptional(input[field], `references[${index}].${field}`);
+          if (!name) {
+            if (fields.some((field) => reference[field])) throw new Error(`references[${index}].name is required when reference details are supplied`);
+            return [];
+          }
+          return [{ ...reference, importSlot: index + 1, addedDate: new Date().toISOString().split("T")[0] }];
+        });
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (debtorBody.portfolioId) {
+        const portfolio = await storage.getPortfolio(debtorBody.portfolioId);
+        if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid portfolio" });
+        }
+      }
+      if (debtorBody.clientId) {
+        const client = await storage.getClient(debtorBody.clientId);
+        if (!client || !validateOrgOwnership(client.organizationId, orgId)) {
+          return res.status(400).json({ error: "Invalid client" });
+        }
+      }
+      if (debtorBody.customFields !== undefined && debtorBody.customFields !== null) {
+        if (typeof debtorBody.customFields !== "string") return res.status(400).json({ error: "customFields must be a JSON string" });
+        try {
+          const parsed = JSON.parse(debtorBody.customFields);
+          if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error();
+        } catch {
+          return res.status(400).json({ error: "customFields must be a JSON object string" });
+        }
+      }
+      if (debtorBody.assignedCollectorId) {
+        const target = await storage.getCollector(debtorBody.assignedCollectorId);
         if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
           return res.status(400).json({ error: "Invalid collector" });
         }
@@ -2232,10 +2319,10 @@ export async function registerRoutes(
           return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
         }
       }
-      const debtor = await storage.createDebtor({
-        ...req.body,
+      const debtor = await storage.createDebtorWithNested({
+        ...debtorBody,
         organizationId: orgId,
-      });
+      }, contacts, references);
       res.status(201).json(debtor);
     } catch (error) {
       res.status(500).json({ error: "Failed to create debtor" });
@@ -2252,8 +2339,28 @@ export async function registerRoutes(
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      if (req.body.assignedCollectorId) {
-        const target = await storage.getCollector(req.body.assignedCollectorId);
+      const body = { ...req.body };
+      delete body.id;
+      delete body.organizationId;
+      delete body.contacts;
+      delete body.references;
+      if (body.portfolioId) {
+        const portfolio = await storage.getPortfolio(body.portfolioId);
+        if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) return res.status(400).json({ error: "Invalid portfolio" });
+      }
+      if (body.clientId) {
+        const client = await storage.getClient(body.clientId);
+        if (!client || !validateOrgOwnership(client.organizationId, orgId)) return res.status(400).json({ error: "Invalid client" });
+      }
+      if (body.customFields !== undefined && body.customFields !== null) {
+        if (typeof body.customFields !== "string") return res.status(400).json({ error: "customFields must be a JSON string" });
+        try {
+          const parsed = JSON.parse(body.customFields);
+          if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error();
+        } catch { return res.status(400).json({ error: "customFields must be a JSON object string" }); }
+      }
+      if (body.assignedCollectorId) {
+        const target = await storage.getCollector(body.assignedCollectorId);
         if (!target || !validateOrgOwnership(target.organizationId, orgId)) {
           return res.status(400).json({ error: "Invalid collector" });
         }
@@ -2261,7 +2368,7 @@ export async function registerRoutes(
           return res.status(400).json({ error: "Auditors cannot be assigned accounts" });
         }
       }
-      const debtor = await storage.updateDebtor(req.params.id, req.body);
+      const debtor = await storage.updateDebtor(req.params.id, body);
       res.json(debtor);
     } catch (error) {
       res.status(500).json({ error: "Failed to update debtor" });
@@ -2306,8 +2413,22 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!req.body || !["phone", "email"].includes(req.body.type) || typeof req.body.value !== "string" || !req.body.value.trim()) {
+        return res.status(400).json({ error: "Contact requires a non-blank phone or email value" });
+      }
+      const existingContacts = await storage.getDebtorContacts(req.params.id);
+      if (existingContacts.some((contact) => contact.type === req.body.type && normalizedContactValue(contact.type, contact.value) === normalizedContactValue(req.body.type, req.body.value))) {
+        return res.status(409).json({ error: "Contact already exists" });
+      }
+      if (req.body.type === "phone" && req.body.isPrimary === true && existingContacts.some((contact) => contact.type === "phone" && contact.isPrimary)) {
+        return res.status(400).json({ error: "This account already has a primary phone" });
+      }
       const contact = await storage.createDebtorContact({
-        ...req.body,
+        type: req.body.type,
+        value: req.body.value.trim(),
+        label: typeof req.body.label === "string" ? req.body.label.trim() || null : null,
+        isPrimary: req.body.isPrimary === true,
+        isValid: req.body.isValid !== false,
         debtorId: req.params.id,
         organizationId: orgId,
       });
@@ -2329,6 +2450,16 @@ export async function registerRoutes(
       }
       const body = { ...req.body };
       delete body.organizationId;
+      delete body.debtorId;
+      delete body.id;
+      for (const key of Object.keys(body)) if (!["type", "value", "label", "isPrimary", "isValid", "lastVerified"].includes(key)) delete body[key];
+      if (body.type !== undefined && !["phone", "email"].includes(body.type)) {
+        return res.status(400).json({ error: "Contact type must be phone or email" });
+      }
+      if (body.value !== undefined && (typeof body.value !== "string" || !body.value.trim())) {
+        return res.status(400).json({ error: "Contact value must be non-blank" });
+      }
+      if (typeof body.value === "string") body.value = body.value.trim();
       const contact = await storage.updateDebtorContact(req.params.id, body);
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
@@ -2337,6 +2468,15 @@ export async function registerRoutes(
     } catch (error) {
       res.status(500).json({ error: "Failed to update contact" });
     }
+  });
+
+  app.delete("/api/contacts/:id", async (req: any, res) => {
+    const orgId = getOrgId(req);
+    const existing = await storage.getDebtorContact(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Contact not found" });
+    if (!validateOrgOwnership(existing.organizationId, orgId)) return res.status(403).json({ error: "Access denied" });
+    await storage.deleteDebtorContact(req.params.id);
+    res.status(204).send();
   });
 
   app.get("/api/debtors/:id/employment", async (req, res) => {
@@ -2414,8 +2554,11 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      let cleanReference: any;
+      try { cleanReference = referencePayload(req.body); }
+      catch (error: any) { return res.status(400).json({ error: error.message }); }
       const reference = await storage.createDebtorReference({
-        ...req.body,
+        ...cleanReference,
         debtorId: req.params.id,
         addedDate: new Date().toISOString().split("T")[0],
         organizationId: orgId,
@@ -2437,8 +2580,10 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const body = { ...req.body };
-      delete body.organizationId;
-      const reference = await storage.updateDebtorReference(req.params.id, body);
+      let cleanReference: any;
+      try { cleanReference = referencePayload(body, true); }
+      catch (error: any) { return res.status(400).json({ error: error.message }); }
+      const reference = await storage.updateDebtorReference(req.params.id, cleanReference);
       if (!reference) {
         return res.status(404).json({ error: "Reference not found" });
       }
@@ -3864,7 +4009,6 @@ export async function registerRoutes(
       if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
         return res.status(403).json({ error: "Invalid portfolio for organization" });
       }
-
       // Resolve effective clientId: explicit > portfolio's existing clientId > null.
       // Validate org ownership only when a client is actually being used.
       let effectiveClientId: string | null = (clientId && clientId.trim()) ? clientId : (portfolio.clientId ?? null);
@@ -3886,7 +4030,6 @@ export async function registerRoutes(
         skipReasons: [] as { row: number; reason: string }[],
       };
 
-      const existingDebtors = await storage.getDebtors(portfolioId);
       const allDebtors = (await storage.getDebtors()).filter((debtor) => debtor.organizationId === orgId);
 
       // Compute the next short numeric file number from existing DMP-generated
@@ -3904,20 +4047,24 @@ export async function registerRoutes(
         const record = records[rowIdx];
         const rowNumber = rowIdx + 1;
         const mappedData: any = {};
+        const customValues: Record<string, unknown> = {};
         try {
           
           for (const [csvColumn, systemField] of Object.entries(safeMappings)) {
             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
               let value = record[csvColumn];
+              if (value === null || (typeof value === "string" && !value.trim())) continue;
               
               if (systemField === "originalBalance" || systemField === "currentBalance") {
-                value = Math.round(parseFloat(String(value).replace(/[$,]/g, '')) * 100) || 0;
+                const amount = Number.parseFloat(String(value).replace(/[$,]/g, ""));
+                if (!Number.isFinite(amount)) throw new Error(`${csvColumn} must be a valid balance`);
+                value = Math.round(amount * 100);
               }
               
               // For custom field slots, use the original CSV column name as the key
               if (systemField.startsWith("custom") && /^custom\d+$/.test(systemField)) {
                 // Store with original column name as key (will go into customFields)
-                mappedData[csvColumn] = value;
+                customValues[csvColumn] = value;
               } else {
                 mappedData[systemField] = value;
               }
@@ -3941,12 +4088,65 @@ export async function registerRoutes(
             continue;
           }
 
-          const existingInPortfolio = existingDebtors.find((debtor) =>
+          const existingInPortfolio = (await storage.getDebtors(portfolioId))
+            .filter((debtor) => debtor.organizationId === orgId).find((debtor) =>
             debtorMatchesImportIdentifier(debtor, mappedData),
           );
 
           if (existingInPortfolio) {
-            await storage.updateDebtor(existingInPortfolio.id, mappedData);
+            await storage.runAtomic(async () => {
+            // Do not pass contact/reference/custom source keys to the debtor
+            // update. Imports are additive for companion records so blank or
+            // omitted cells never erase existing information.
+            const debtorUpdate: any = {};
+            for (const [key, value] of Object.entries(mappedData)) {
+              if (/^(phone\d*(Label)?|email\d*(Label)?|ref[1-3]|employer)/.test(key)) continue;
+              if (["accountNumber", "firstName", "lastName", "dateOfBirth", "ssn", "ssnLast4", "address", "city", "state", "zipCode", "originalBalance", "currentBalance", "originalCreditor", "clientName", "status", "lastContactDate", "nextFollowUpDate", "chargeOffDate"].includes(key)) debtorUpdate[key] = value;
+            }
+            if (Object.keys(customValues).length) {
+              let prior: Record<string, unknown> = {};
+              try {
+                prior = JSON.parse(existingInPortfolio.customFields || "{}");
+                if (!prior || Array.isArray(prior) || typeof prior !== "object") throw new Error();
+              } catch { throw new Error("Existing custom fields contain invalid JSON; account was not changed"); }
+              debtorUpdate.customFields = JSON.stringify({ ...prior, ...customValues });
+            }
+            await storage.updateDebtor(existingInPortfolio.id, debtorUpdate);
+            const existingContacts = await storage.getDebtorContacts(existingInPortfolio.id);
+            for (const [type, value, label] of [
+              ["phone", mappedData.phone1 || mappedData.phone, mappedData.phone1Label || mappedData.phoneLabel],
+              ...[2, 3, 4, 5, 6, 7].map((n) => ["phone", mappedData[`phone${n}`], mappedData[`phone${n}Label`]]),
+              ...[1, 2, 3].map((n) => ["email", mappedData[`email${n}`] || (n === 1 ? mappedData.email : null), mappedData[`email${n}Label`] || (n === 1 ? mappedData.emailLabel : null)]),
+            ] as [string, any, any][]) {
+              const text = typeof value === "string" ? value.trim() : "";
+              if (!text || existingContacts.some((contact) => contact.type === type && normalizedContactValue(type, contact.value) === normalizedContactValue(type, text))) continue;
+              const isPrimary = type === "phone" && !existingContacts.some((contact) => contact.type === "phone" && contact.isPrimary);
+              await storage.createDebtorContact({ debtorId: existingInPortfolio.id, organizationId: orgId, type, value: text, label: typeof label === "string" && label.trim() ? label.trim() : null, isPrimary, isValid: true });
+              existingContacts.push({ type, value: text, isPrimary } as any);
+            }
+            const existingReferences = await storage.getDebtorReferences(existingInPortfolio.id);
+            for (const n of [1, 2, 3]) {
+              const name = typeof mappedData[`ref${n}Name`] === "string" ? mappedData[`ref${n}Name`].trim() : "";
+              const patch: any = { importSlot: n };
+              for (const [suffix, field] of [["Relationship", "relationship"], ["Phone", "phone"], ["Phone2", "phone2"], ["Phone3", "phone3"], ["Address", "address"], ["City", "city"], ["State", "state"], ["ZipCode", "zipCode"], ["Notes", "notes"]] as const) {
+                const value = mappedData[`ref${n}${suffix}`];
+                if (typeof value === "string" && value.trim()) patch[field] = value.trim();
+              }
+              const supplied = Object.keys(patch).length > 1;
+              if (!name && !supplied) continue;
+              let current = existingReferences.find((reference) => reference.importSlot === n);
+              if (!current && name) {
+                const legacy = existingReferences.filter((reference) => reference.importSlot == null && reference.name.trim().toLowerCase() === name.toLowerCase());
+                if (legacy.length > 1) throw new Error(`Reference slot ${n} matches multiple legacy references`);
+                current = legacy[0];
+              }
+              if (current) await storage.updateDebtorReference(current.id, patch);
+              else {
+                if (!name) throw new Error(`Reference ${n} name is required for a new reference`);
+                await storage.createDebtorReference({ debtorId: existingInPortfolio.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+              }
+            }
+            });
             results.updated++;
             continue;
           }
@@ -3968,26 +4168,7 @@ export async function registerRoutes(
           maxFnSeq++;
           const resolvedFileNumber = maxFnSeq.toString();
 
-          // Collect unmapped columns as custom fields
-          const knownFields = new Set([
-            'accountNumber', 'firstName', 'lastName', 'email', 'address', 'city', 'state', 'zipCode',
-            'dateOfBirth', 'ssn', 'ssnLast4', 'originalBalance', 'currentBalance', 'originalCreditor',
-            'clientName', 'status', 'lastContactDate', 'nextFollowUpDate', 'chargeOffDate',
-            'phone', 'phone1', 'phone2', 'phone3', 'phone4', 'phone5', 
-            'phone1Label', 'phone2Label', 'phone3Label', 'phone4Label', 'phone5Label',
-            'email1', 'email2', 'email3', 'email1Label', 'email2Label', 'email3Label',
-            'employerName', 'employerPhone', 'employerAddress', 'position', 'salary',
-            'ref1Name', 'ref1Relationship', 'ref1Phone', 'ref1Address', 'ref1Notes',
-            'ref2Name', 'ref2Relationship', 'ref2Phone', 'ref2Address', 'ref2Notes',
-            'ref3Name', 'ref3Relationship', 'ref3Phone', 'ref3Address', 'ref3Notes',
-          ]);
-          const customFields: Record<string, any> = {};
-          for (const [key, value] of Object.entries(mappedData)) {
-            if (!knownFields.has(key) && value !== undefined && value !== null && value !== '') {
-              customFields[key] = value;
-            }
-          }
-
+          await storage.runAtomic(async () => {
           const newDebtor = await storage.createDebtor({
             portfolioId,
             clientId: effectiveClientId,
@@ -4012,23 +4193,27 @@ export async function registerRoutes(
             lastContactDate: mappedData.lastContactDate || null,
             nextFollowUpDate: mappedData.nextFollowUpDate || null,
             chargeOffDate: mappedData.chargeOffDate || null,
-            customFields: Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null,
+            customFields: Object.keys(customValues).length > 0 ? JSON.stringify(customValues) : null,
             organizationId: orgId,
           });
 
-          // Create phone contacts - handle legacy "phone" field and phone1-5
+          // Create phone contacts - phone remains a legacy alias for Phone 1.
           const phoneFields = [
             { phone: mappedData.phone1 || mappedData.phone, label: mappedData.phone1Label },
             { phone: mappedData.phone2, label: mappedData.phone2Label },
             { phone: mappedData.phone3, label: mappedData.phone3Label },
             { phone: mappedData.phone4, label: mappedData.phone4Label },
             { phone: mappedData.phone5, label: mappedData.phone5Label },
+            { phone: mappedData.phone6, label: mappedData.phone6Label },
+            { phone: mappedData.phone7, label: mappedData.phone7Label },
           ];
           
           let phoneCount = 0;
+          const importedPhoneValues = new Set<string>();
           for (let i = 0; i < phoneFields.length; i++) {
             const { phone, label } = phoneFields[i];
-            if (phone && phone.trim()) {
+            const normalized = typeof phone === "string" ? normalizedContactValue("phone", phone) : "";
+            if (phone && phone.trim() && normalized && !importedPhoneValues.has(normalized)) {
               await storage.createDebtorContact({
                 debtorId: newDebtor.id,
                 type: "phone",
@@ -4038,6 +4223,7 @@ export async function registerRoutes(
                 isValid: true,
                 organizationId: orgId,
               });
+              importedPhoneValues.add(normalized);
               phoneCount++;
             }
           }
@@ -4082,18 +4268,24 @@ export async function registerRoutes(
 
           // Create references (up to 3)
           const refFields = [
-            { name: mappedData.ref1Name, relationship: mappedData.ref1Relationship, phone: mappedData.ref1Phone, address: mappedData.ref1Address, city: mappedData.ref1City, state: mappedData.ref1State, zipCode: mappedData.ref1ZipCode, notes: mappedData.ref1Notes },
-            { name: mappedData.ref2Name, relationship: mappedData.ref2Relationship, phone: mappedData.ref2Phone, address: mappedData.ref2Address, city: mappedData.ref2City, state: mappedData.ref2State, zipCode: mappedData.ref2ZipCode, notes: mappedData.ref2Notes },
-            { name: mappedData.ref3Name, relationship: mappedData.ref3Relationship, phone: mappedData.ref3Phone, address: mappedData.ref3Address, city: mappedData.ref3City, state: mappedData.ref3State, zipCode: mappedData.ref3ZipCode, notes: mappedData.ref3Notes },
+            { name: mappedData.ref1Name, relationship: mappedData.ref1Relationship, phone: mappedData.ref1Phone, phone2: mappedData.ref1Phone2, phone3: mappedData.ref1Phone3, address: mappedData.ref1Address, city: mappedData.ref1City, state: mappedData.ref1State, zipCode: mappedData.ref1ZipCode, notes: mappedData.ref1Notes },
+            { name: mappedData.ref2Name, relationship: mappedData.ref2Relationship, phone: mappedData.ref2Phone, phone2: mappedData.ref2Phone2, phone3: mappedData.ref2Phone3, address: mappedData.ref2Address, city: mappedData.ref2City, state: mappedData.ref2State, zipCode: mappedData.ref2ZipCode, notes: mappedData.ref2Notes },
+            { name: mappedData.ref3Name, relationship: mappedData.ref3Relationship, phone: mappedData.ref3Phone, phone2: mappedData.ref3Phone2, phone3: mappedData.ref3Phone3, address: mappedData.ref3Address, city: mappedData.ref3City, state: mappedData.ref3State, zipCode: mappedData.ref3ZipCode, notes: mappedData.ref3Notes },
           ];
           
-          for (const ref of refFields) {
+          for (let refIndex = 0; refIndex < refFields.length; refIndex++) {
+            const ref = refFields[refIndex];
+            const hasDetails = Object.values(ref).some((value) => typeof value === "string" && value.trim());
+            if (hasDetails && (!ref.name || !ref.name.trim())) throw new Error(`Reference ${refIndex + 1} name is required`);
             if (ref.name && ref.name.trim()) {
               await storage.createDebtorReference({
                 debtorId: newDebtor.id,
                 name: ref.name.trim(),
                 relationship: ref.relationship || null,
                 phone: ref.phone || null,
+                phone2: ref.phone2 || null,
+                phone3: ref.phone3 || null,
+                importSlot: refIndex + 1,
                 address: ref.address || null,
                 city: ref.city || null,
                 state: ref.state || null,
@@ -4105,6 +4297,7 @@ export async function registerRoutes(
             }
           }
 
+          });
           results.created++;
         } catch (err: any) {
           let reason = err.message || "Unknown error processing record";
@@ -4159,6 +4352,7 @@ export async function registerRoutes(
       if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
         return res.status(403).json({ error: "Invalid portfolio for organization" });
       }
+      const safeContactMappings = sanitizeDebtorImportMappings(mappings);
 
       const results = {
         added: 0,
@@ -4178,9 +4372,13 @@ export async function registerRoutes(
         try {
           const mappedData: any = {};
           
-          for (const [csvColumn, systemField] of Object.entries(mappings)) {
+          for (const [csvColumn, systemField] of Object.entries(safeContactMappings)) {
             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
-              mappedData[systemField] = record[csvColumn];
+              const rawValue = record[csvColumn];
+              if (rawValue === null || (typeof rawValue === "string" && !rawValue.trim())) continue;
+              // Preserve the source heading as a useful custom-field label.
+              if (/^custom(?:[1-9]|10)$/.test(systemField)) mappedData[`__custom:${csvColumn}`] = rawValue;
+              else mappedData[systemField] = rawValue;
             }
           }
 
@@ -4205,31 +4403,58 @@ export async function registerRoutes(
 
           results.matched++;
 
-          if (mappedData.phone) {
+          await storage.runAtomic(async () => {
+          const existingContacts = await storage.getDebtorContacts(matchedDebtor.id);
+          const imports = [
+            ["phone", mappedData.phone1 || mappedData.phone, mappedData.phone1Label || mappedData.phoneLabel],
+            ...[2, 3, 4, 5, 6, 7].map((n) => ["phone", mappedData[`phone${n}`], mappedData[`phone${n}Label`]]),
+            ...[1, 2, 3].map((n) => ["email", mappedData[`email${n}`] || (n === 1 ? mappedData.email : null), mappedData[`email${n}Label`] || (n === 1 ? mappedData.emailLabel : null)]),
+          ] as [string, any, any][];
+          for (const [type, rawValue, rawLabel] of imports) {
+            const value = typeof rawValue === "string" ? rawValue.trim() : "";
+            if (!value || existingContacts.some((contact) => contact.type === type && normalizedContactValue(type, contact.value) === normalizedContactValue(type, value))) continue;
             await storage.createDebtorContact({
-              debtorId: matchedDebtor.id,
-              type: "phone",
-              value: mappedData.phone,
-              label: mappedData.phoneLabel || null,
-              isPrimary: false,
-              isValid: true,
-              organizationId: orgId,
+              debtorId: matchedDebtor.id, type, value,
+              label: typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim() : null,
+              isPrimary: false, isValid: true, organizationId: orgId,
             });
+            existingContacts.push({ type, value } as any);
             results.added++;
           }
-
-          if (mappedData.email) {
-            await storage.createDebtorContact({
-              debtorId: matchedDebtor.id,
-              type: "email",
-              value: mappedData.email,
-              label: mappedData.emailLabel || null,
-              isPrimary: false,
-              isValid: true,
-              organizationId: orgId,
-            });
-            results.added++;
+          const customValues = Object.fromEntries(Object.entries(mappedData)
+            .filter(([key, value]) => key.startsWith("__custom:") && value !== null && value !== "")
+            .map(([key, value]) => [key.slice("__custom:".length), value]));
+          if (Object.keys(customValues).length) {
+            let previous: Record<string, unknown> = {};
+            try {
+              previous = JSON.parse(matchedDebtor.customFields || "{}");
+              if (!previous || Array.isArray(previous) || typeof previous !== "object") throw new Error();
+            } catch { throw new Error("Existing custom fields contain invalid JSON; account was not changed"); }
+            await storage.updateDebtor(matchedDebtor.id, { customFields: JSON.stringify({ ...previous, ...customValues }) });
           }
+          const references = await storage.getDebtorReferences(matchedDebtor.id);
+          for (const number of [1, 2, 3]) {
+            const name = typeof mappedData[`ref${number}Name`] === "string" ? mappedData[`ref${number}Name`].trim() : "";
+            const patch: any = { importSlot: number };
+            for (const [suffix, field] of [["Relationship", "relationship"], ["Phone", "phone"], ["Phone2", "phone2"], ["Phone3", "phone3"], ["Address", "address"], ["City", "city"], ["State", "state"], ["ZipCode", "zipCode"], ["Notes", "notes"]] as const) {
+              const value = mappedData[`ref${number}${suffix}`];
+              if (typeof value === "string" && value.trim()) patch[field] = value.trim();
+            }
+            const supplied = Object.keys(patch).length > 1;
+            if (!name && !supplied) continue;
+            let current = references.find((reference) => reference.importSlot === number);
+            if (!current && name) {
+              const legacy = references.filter((reference) => reference.importSlot == null && reference.name.trim().toLowerCase() === name.toLowerCase());
+              if (legacy.length > 1) throw new Error(`Reference slot ${number} matches multiple legacy references`);
+              current = legacy[0];
+            }
+            if (current) await storage.updateDebtorReference(current.id, patch);
+            else {
+              if (!name) throw new Error(`Reference ${number} name is required for a new reference`);
+              await storage.createDebtorReference({ debtorId: matchedDebtor.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+            }
+            }
+          });
         } catch (err: any) {
           results.errors.push(err.message || "Unknown error processing record");
         }

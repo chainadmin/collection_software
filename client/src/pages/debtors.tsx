@@ -69,6 +69,9 @@ const addDebtorSchema = z.object({
 });
 
 type AddDebtorForm = z.infer<typeof addDebtorSchema>;
+type PhoneDraft = { value: string; label: string };
+type ReferenceDraft = { name: string; relationship: string; phone: string; phone2: string; phone3: string };
+const blankReference = (): ReferenceDraft => ({ name: "", relationship: "", phone: "", phone2: "", phone3: "" });
 
 export default function Debtors() {
   const [, setLocation] = useLocation();
@@ -76,6 +79,10 @@ export default function Debtors() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [phones, setPhones] = useState<PhoneDraft[]>(Array.from({ length: 7 }, () => ({ value: "", label: "" })));
+  const [references, setReferences] = useState<ReferenceDraft[]>(Array.from({ length: 3 }, blankReference));
+  const [customValues, setCustomValues] = useState<Array<{ label: string; value: string }>>(Array.from({ length: 10 }, () => ({ label: "", value: "" })));
+  const [creationError, setCreationError] = useState("");
 
   const debouncedSearchQuery = useDebounce(searchQuery.trim(), 300);
 
@@ -114,18 +121,44 @@ export default function Debtors() {
 
   const addDebtorMutation = useMutation({
     mutationFn: async (data: AddDebtorForm) => {
-      return apiRequest("POST", "/api/debtors", data);
+      const populatedPhones = phones.filter((p) => p.value.trim());
+      const labels = populatedPhones.map((p) => p.label.trim().toLocaleLowerCase()).filter(Boolean);
+      if (new Set(labels).size !== labels.length) throw new Error("Each phone label must be unique.");
+      const fields: Record<string, string> = {};
+      for (const field of customValues) {
+        const label = field.label.trim();
+        if (!label && field.value.trim()) throw new Error("Name each custom value before saving.");
+        if (label in fields) throw new Error(`Custom field "${label}" is duplicated. Use unique names.`);
+        if (label) fields[label] = field.value;
+      }
+      return apiRequest("POST", "/api/debtors", {
+        ...data,
+        contacts: populatedPhones.map((p, index) => ({ type: "phone", value: p.value.trim(), label: p.label.trim() || undefined, isPrimary: index === 0 })),
+        references: references.map((reference, index) => ({ reference, importSlot: index + 1 }))
+          .filter(({ reference }) => reference.name.trim())
+          .map(({ reference: r, importSlot }) => ({
+          name: r.name.trim(), relationship: r.relationship.trim() || undefined,
+          phone: r.phone.trim() || undefined, phone2: r.phone2.trim() || undefined, phone3: r.phone3.trim() || undefined,
+          importSlot,
+        })),
+        customFields: Object.keys(fields).length ? JSON.stringify(fields) : undefined,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
       setShowAddDialog(false);
       form.reset();
+      setPhones(Array.from({ length: 7 }, () => ({ value: "", label: "" })));
+      setReferences(Array.from({ length: 3 }, blankReference));
+      setCustomValues(Array.from({ length: 10 }, () => ({ label: "", value: "" })));
+      setCreationError("");
       toast({
         title: "Debtor added",
         description: "The debtor has been added successfully.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      setCreationError(error.message || "Failed to add debtor. Please try again.");
       toast({
         title: "Error",
         description: "Failed to add debtor. Please try again.",
@@ -318,7 +351,7 @@ export default function Debtors() {
       </Card>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Debtor</DialogTitle>
             <DialogDescription>
@@ -326,7 +359,7 @@ export default function Debtors() {
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit((data) => addDebtorMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={form.handleSubmit((data) => { setCreationError(""); addDebtorMutation.mutate(data); })} className="space-y-4">
               <FormField
                 control={form.control}
                 name="portfolioId"
@@ -392,6 +425,33 @@ export default function Debtors() {
                   )}
                 />
               </div>
+              <section className="space-y-3 border-t pt-4">
+                <div><h3 className="font-medium">Phone numbers</h3><p className="text-xs text-muted-foreground">Up to seven optional phone numbers. Labels must be unique.</p></div>
+                {phones.map((phone, index) => (
+                  <div key={index} className="grid grid-cols-2 gap-2">
+                    <Input aria-label={`Phone ${index + 1}`} value={phone.value} placeholder={`Phone ${index + 1}${index === 0 ? " (primary)" : ""}`} onChange={(e) => setPhones(phones.map((p, i) => i === index ? { ...p, value: e.target.value } : p))} />
+                    <Input aria-label={`Phone ${index + 1} label`} value={phone.label} placeholder="Label (e.g. Mobile)" onChange={(e) => setPhones(phones.map((p, i) => i === index ? { ...p, label: e.target.value } : p))} />
+                  </div>
+                ))}
+              </section>
+              <section className="space-y-3 border-t pt-4">
+                <div><h3 className="font-medium">References</h3><p className="text-xs text-muted-foreground">Up to three optional references.</p></div>
+                {references.map((reference, index) => (
+                  <div key={index} className="rounded-md border p-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">REFERENCE {index + 1}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input value={reference.name} placeholder="Name" aria-label={`Reference ${index + 1} name`} onChange={(e) => setReferences(references.map((r, i) => i === index ? { ...r, name: e.target.value } : r))} />
+                      <Input value={reference.relationship} placeholder="Relationship" aria-label={`Reference ${index + 1} relationship`} onChange={(e) => setReferences(references.map((r, i) => i === index ? { ...r, relationship: e.target.value } : r))} />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">{(["phone", "phone2", "phone3"] as const).map((key, phoneIndex) => <Input key={key} value={reference[key]} placeholder={`Phone ${phoneIndex + 1}`} aria-label={`Reference ${index + 1} phone ${phoneIndex + 1}`} onChange={(e) => setReferences(references.map((r, i) => i === index ? { ...r, [key]: e.target.value } : r))} />)}</div>
+                  </div>
+                ))}
+              </section>
+              <section className="space-y-3 border-t pt-4">
+                <div><h3 className="font-medium">Custom values</h3><p className="text-xs text-muted-foreground">Name up to ten additional account values. Names must be unique.</p></div>
+                {customValues.map((field, index) => <div key={index} className="grid grid-cols-2 gap-2"><Input value={field.label} placeholder={`Field ${index + 1} name`} aria-label={`Custom field ${index + 1} name`} onChange={(e) => setCustomValues(customValues.map((f, i) => i === index ? { ...f, label: e.target.value } : f))} /><Input value={field.value} placeholder="Value" aria-label={`Custom field ${index + 1} value`} onChange={(e) => setCustomValues(customValues.map((f, i) => i === index ? { ...f, value: e.target.value } : f))} /></div>)}
+              </section>
+              {creationError && <p role="alert" className="text-sm text-destructive">{creationError}</p>}
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}

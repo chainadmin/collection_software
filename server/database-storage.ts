@@ -127,8 +127,14 @@ import {
 import type { IStorage, PaymentArrangementInput, PaymentArrangementMutationInput } from "./storage";
 import { randomUUID } from "crypto";
 import { ipMatchesAny } from "./ip-address";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export class DatabaseStorage implements IStorage {
+  private readonly activeTransaction = new AsyncLocalStorage<any>();
+  private database(): any { return this.activeTransaction.getStore() || db; }
+  async runAtomic<T>(work: () => Promise<T>): Promise<T> {
+    return db.transaction(async (tx) => this.activeTransaction.run(tx, work));
+  }
   
   // Organizations
   async getOrganizations(): Promise<Organization[]> {
@@ -334,18 +340,19 @@ export class DatabaseStorage implements IStorage {
 
   // Debtors
   async getDebtors(portfolioId?: string, collectorId?: string): Promise<Debtor[]> {
+    const database = this.database();
     if (portfolioId && collectorId) {
-      return await db.select().from(debtors).where(
+      return await database.select().from(debtors).where(
         and(eq(debtors.portfolioId, portfolioId), eq(debtors.assignedCollectorId, collectorId))
       );
     }
     if (portfolioId) {
-      return await db.select().from(debtors).where(eq(debtors.portfolioId, portfolioId));
+      return await database.select().from(debtors).where(eq(debtors.portfolioId, portfolioId));
     }
     if (collectorId) {
-      return await db.select().from(debtors).where(eq(debtors.assignedCollectorId, collectorId));
+      return await database.select().from(debtors).where(eq(debtors.assignedCollectorId, collectorId));
     }
-    return await db.select().from(debtors);
+    return await database.select().from(debtors);
   }
 
   async getDebtor(id: string): Promise<Debtor | undefined> {
@@ -380,12 +387,34 @@ export class DatabaseStorage implements IStorage {
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {
     const id = randomUUID();
-    const [created] = await db.insert(debtors).values({ ...debtor, id }).returning();
+    const [created] = await this.database().insert(debtors).values({ ...debtor, id }).returning();
     return created;
   }
 
+  async createDebtorWithNested(
+    debtor: InsertDebtor,
+    contacts: Omit<InsertDebtorContact, "debtorId" | "organizationId">[],
+    references: Omit<InsertDebtorReference, "debtorId" | "organizationId">[],
+  ): Promise<Debtor> {
+    return db.transaction(async (tx) => {
+      const id = randomUUID();
+      const [created] = await tx.insert(debtors).values({ ...debtor, id }).returning();
+      if (contacts.length) {
+        await tx.insert(debtorContacts).values(contacts.map((contact) => ({
+          ...contact, id: randomUUID(), debtorId: id, organizationId: debtor.organizationId,
+        })));
+      }
+      if (references.length) {
+        await tx.insert(debtorReferences).values(references.map((reference) => ({
+          ...reference, id: randomUUID(), debtorId: id, organizationId: debtor.organizationId,
+        })));
+      }
+      return created;
+    });
+  }
+
   async updateDebtor(id: string, debtor: Partial<InsertDebtor>): Promise<Debtor | undefined> {
-    const [updated] = await db.update(debtors).set(debtor).where(eq(debtors.id, id)).returning();
+    const [updated] = await this.database().update(debtors).set(debtor).where(eq(debtors.id, id)).returning();
     return updated;
   }
 
@@ -396,7 +425,7 @@ export class DatabaseStorage implements IStorage {
 
   // Debtor Contacts
   async getDebtorContacts(debtorId: string): Promise<DebtorContact[]> {
-    return await db.select().from(debtorContacts).where(eq(debtorContacts.debtorId, debtorId));
+    return await this.database().select().from(debtorContacts).where(eq(debtorContacts.debtorId, debtorId));
   }
 
   async getDebtorContact(id: string): Promise<DebtorContact | undefined> {
@@ -406,12 +435,12 @@ export class DatabaseStorage implements IStorage {
 
   async createDebtorContact(contact: InsertDebtorContact): Promise<DebtorContact> {
     const id = randomUUID();
-    const [created] = await db.insert(debtorContacts).values({ ...contact, id }).returning();
+    const [created] = await this.database().insert(debtorContacts).values({ ...contact, id }).returning();
     return created;
   }
 
   async updateDebtorContact(id: string, contact: Partial<InsertDebtorContact>): Promise<DebtorContact | undefined> {
-    const [updated] = await db.update(debtorContacts).set(contact).where(eq(debtorContacts.id, id)).returning();
+    const [updated] = await this.database().update(debtorContacts).set(contact).where(eq(debtorContacts.id, id)).returning();
     return updated;
   }
 
@@ -432,7 +461,7 @@ export class DatabaseStorage implements IStorage {
 
   async createEmploymentRecord(record: InsertEmploymentRecord): Promise<EmploymentRecord> {
     const id = randomUUID();
-    const [created] = await db.insert(employmentRecords).values({ ...record, id }).returning();
+    const [created] = await this.database().insert(employmentRecords).values({ ...record, id }).returning();
     return created;
   }
 
@@ -448,7 +477,7 @@ export class DatabaseStorage implements IStorage {
 
   // Debtor References
   async getDebtorReferences(debtorId: string): Promise<DebtorReference[]> {
-    return await db.select().from(debtorReferences).where(eq(debtorReferences.debtorId, debtorId));
+    return await this.database().select().from(debtorReferences).where(eq(debtorReferences.debtorId, debtorId));
   }
 
   async getDebtorReference(id: string): Promise<DebtorReference | undefined> {
@@ -458,12 +487,12 @@ export class DatabaseStorage implements IStorage {
 
   async createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference> {
     const id = randomUUID();
-    const [created] = await db.insert(debtorReferences).values({ ...reference, id }).returning();
+    const [created] = await this.database().insert(debtorReferences).values({ ...reference, id }).returning();
     return created;
   }
 
   async updateDebtorReference(id: string, reference: Partial<InsertDebtorReference>): Promise<DebtorReference | undefined> {
-    const [updated] = await db.update(debtorReferences).set(reference).where(eq(debtorReferences.id, id)).returning();
+    const [updated] = await this.database().update(debtorReferences).set(reference).where(eq(debtorReferences.id, id)).returning();
     return updated;
   }
 

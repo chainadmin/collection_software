@@ -14,6 +14,7 @@ import type { Portfolio, Client } from "@shared/schema";
 import {
   parseImportFile,
   systemFields,
+  contactFields,
   buildSkipMappings,
   sanitizeColumnMappings,
 } from "@/lib/csv-import";
@@ -69,16 +70,6 @@ export default function ImportExport() {
       { name: "Chase Format", mappings: { "ACCT_NUM": "accountNumber", "FNAME": "firstName", "LNAME": "lastName", "ORIG_BAL": "originalBalance", "CURR_BAL": "currentBalance" } },
     ];
   });
-
-  const contactFields = [
-    { value: "skip", label: "-- Skip --" },
-    { value: "accountNumber", label: "Account Number (to match)" },
-    { value: "ssn", label: "SSN (to match)" },
-    { value: "phone", label: "Phone Number" },
-    { value: "phoneLabel", label: "Phone Label" },
-    { value: "email", label: "Email" },
-    { value: "emailLabel", label: "Email Label" },
-  ];
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],

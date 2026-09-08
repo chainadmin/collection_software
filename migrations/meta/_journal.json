@@ -8,6 +8,13 @@
       "when": 1769397033273,
       "tag": "0000_wonderful_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1770000000000,
+      "tag": "0007_expand_reference_phone_slots",
+      "breakpoints": true
     }
   ]
 }

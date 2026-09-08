@@ -235,6 +235,10 @@ export const debtorReferences = pgTable("debtor_references", {
   name: text("name").notNull(),
   relationship: text("relationship"), // spouse, parent, sibling, friend, coworker, neighbor, etc.
   phone: text("phone"),
+  // phone remains the original/reference Phone 1 column for backwards compatibility.
+  phone2: text("phone2"),
+  phone3: text("phone3"),
+  importSlot: integer("import_slot"), // stable import/reference position (1..3)
   address: text("address"),
   city: text("city"),
   state: text("state"),

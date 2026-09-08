@@ -116,6 +116,7 @@ export interface PaymentArrangementMutationInput {
 }
 
 export interface IStorage {
+  runAtomic<T>(work: () => Promise<T>): Promise<T>;
   // Organizations
   getOrganizations(): Promise<Organization[]>;
   getOrganization(id: string): Promise<Organization | undefined>;
@@ -169,6 +170,11 @@ export interface IStorage {
   getDashboardStats(dateRange?: string, organizationId?: string): Promise<DashboardStats>;
   searchDebtors(query: string, organizationId?: string): Promise<Debtor[]>;
   createDebtor(debtor: InsertDebtor): Promise<Debtor>;
+  createDebtorWithNested(
+    debtor: InsertDebtor,
+    contacts: Omit<InsertDebtorContact, "debtorId" | "organizationId">[],
+    references: Omit<InsertDebtorReference, "debtorId" | "organizationId">[],
+  ): Promise<Debtor>;
   updateDebtor(id: string, debtor: Partial<InsertDebtor>): Promise<Debtor | undefined>;
   deleteDebtor(id: string): Promise<boolean>;
 
@@ -391,6 +397,20 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
+  async runAtomic<T>(work: () => Promise<T>): Promise<T> {
+    const debtorsBefore = new Map(this.debtors);
+    const contactsBefore = new Map(this.debtorContacts);
+    const referencesBefore = new Map(this.debtorReferences);
+    const employmentBefore = new Map(this.employmentRecords);
+    try { return await work(); }
+    catch (error) {
+      this.debtors = debtorsBefore;
+      this.debtorContacts = contactsBefore;
+      this.debtorReferences = referencesBefore;
+      this.employmentRecords = employmentBefore;
+      throw error;
+    }
+  }
   private organizations: Map<string, Organization>;
   private users: Map<string, User>;
   private clients: Map<string, Client>;
@@ -1454,6 +1474,31 @@ export class MemStorage implements IStorage {
     return newDebtor;
   }
 
+  async createDebtorWithNested(
+    debtor: InsertDebtor,
+    contacts: Omit<InsertDebtorContact, "debtorId" | "organizationId">[],
+    references: Omit<InsertDebtorReference, "debtorId" | "organizationId">[],
+  ): Promise<Debtor> {
+    // All nested records are validated by the route before this point; do not
+    // mutate the in-memory store until that validation has succeeded.
+    const created = await this.createDebtor(debtor);
+    try {
+      for (const contact of contacts) {
+        await this.createDebtorContact({ ...contact, debtorId: created.id, organizationId: debtor.organizationId });
+      }
+      for (const reference of references) {
+        await this.createDebtorReference({ ...reference, debtorId: created.id, organizationId: debtor.organizationId });
+      }
+    } catch (error) {
+      // Preserve transaction semantics for the in-memory implementation too.
+      this.debtors.delete(created.id);
+      for (const [id, contact] of Array.from(this.debtorContacts.entries())) if (contact.debtorId === created.id) this.debtorContacts.delete(id);
+      for (const [id, reference] of Array.from(this.debtorReferences.entries())) if (reference.debtorId === created.id) this.debtorReferences.delete(id);
+      throw error;
+    }
+    return created;
+  }
+
   async updateDebtor(id: string, debtor: Partial<InsertDebtor>): Promise<Debtor | undefined> {
     const existing = this.debtors.get(id);
     if (!existing) return undefined;
@@ -1559,6 +1604,9 @@ export class MemStorage implements IStorage {
       name: reference.name,
       relationship: reference.relationship ?? null,
       phone: reference.phone ?? null,
+      phone2: reference.phone2 ?? null,
+      phone3: reference.phone3 ?? null,
+      importSlot: reference.importSlot ?? null,
       address: reference.address ?? null,
       city: reference.city ?? null,
       state: reference.state ?? null,

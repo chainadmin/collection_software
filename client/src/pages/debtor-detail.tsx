@@ -49,14 +49,15 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { RecordPaymentDialog } from "@/components/record-payment-dialog";
+import { CustomFieldsEditor, ReferenceEditor } from "@/components/account-data-editors";
 import { formatCurrency, formatDate, formatPhone, maskSSN, getInitials, maskAccountNumber } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
-import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note, Collector, EmailTemplate } from "@shared/schema";
+import type { Debtor, DebtorContact, EmploymentRecord, BankAccount, Payment, Note, Collector, EmailTemplate, DebtorReference } from "@shared/schema";
 
 export default function DebtorDetail() {
-  const [, params] = useRoute("/debtors/:id");
+  const [, params] = useRoute("/app/debtors/:id");
   const { toast } = useToast();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("contact");
@@ -66,6 +67,12 @@ export default function DebtorDetail() {
   const [noteType, setNoteType] = useState("general");
   const [messageDialog, setMessageDialog] = useState<{ contactType: "phone" | "email"; contactValue: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [contactEditor, setContactEditor] = useState<DebtorContact | null | "new">(null);
+  const [contactValue, setContactValue] = useState("");
+  const [contactLabel, setContactLabel] = useState("");
+  const [contactType, setContactType] = useState<"phone" | "email">("phone");
+  const [contactPrimary, setContactPrimary] = useState(false);
+  const [contactError, setContactError] = useState("");
   
   const debtorId = params?.id;
 
@@ -76,6 +83,10 @@ export default function DebtorDetail() {
 
   const { data: contacts, isLoading: contactsLoading } = useQuery<DebtorContact[]>({
     queryKey: ["/api/debtors", debtorId, "contacts"],
+    enabled: !!debtorId,
+  });
+  const { data: references = [] } = useQuery<DebtorReference[]>({
+    queryKey: ["/api/debtors", debtorId, "references"],
     enabled: !!debtorId,
   });
 
@@ -168,6 +179,33 @@ export default function DebtorDetail() {
       toast({ title: "Note added", description: "Note has been saved to the account." });
     },
   });
+  const saveContactMutation = useMutation({
+    mutationFn: async () => {
+      if (!debtorId || !contactValue.trim()) throw new Error("A contact value is required.");
+      const payload = { type: contactType, value: contactValue.trim(), label: contactLabel.trim() || null, isPrimary: contactPrimary };
+      return contactEditor && contactEditor !== "new"
+        ? apiRequest("PATCH", `/api/contacts/${contactEditor.id}`, payload)
+        : apiRequest("POST", `/api/debtors/${debtorId}/contacts`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "contacts"] });
+      setContactEditor(null);
+      toast({ title: "Contact saved", description: "Contact information has been updated." });
+    },
+    onError: (error: Error) => setContactError(error.message || "Unable to save contact."),
+  });
+  const removeContactMutation = useMutation({
+    mutationFn: (contactId: string) => apiRequest("DELETE", `/api/contacts/${contactId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "contacts"] });
+      toast({ title: "Contact removed", description: "The contact has been removed." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
+  });
+  const openContactEditor = (contact?: DebtorContact, type: "phone" | "email" = "phone") => {
+    setContactEditor(contact || "new"); setContactType(contact?.type as "phone" | "email" || type);
+    setContactValue(contact?.value || ""); setContactLabel(contact?.label || ""); setContactPrimary(contact?.isPrimary || false); setContactError("");
+  };
 
   if (debtorLoading) {
     return (
@@ -195,13 +233,13 @@ export default function DebtorDetail() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <Button variant="ghost" size="icon" asChild data-testid="button-back">
           <Link href="/debtors">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        <div className="flex-1">
+        <div className="min-w-[12rem] flex-1">
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12">
               <AvatarFallback className="bg-primary/10 text-primary font-medium">
@@ -219,10 +257,10 @@ export default function DebtorDetail() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" data-testid="button-edit-debtor">
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setActiveTab("contact")} data-testid="button-edit-debtor">
             <Edit className="h-4 w-4 mr-2" />
-            Edit
+            Edit Contacts
           </Button>
           <Button onClick={() => setShowAddPaymentDialog(true)} disabled={!isCollectorReady} data-testid="button-add-payment">
             <DollarSign className="h-4 w-4 mr-2" />
@@ -303,8 +341,8 @@ export default function DebtorDetail() {
         </Card>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full justify-start">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
+        <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="contact" className="gap-2" data-testid="tab-contact">
             <Phone className="h-4 w-4" />
             Contact Info
@@ -335,7 +373,7 @@ export default function DebtorDetail() {
                   <Phone className="h-4 w-4" />
                   Phone Numbers
                 </CardTitle>
-                <Button variant="ghost" size="sm" data-testid="button-add-phone">
+                <Button variant="ghost" size="sm" onClick={() => openContactEditor(undefined, "phone")} data-testid="button-add-phone">
                   <Plus className="h-4 w-4" />
                 </Button>
               </CardHeader>
@@ -347,20 +385,22 @@ export default function DebtorDetail() {
                     {phoneContacts.map((contact) => (
                       <div
                         key={contact.id}
-                        className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                        className="flex flex-col gap-2 rounded-md bg-muted/50 p-3 sm:flex-row sm:items-center sm:justify-between"
                         data-testid={`phone-${contact.id}`}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <div className={`h-2 w-2 rounded-full ${contact.isValid ? "bg-green-500" : "bg-red-500"}`} />
                           <div>
-                            <p className="text-sm font-medium font-mono">{formatPhone(contact.value)}</p>
+                            <p className="whitespace-nowrap text-sm font-medium font-mono">{formatPhone(contact.value)}</p>
                             <p className="text-xs text-muted-foreground capitalize">{contact.label || "Phone"}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
                           {contact.isPrimary && (
                             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
                           )}
+                          <Button variant="ghost" size="icon" onClick={() => openContactEditor(contact)} aria-label={`Edit ${contact.label || "phone"}`}><Edit className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Remove ${contact.value}?`)) removeContactMutation.mutate(contact.id); }} aria-label={`Remove ${contact.label || "phone"}`}><XCircle className="h-4 w-4" /></Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -387,7 +427,7 @@ export default function DebtorDetail() {
                   <Mail className="h-4 w-4" />
                   Email Addresses
                 </CardTitle>
-                <Button variant="ghost" size="sm" data-testid="button-add-email">
+                <Button variant="ghost" size="sm" onClick={() => openContactEditor(undefined, "email")} data-testid="button-add-email">
                   <Plus className="h-4 w-4" />
                 </Button>
               </CardHeader>
@@ -399,20 +439,22 @@ export default function DebtorDetail() {
                     {emailContacts.map((contact) => (
                       <div
                         key={contact.id}
-                        className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                        className="flex flex-col gap-2 rounded-md bg-muted/50 p-3 sm:flex-row sm:items-center sm:justify-between"
                         data-testid={`email-${contact.id}`}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <div className={`h-2 w-2 rounded-full ${contact.isValid ? "bg-green-500" : "bg-red-500"}`} />
                           <div>
-                            <p className="text-sm font-medium">{contact.value}</p>
+                            <p className="break-all text-sm font-medium">{contact.value}</p>
                             <p className="text-xs text-muted-foreground capitalize">{contact.label || "Email"}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
                           {contact.isPrimary && (
                             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
                           )}
+                          <Button variant="ghost" size="icon" onClick={() => openContactEditor(contact)} aria-label={`Edit ${contact.label || "email"}`}><Edit className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Remove ${contact.value}?`)) removeContactMutation.mutate(contact.id); }} aria-label={`Remove ${contact.label || "email"}`}><XCircle className="h-4 w-4" /></Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -432,6 +474,8 @@ export default function DebtorDetail() {
                 )}
               </CardContent>
             </Card>
+            {debtorId && <ReferenceEditor debtorId={debtorId} references={references} />}
+            {debtorId && <CustomFieldsEditor debtorId={debtorId} raw={debtor.customFields} />}
           </div>
         </TabsContent>
 
@@ -648,6 +692,32 @@ export default function DebtorDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!contactEditor} onOpenChange={(open) => { if (!open) setContactEditor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{contactEditor === "new" ? "Add Contact" : "Edit Contact"}</DialogTitle>
+            <DialogDescription>Save a phone number or email address for this account.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={contactType} onValueChange={(value: "phone" | "email") => setContactType(value)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="phone">Phone</SelectItem><SelectItem value="email">Email</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2"><Label htmlFor="contact-value">Value</Label><Input id="contact-value" value={contactValue} onChange={(e) => setContactValue(e.target.value)} placeholder={contactType === "phone" ? "Phone number" : "Email address"} /></div>
+            <div className="space-y-2"><Label htmlFor="contact-label">Label</Label><Input id="contact-label" value={contactLabel} onChange={(e) => setContactLabel(e.target.value)} placeholder="e.g. Mobile or Work" /></div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={contactPrimary} onChange={(e) => setContactPrimary(e.target.checked)} /> Primary contact</label>
+            {contactError && <p role="alert" className="text-sm text-destructive">{contactError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContactEditor(null)}>Cancel</Button>
+            <Button onClick={() => { setContactError(""); saveContactMutation.mutate(); }} disabled={!contactValue.trim() || saveContactMutation.isPending}>{saveContactMutation.isPending ? "Saving..." : "Save Contact"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showAddNoteDialog} onOpenChange={setShowAddNoteDialog}>
         <DialogContent>

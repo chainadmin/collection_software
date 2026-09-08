@@ -35,6 +35,7 @@ import {
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { formatCardNumber } from "@/lib/bin-lookup";
 import { CardValidationFeedback } from "@/components/card-validation-feedback";
+import { parseCustomFields } from "@/components/account-data-editors";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -137,6 +138,7 @@ export default function Workstation() {
   const [newCustomFieldValue, setNewCustomFieldValue] = useState("");
   const [editingCustomField, setEditingCustomField] = useState<string | null>(null);
   const [editingCustomFieldValue, setEditingCustomFieldValue] = useState("");
+  const [customFieldError, setCustomFieldError] = useState("");
   
   // Additional info dialogs
   const [showAdditionalInfoDialog, setShowAdditionalInfoDialog] = useState(false);
@@ -157,6 +159,8 @@ export default function Workstation() {
   const [refName, setRefName] = useState("");
   const [refRelationship, setRefRelationship] = useState("");
   const [refPhone, setRefPhone] = useState("");
+  const [refPhone2, setRefPhone2] = useState("");
+  const [refPhone3, setRefPhone3] = useState("");
   const [refAddress, setRefAddress] = useState("");
   const [refCity, setRefCity] = useState("");
   const [refState, setRefState] = useState("");
@@ -197,6 +201,7 @@ export default function Workstation() {
   const [editContactValue, setEditContactValue] = useState("");
   const [editContactType, setEditContactType] = useState("phone");
   const [editContactLabel, setEditContactLabel] = useState("");
+  const [contactFormError, setContactFormError] = useState("");
   
   // Bulk add state
   const [showBulkAddContactsDialog, setShowBulkAddContactsDialog] = useState(false);
@@ -466,6 +471,7 @@ export default function Workstation() {
       setEditingContact(null);
       toast({ title: "Contact updated", description: "Contact information saved." });
     },
+    onError: (error: Error) => setContactFormError(error.message || "Unable to update contact."),
   });
 
   const addContactMutation = useMutation({
@@ -480,6 +486,15 @@ export default function Workstation() {
       setEditContactLabel("");
       toast({ title: "Contact added", description: "New contact added." });
     },
+    onError: (error: Error) => setContactFormError(error.message || "Unable to add contact."),
+  });
+  const removeContactMutation = useMutation({
+    mutationFn: async (contactId: string) => apiRequest("DELETE", `/api/contacts/${contactId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+      toast({ title: "Contact removed", description: "The contact was removed from this account." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
   const addEmploymentMutation = useMutation({
@@ -500,7 +515,7 @@ export default function Workstation() {
   });
 
   const addReferenceMutation = useMutation({
-    mutationFn: async (data: { debtorId: string; name: string; relationship?: string; phone?: string; address?: string; city?: string; state?: string; zipCode?: string; notes?: string }) => {
+    mutationFn: async (data: { debtorId: string; name: string; relationship?: string | null; phone?: string | null; phone2?: string | null; phone3?: string | null; address?: string | null; city?: string | null; state?: string | null; zipCode?: string | null; notes?: string | null }) => {
       return apiRequest("POST", `/api/debtors/${data.debtorId}/references`, {
         ...data,
         addedDate: new Date().toISOString().split("T")[0],
@@ -512,6 +527,8 @@ export default function Workstation() {
       setRefName("");
       setRefRelationship("");
       setRefPhone("");
+      setRefPhone2("");
+      setRefPhone3("");
       setRefAddress("");
       setRefCity("");
       setRefState("");
@@ -535,7 +552,7 @@ export default function Workstation() {
   });
 
   const updateReferenceMutation = useMutation({
-    mutationFn: async (data: { id: string; name?: string; relationship?: string; phone?: string; address?: string; city?: string; state?: string; zipCode?: string; notes?: string }) => {
+    mutationFn: async (data: { id: string; name?: string; relationship?: string | null; phone?: string | null; phone2?: string | null; phone3?: string | null; address?: string | null; city?: string | null; state?: string | null; zipCode?: string | null; notes?: string | null }) => {
       return apiRequest("PATCH", `/api/references/${data.id}`, data);
     },
     onSuccess: () => {
@@ -560,6 +577,8 @@ export default function Workstation() {
     setRefName("");
     setRefRelationship("");
     setRefPhone("");
+    setRefPhone2("");
+    setRefPhone3("");
     setRefAddress("");
     setRefCity("");
     setRefState("");
@@ -583,6 +602,8 @@ export default function Workstation() {
     setRefName(ref.name);
     setRefRelationship(ref.relationship || "");
     setRefPhone(ref.phone || "");
+    setRefPhone2(ref.phone2 || "");
+    setRefPhone3(ref.phone3 || "");
     setRefAddress(ref.address || "");
     setRefCity(ref.city || "");
     setRefState(ref.state || "");
@@ -615,13 +636,15 @@ export default function Workstation() {
     
     const data = {
       name: refName,
-      relationship: refRelationship || undefined,
-      phone: refPhone || undefined,
-      address: refAddress || undefined,
-      city: refCity || undefined,
-      state: refState || undefined,
-      zipCode: refZipCode || undefined,
-      notes: refNotes || undefined,
+      relationship: refRelationship || null,
+      phone: refPhone || null,
+      phone2: refPhone2 || null,
+      phone3: refPhone3 || null,
+      address: refAddress || null,
+      city: refCity || null,
+      state: refState || null,
+      zipCode: refZipCode || null,
+      notes: refNotes || null,
     };
 
     if (editingReference) {
@@ -854,6 +877,7 @@ export default function Workstation() {
     setEditContactValue(contact.value);
     setEditContactType(contact.type);
     setEditContactLabel(contact.label || "");
+    setContactFormError("");
     setShowEditContactDialog(true);
   };
 
@@ -864,7 +888,8 @@ export default function Workstation() {
       updates: {
         value: editContactValue,
         type: editContactType,
-        label: editContactLabel,
+        label: editContactLabel || null,
+        isPrimary: editingContact.isPrimary,
       },
     });
   };
@@ -873,6 +898,7 @@ export default function Workstation() {
     setEditContactValue("");
     setEditContactType("phone");
     setEditContactLabel("");
+    setContactFormError("");
     setShowAddContactDialog(true);
   };
 
@@ -1439,6 +1465,19 @@ export default function Workstation() {
                               >
                                 <Pencil className="h-3 w-3" />
                               </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Remove ${contact.value}?`)) removeContactMutation.mutate(contact.id);
+                                }}
+                                aria-label={`Remove ${contact.label || contact.type}`}
+                                data-testid={`button-remove-contact-${contact.id}`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
                               {contact.type === "phone" && (
                                 <Phone className="h-4 w-4 text-primary" />
                               )}
@@ -1578,9 +1617,9 @@ export default function Workstation() {
                                     </Button>
                                   </div>
                                 </div>
-                                {ref.phone && (
-                                  <p className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}`}>{ref.phone}</p>
-                                )}
+                                {[ref.phone, ref.phone2, ref.phone3].filter(Boolean).map((phone, index) => (
+                                  <p key={index} className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}-${index}`}>{phone}</p>
+                                ))}
                                 {(ref.address || ref.city || ref.state) && (
                                   <p className="text-xs text-muted-foreground mt-1">
                                     {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
@@ -1760,22 +1799,31 @@ export default function Workstation() {
                 {/* Custom Fields Section - editable custom data */}
                 {selectedDebtor && (() => {
                   let customData: Record<string, any> = {};
-                  try {
-                    if (selectedDebtor.customFields) {
-                      customData = JSON.parse(selectedDebtor.customFields);
-                    }
-                  } catch {}
+                  let customDataInvalid = false;
+                  const parsedCustomData = parseCustomFields(selectedDebtor.customFields);
+                  if (parsedCustomData === null) customDataInvalid = true;
+                  else customData = parsedCustomData;
                   const fieldCount = Object.keys(customData).length;
                   
                   const handleAddCustomField = () => {
                     if (!newCustomFieldName.trim() || !selectedDebtorId) return;
-                    const updatedFields = { ...customData, [newCustomFieldName.trim()]: newCustomFieldValue };
+                    const fieldName = newCustomFieldName.trim();
+                    if (Object.keys(customData).some((key) => key.toLocaleLowerCase() === fieldName.toLocaleLowerCase())) {
+                      setCustomFieldError("A custom field with that name already exists. Choose a unique name.");
+                      return;
+                    }
+                    setCustomFieldError("");
+                    const updatedFields = { ...customData, [fieldName]: newCustomFieldValue };
                     updateDebtorMutation.mutate({
                       id: selectedDebtorId,
                       updates: { customFields: JSON.stringify(updatedFields) }
+                    }, {
+                      onSuccess: () => {
+                        setNewCustomFieldName("");
+                        setNewCustomFieldValue("");
+                      },
+                      onError: (error: Error) => setCustomFieldError(error.message || "Unable to save custom field."),
                     });
-                    setNewCustomFieldName("");
-                    setNewCustomFieldValue("");
                   };
                   
                   const handleEditCustomField = (key: string) => {
@@ -1818,6 +1866,9 @@ export default function Workstation() {
                         </CollapsibleTrigger>
                         <CollapsibleContent>
                           <CardContent className="space-y-3">
+                            {customDataInvalid ? (
+                              <p role="alert" className="text-sm text-destructive">Custom fields contain invalid data and cannot be edited until corrected.</p>
+                            ) : <>
                             {/* Existing custom fields */}
                             {Object.entries(customData).map(([key, value]) => (
                               <div key={key} className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
@@ -1886,7 +1937,7 @@ export default function Workstation() {
                                 placeholder="Field name"
                                 value={newCustomFieldName}
                                 onChange={(e) => setNewCustomFieldName(e.target.value)}
-                                className="min-w-[100px] max-w-[140px]"
+                                className="min-w-[100px]"
                                 data-testid="input-new-custom-field-name"
                               />
                               <Input
@@ -1905,6 +1956,8 @@ export default function Workstation() {
                                 <Plus className="h-4 w-4" />
                               </Button>
                             </div>
+                            {customFieldError && <p role="alert" className="text-sm text-destructive">{customFieldError}</p>}
+                            </>}
                           </CardContent>
                         </CollapsibleContent>
                       </Card>
@@ -2393,12 +2446,13 @@ export default function Workstation() {
                 data-testid="input-edit-contact-label"
               />
             </div>
+            {contactFormError && <p role="alert" className="text-sm text-destructive">{contactFormError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditContactDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveContact} disabled={updateContactMutation.isPending}>
+            <Button onClick={handleSaveContact} disabled={!editContactValue.trim() || updateContactMutation.isPending}>
               {updateContactMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -2446,12 +2500,13 @@ export default function Workstation() {
                 data-testid="input-add-contact-label"
               />
             </div>
+            {contactFormError && <p role="alert" className="text-sm text-destructive">{contactFormError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddContactDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddContact} disabled={addContactMutation.isPending}>
+            <Button onClick={handleAddContact} disabled={!editContactValue.trim() || addContactMutation.isPending}>
               {addContactMutation.isPending ? "Adding..." : "Add Contact"}
             </Button>
           </DialogFooter>
@@ -2539,13 +2594,23 @@ export default function Workstation() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Phone</label>
+              <label className="text-sm font-medium">Phone 1</label>
               <Input
                 value={empEmployerPhone}
                 onChange={(e) => setEmpEmployerPhone(e.target.value)}
                 placeholder="Employer phone number"
                 data-testid="input-employer-phone"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-sm font-medium">Phone 2</label>
+                <Input value={refPhone2} onChange={(e) => setRefPhone2(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone2" />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Phone 3</label>
+                <Input value={refPhone3} onChange={(e) => setRefPhone3(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone3" />
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium">Address</label>
