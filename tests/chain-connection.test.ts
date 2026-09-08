@@ -79,10 +79,31 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(portfolios.data.length, 1);
     assert.equal(portfolios.data[0].id, f.alphaPortfolio.id);
     assert.equal(portfolios.data[0].portfolioId, f.alphaPortfolio.id);
-    assert.equal((await f.request("/api/v2/login", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "beta", password: "dmv2_alpha_test_key" }),
-    })).status, 401);
+    const warningLines: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warningLines.push(args.map(String).join(" "));
+    try {
+      const wrongOrganization = await f.request("/api/v2/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "beta", password: "dmv2_alpha_test_key" }),
+      });
+      assert.equal(wrongOrganization.status, 401);
+      assert.doesNotMatch(await wrongOrganization.text(), /dmv2_alpha_test_key/);
+
+      // An unknown key for a valid company code must produce a useful
+      // server-side reason without disclosing the submitted credential.
+      const staleSavedKey = await f.request("/api/v2/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "alpha", password: "dmv2_old_saved_key" }),
+      });
+      assert.equal(staleSavedKey.status, 401);
+      assert.doesNotMatch(await staleSavedKey.text(), /dmv2_old_saved_key/);
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.match(warningLines.join("\n"), /TOKEN_ORGANIZATION_MISMATCH/);
+    assert.match(warningLines.join("\n"), /TOKEN_NOT_FOUND/);
+    assert.doesNotMatch(warningLines.join("\n"), /dmv2_(?:alpha_test_key|old_saved_key)/);
     assert.equal((await f.request("/api/v2/getportfoliolist", {
       headers: { Authorization: "Bearer invalid-key" },
     })).status, 401);
@@ -109,10 +130,13 @@ test("session Chain test uses token IDs, role and tenant checks without leaking 
     assert.equal(ok.status, 200);
     assert.equal(payload.code, "PORTFOLIOS_AVAILABLE");
     assert.equal(payload.portfolioCount, 1);
+    assert.equal(payload.hasAuthenticatedExternally, false);
     assert.doesNotMatch(JSON.stringify(payload), /dmv2_alpha_test_key/);
+    f.emptyKey.lastUsedDate = "2026-09-08T12:00:00.000Z";
     const noPortfolios: any = await (await f.request(`/api/settings/tokens/${f.emptyKey.id}/test-chain`, { method: "POST", headers: { "x-role": "manager" } })).json();
     assert.equal(noPortfolios.code, "NO_PORTFOLIOS");
     assert.equal(noPortfolios.portfolioCount, 0);
+    assert.equal(noPortfolios.hasAuthenticatedExternally, true);
     assert.equal((await f.request(`/api/settings/tokens/${f.betaKey.id}/test-chain`, { method: "POST", headers: { "x-role": "admin" } })).status, 404);
 
     const legacyKey = await f.memory.createApiToken({

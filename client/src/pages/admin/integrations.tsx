@@ -67,6 +67,7 @@ type ChainConnectionTestResult = {
   code: string;
   message: string;
   portfolioCount: number;
+  hasAuthenticatedExternally?: boolean;
 };
 
 type MaskedCampaignIntegration = {
@@ -391,9 +392,13 @@ export default function Integrations() {
 
   const getChainTestResultMessage = (result: ChainConnectionTestResult) => {
     if (result.status === "success") {
-      return result.portfolioCount > 0
-        ? `Connected with ${result.portfolioCount} ${result.portfolioCount === 1 ? "portfolio" : "portfolios"}.`
-        : "Connected — no portfolios.";
+      const portfolioSummary = result.portfolioCount > 0
+        ? `DMP verified ${result.portfolioCount} ${result.portfolioCount === 1 ? "portfolio" : "portfolios"}.`
+        : "DMP verified the key with no portfolios.";
+      if (result.hasAuthenticatedExternally === false) {
+        return `${portfolioSummary} This key has never successfully authenticated through the external API. If you entered it in Chain, select Save Changes before Test Connection; Chain tests saved settings, not unsaved form values.`;
+      }
+      return `${portfolioSummary} This key has been used successfully by an external API client.`;
     }
 
     switch (result.code) {
@@ -431,7 +436,7 @@ export default function Integrations() {
 
   const getIntegrationInfoText = () => {
     const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    return `DebtFlow Pro API Integration Info\n\nChain connection settings (paste exactly as shown):\n  API URL:  ${baseUrl}\n  Username: ${companyCode || "<your company code>"}\n  Password: <the API key you generated>\n\nImportant: enter the API URL as-is. Do NOT add /api/v2 — Chain adds the\n/api/v2/... part automatically. Adding it yourself doubles the path and\nthe connection will fail.\n\nFor developers (direct API access):\n  Base path: ${baseUrl}/api/v2\n  Authentication: Bearer Token\n  Header: Authorization: Bearer YOUR_TOKEN_HERE\n\n  Login endpoint:\n    POST ${baseUrl}/api/v2/login\n    Body: { "username": "${companyCode || "<company code>"}", "password": "<API key>" }\n\n  Key Endpoints:\n    GET  /api/v2/accounts?ssn=XXX\n    POST /api/v2/softphone/initiate\n    POST /api/v2/softphone/result\n    POST /api/v2/send_text\n    POST /api/v2/send_email_c2c\n    GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
+    return `DebtFlow Pro API Integration Info\n\nChain connection settings (paste exactly as shown):\n  API URL:  ${baseUrl}\n  Username: ${companyCode || "<your company code>"}\n  Password: <the API key you generated>\n\nAfter entering all three values, select Save Changes in Chain before Test\nConnection. Chain tests the saved settings, not unsaved values in the form.\n\nImportant: enter the API URL as-is. Do NOT add /api/v2 — Chain adds the\n/api/v2/... part automatically. Adding it yourself doubles the path and\nthe connection will fail.\n\nFor developers (direct API access):\n  Base path: ${baseUrl}/api/v2\n  Authentication: Bearer Token\n  Header: Authorization: Bearer YOUR_TOKEN_HERE\n\n  Login endpoint:\n    POST ${baseUrl}/api/v2/login\n    Body: { "username": "${companyCode || "<company code>"}", "password": "<API key>" }\n\n  Key Endpoints:\n    GET  /api/v2/accounts?ssn=XXX\n    POST /api/v2/softphone/initiate\n    POST /api/v2/softphone/result\n    POST /api/v2/send_text\n    POST /api/v2/send_email_c2c\n    GET  /api/v2/softphone/queue\n\nContact your account manager for full API documentation.`;
   };
 
   return (
@@ -547,6 +552,9 @@ export default function Integrations() {
                 <p className="text-sm font-medium">3. Chain token/password (an API key)</p>
                 <p className="text-xs text-muted-foreground">
                   Generate an API key below and paste it into Chain's token/password field. The key is shown only once.
+                </p>
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300" data-testid="text-chain-save-reminder">
+                  In Chain, select Save Changes before Test Connection. Chain tests its saved settings, not unsaved values currently shown in the form.
                 </p>
               </div>
             </div>

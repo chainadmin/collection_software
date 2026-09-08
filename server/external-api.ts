@@ -265,6 +265,7 @@ export type ChainConnectionTestResult = {
   code: string;
   message: string;
   portfolioCount: number;
+  hasAuthenticatedExternally?: boolean;
 };
 
 type ChainCredentialErrorCode =
@@ -273,6 +274,19 @@ type ChainCredentialErrorCode =
   | "TOKEN_EXPIRED"
   | "ORGANIZATION_INACTIVE"
   | "IP_NOT_ALLOWED";
+
+type ChainLoginRejectionReason =
+  | ChainCredentialErrorCode
+  | "COMPANY_CODE_NOT_FOUND"
+  | "KEY_FORMAT_INVALID"
+  | "TOKEN_NOT_FOUND"
+  | "TOKEN_ORGANIZATION_MISMATCH";
+
+function logChainLoginRejection(reason: ChainLoginRejectionReason): void {
+  // Keep the production diagnostic useful without logging the company code,
+  // request body, raw key, token ID, organization ID, or caller IP.
+  console.warn(`[external-api] Chain company login rejected: ${reason}`);
+}
 
 async function validateChainCredential(input: {
   organization: { id: string; isActive: boolean | null };
@@ -359,9 +373,22 @@ export async function testChainConnectionForOrganization(
       portfolioCount: 0,
     };
   }
+  const hasAuthenticatedExternally = Boolean(token.lastUsedDate);
   return portfolios.length
-    ? { status: "success", code: "PORTFOLIOS_AVAILABLE", message: "Connection verified", portfolioCount: portfolios.length }
-    : { status: "success", code: "NO_PORTFOLIOS", message: "Connection verified; no portfolios are available", portfolioCount: 0 };
+    ? {
+        status: "success",
+        code: "PORTFOLIOS_AVAILABLE",
+        message: "Connection verified",
+        portfolioCount: portfolios.length,
+        hasAuthenticatedExternally,
+      }
+    : {
+        status: "success",
+        code: "NO_PORTFOLIOS",
+        message: "Connection verified; no portfolios are available",
+        portfolioCount: 0,
+        hasAuthenticatedExternally,
+      };
 }
 
 // Verify a password against a stored hash. Supports bcrypt hashes (start
@@ -490,6 +517,7 @@ export function registerExternalApiRoutes(app: Express) {
       if (!agencyCode) {
         const org = await storage.getOrganizationBySlug(String(username).trim().toLowerCase());
         if (!org) {
+          logChainLoginRejection("COMPANY_CODE_NOT_FOUND");
           return res.status(401).json({ error: "Invalid credentials" });
         }
 
@@ -497,6 +525,7 @@ export function registerExternalApiRoutes(app: Express) {
         // its "dmv2_" prefix prevents legacy session tokens from being exchanged.
         const suppliedKey = String(password).trim();
         if (!suppliedKey.startsWith("dmv2_")) {
+          logChainLoginRejection("KEY_FORMAT_INVALID");
           return res.status(401).json({ error: "Invalid credentials" });
         }
 
@@ -509,6 +538,14 @@ export function registerExternalApiRoutes(app: Express) {
           suppliedKey,
           requestIp: req.ip,
         });
+        if (credentialError) {
+          const rejectionReason: ChainLoginRejectionReason = !apiKey
+            ? "TOKEN_NOT_FOUND"
+            : apiKey.organizationId !== org.id
+              ? "TOKEN_ORGANIZATION_MISMATCH"
+              : credentialError;
+          logChainLoginRejection(rejectionReason);
+        }
         if (credentialError === "ORGANIZATION_INACTIVE") {
           return res.status(403).json({ error: "Your organization is not active" });
         }
@@ -518,6 +555,8 @@ export function registerExternalApiRoutes(app: Express) {
         if (credentialError) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
+        // validateChainCredential cannot succeed without a token, but keep the
+        // invariant explicit for TypeScript and future validator changes.
         if (!apiKey) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
