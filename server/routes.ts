@@ -2276,6 +2276,12 @@ export async function registerRoutes(
         });
         references = (rawReferences || []).flatMap((input: any, index: number) => {
           if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`references[${index}] must be an object`);
+          const importSlot = input.importSlot === undefined || input.importSlot === null
+            ? index + 1
+            : input.importSlot;
+          if (!Number.isInteger(importSlot) || importSlot < 1 || importSlot > 3) {
+            throw new Error(`references[${index}].importSlot must be an integer from 1 to 3`);
+          }
           const name = trimOptional(input.name, `references[${index}].name`);
           const fields = ["relationship", "phone", "phone2", "phone3", "address", "city", "state", "zipCode", "notes"];
           const reference: any = { name };
@@ -2284,8 +2290,10 @@ export async function registerRoutes(
             if (fields.some((field) => reference[field])) throw new Error(`references[${index}].name is required when reference details are supplied`);
             return [];
           }
-          return [{ ...reference, importSlot: index + 1, addedDate: new Date().toISOString().split("T")[0] }];
+          return [{ ...reference, importSlot, addedDate: new Date().toISOString().split("T")[0] }];
         });
+        const referenceSlots = references.map((reference) => reference.importSlot);
+        if (new Set(referenceSlots).size !== referenceSlots.length) throw new Error("Reference importSlot values must be unique");
       } catch (error: any) {
         return res.status(400).json({ error: error.message });
       }
@@ -2459,14 +2467,35 @@ export async function registerRoutes(
       if (body.value !== undefined && (typeof body.value !== "string" || !body.value.trim())) {
         return res.status(400).json({ error: "Contact value must be non-blank" });
       }
+      for (const field of ["isPrimary", "isValid"]) {
+        if (body[field] !== undefined && typeof body[field] !== "boolean") {
+          return res.status(400).json({ error: `${field} must be true or false` });
+        }
+      }
+      if (body.label !== undefined && body.label !== null && typeof body.label !== "string") {
+        return res.status(400).json({ error: "Contact label must be a string or null" });
+      }
       if (typeof body.value === "string") body.value = body.value.trim();
-      const contact = await storage.updateDebtorContact(req.params.id, body);
+      if (typeof body.label === "string") body.label = body.label.trim() || null;
+      const contact = await storage.runAtomic(async () => {
+        const next = { ...existing, ...body };
+        const siblings = (await storage.getDebtorContacts(existing.debtorId))
+          .filter((contact) => contact.id !== existing.id);
+        if (siblings.some((contact) => contact.type === next.type &&
+          normalizedContactValue(contact.type, contact.value) === normalizedContactValue(next.type, next.value))) {
+          throw Object.assign(new Error("Contact already exists"), { status: 409 });
+        }
+        if (next.type === "phone" && next.isPrimary && siblings.some((contact) => contact.type === "phone" && contact.isPrimary)) {
+          throw Object.assign(new Error("This account already has a primary phone"), { status: 400 });
+        }
+        return storage.updateDebtorContact(req.params.id, body);
+      });
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
       }
       res.json(contact);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to update contact" });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.status ? error.message : "Failed to update contact" });
     }
   });
 
@@ -4140,10 +4169,17 @@ export async function registerRoutes(
                 if (legacy.length > 1) throw new Error(`Reference slot ${n} matches multiple legacy references`);
                 current = legacy[0];
               }
-              if (current) await storage.updateDebtorReference(current.id, patch);
+              if (name) patch.name = name;
+              if (current) {
+                await storage.updateDebtorReference(current.id, patch);
+                // Mark this legacy record as claimed before processing another
+                // slot in this same row, even when the names are identical.
+                existingReferences[existingReferences.indexOf(current)] = { ...current, ...patch };
+              }
               else {
                 if (!name) throw new Error(`Reference ${n} name is required for a new reference`);
-                await storage.createDebtorReference({ debtorId: existingInPortfolio.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+                const created = await storage.createDebtorReference({ debtorId: existingInPortfolio.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+                existingReferences.push(created);
               }
             }
             });
@@ -4158,7 +4194,6 @@ export async function registerRoutes(
             );
             if (linkedDebtor) {
               linkedAccountId = linkedDebtor.id;
-              results.linked++;
             }
           }
 
@@ -4185,7 +4220,7 @@ export async function registerRoutes(
             ssn: mappedData.ssn || null,
             ssnLast4: mappedData.ssnLast4 || (mappedData.ssn ? mappedData.ssn.slice(-4) : null),
             originalBalance: mappedData.originalBalance || 0,
-            currentBalance: mappedData.currentBalance || mappedData.originalBalance || 0,
+            currentBalance: mappedData.currentBalance ?? mappedData.originalBalance ?? 0,
             originalCreditor: mappedData.originalCreditor || null,
             clientName: mappedData.clientName || null,
             fileNumber: resolvedFileNumber,
@@ -4199,7 +4234,7 @@ export async function registerRoutes(
 
           // Create phone contacts - phone remains a legacy alias for Phone 1.
           const phoneFields = [
-            { phone: mappedData.phone1 || mappedData.phone, label: mappedData.phone1Label },
+            { phone: mappedData.phone1 || mappedData.phone, label: mappedData.phone1Label || mappedData.phoneLabel },
             { phone: mappedData.phone2, label: mappedData.phone2Label },
             { phone: mappedData.phone3, label: mappedData.phone3Label },
             { phone: mappedData.phone4, label: mappedData.phone4Label },
@@ -4230,15 +4265,19 @@ export async function registerRoutes(
 
           // Create email contacts - handle legacy "email" field (in debtor record) and email1-3
           const emailFields = [
-            { email: mappedData.email1, label: mappedData.email1Label },
+            { email: mappedData.email1 || mappedData.email, label: mappedData.email1Label || mappedData.emailLabel },
             { email: mappedData.email2, label: mappedData.email2Label },
             { email: mappedData.email3, label: mappedData.email3Label },
           ];
           
           let emailCount = 0;
+          const seenEmails = new Set<string>();
           for (let i = 0; i < emailFields.length; i++) {
             const { email, label } = emailFields[i];
-            if (email && email.trim()) {
+            if (typeof email === "string" && email.trim()) {
+              const identity = normalizedContactValue("email", email);
+              if (seenEmails.has(identity)) continue;
+              seenEmails.add(identity);
               await storage.createDebtorContact({
                 debtorId: newDebtor.id,
                 type: "email",
@@ -4299,6 +4338,7 @@ export async function registerRoutes(
 
           });
           results.created++;
+          if (linkedAccountId) results.linked++;
         } catch (err: any) {
           let reason = err.message || "Unknown error processing record";
           // Surface the unique-(portfolio, file_number) violation as a
@@ -4402,8 +4442,8 @@ export async function registerRoutes(
           }
 
           results.matched++;
-
-          await storage.runAtomic(async () => {
+          const added = await storage.runAtomic(async () => {
+          let rowAdded = 0;
           const existingContacts = await storage.getDebtorContacts(matchedDebtor.id);
           const imports = [
             ["phone", mappedData.phone1 || mappedData.phone, mappedData.phone1Label || mappedData.phoneLabel],
@@ -4419,7 +4459,7 @@ export async function registerRoutes(
               isPrimary: false, isValid: true, organizationId: orgId,
             });
             existingContacts.push({ type, value } as any);
-            results.added++;
+            rowAdded++;
           }
           const customValues = Object.fromEntries(Object.entries(mappedData)
             .filter(([key, value]) => key.startsWith("__custom:") && value !== null && value !== "")
@@ -4427,7 +4467,8 @@ export async function registerRoutes(
           if (Object.keys(customValues).length) {
             let previous: Record<string, unknown> = {};
             try {
-              previous = JSON.parse(matchedDebtor.customFields || "{}");
+              const currentDebtor = await storage.getDebtor(matchedDebtor.id);
+              previous = JSON.parse(currentDebtor?.customFields || "{}");
               if (!previous || Array.isArray(previous) || typeof previous !== "object") throw new Error();
             } catch { throw new Error("Existing custom fields contain invalid JSON; account was not changed"); }
             await storage.updateDebtor(matchedDebtor.id, { customFields: JSON.stringify({ ...previous, ...customValues }) });
@@ -4448,13 +4489,20 @@ export async function registerRoutes(
               if (legacy.length > 1) throw new Error(`Reference slot ${number} matches multiple legacy references`);
               current = legacy[0];
             }
-            if (current) await storage.updateDebtorReference(current.id, patch);
+            if (name) patch.name = name;
+            if (current) {
+              await storage.updateDebtorReference(current.id, patch);
+              references[references.indexOf(current)] = { ...current, ...patch };
+            }
             else {
               if (!name) throw new Error(`Reference ${number} name is required for a new reference`);
-              await storage.createDebtorReference({ debtorId: matchedDebtor.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+              const created = await storage.createDebtorReference({ debtorId: matchedDebtor.id, organizationId: orgId, name, ...patch, addedDate: new Date().toISOString().split("T")[0] });
+              references.push(created);
             }
             }
+            return rowAdded;
           });
+          results.added += added;
         } catch (err: any) {
           results.errors.push(err.message || "Unknown error processing record");
         }

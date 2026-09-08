@@ -2594,23 +2594,13 @@ export default function Workstation() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Phone 1</label>
+              <label className="text-sm font-medium">Phone</label>
               <Input
                 value={empEmployerPhone}
                 onChange={(e) => setEmpEmployerPhone(e.target.value)}
                 placeholder="Employer phone number"
                 data-testid="input-employer-phone"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-sm font-medium">Phone 2</label>
-                <Input value={refPhone2} onChange={(e) => setRefPhone2(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone2" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Phone 3</label>
-                <Input value={refPhone3} onChange={(e) => setRefPhone3(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone3" />
-              </div>
             </div>
             <div>
               <label className="text-sm font-medium">Address</label>
@@ -2673,7 +2663,7 @@ export default function Workstation() {
           resetReferenceForm();
         }
       }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingReference ? "Edit Reference" : "Add Reference"}</DialogTitle>
             <DialogDescription>
@@ -2715,6 +2705,16 @@ export default function Workstation() {
                 placeholder="Phone number"
                 data-testid="input-reference-phone"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="reference-phone2" className="text-sm font-medium">Phone 2</label>
+                <Input id="reference-phone2" value={refPhone2} onChange={(e) => setRefPhone2(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone2" />
+              </div>
+              <div>
+                <label htmlFor="reference-phone3" className="text-sm font-medium">Phone 3</label>
+                <Input id="reference-phone3" value={refPhone3} onChange={(e) => setRefPhone3(e.target.value)} placeholder="Optional phone number" data-testid="input-reference-phone3" />
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium">Address</label>

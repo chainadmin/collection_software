@@ -32,6 +32,7 @@ await context.route("**/api/**", async (route) => {
   if (path === "/api/auth/session") output = { type: "collector", collector: user };
   else if (path === "/api/auth/status") output = { isAuthenticated: true };
   else if (path === "/api/collectors") output = [user];
+  else if (path.startsWith("/api/time-clock/active")) output = null;
   else if (path === "/api/clients") output = [client];
   else if (path === "/api/portfolios") output = [portfolio];
   else if (path.startsWith("/api/organizations/")) output = { id: user.organizationId, name: "Verification Agency", isActive: true };
@@ -68,6 +69,7 @@ await context.route("**/api/**", async (route) => {
   await route.fulfill({ status: 200, json: output });
 });
 const page = await context.newPage();
+page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("dialog", (dialog) => dialog.accept());
@@ -84,6 +86,11 @@ try {
   for (let index = 1; index <= 7; index++) {
     await dialog.getByLabel(`Phone ${index}`, { exact: true }).fill(`20255501${String(index).padStart(2, "0")}`);
   }
+  await dialog.getByLabel("Reference 3 phone 2", { exact: true }).fill("2025550332");
+  await page.getByTestId("button-submit-debtor").click();
+  await dialog.getByText(/Reference 3 name is required/).waitFor();
+  assert.equal(submitted, undefined);
+  assert.equal(await dialog.getByLabel("Reference 3 phone 2", { exact: true }).inputValue(), "2025550332");
   for (let index = 1; index <= 3; index++) {
     await dialog.getByLabel(`Reference ${index} name`, { exact: true }).fill(`Relative ${index}`);
     for (let phone = 1; phone <= 3; phone++) {
@@ -118,11 +125,71 @@ try {
   await page.reload();
   await page.getByText("Attribute 10", { exact: true }).waitFor();
   assert.equal(await page.getByTestId("phone-phone-6").count(), 1);
+  const customRow = page.getByText("Attribute 10", { exact: true }).locator("..");
+  await customRow.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Attribute 10 value", { exact: true }).fill("");
+  await customRow.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByLabel("Attribute 10 value", { exact: true }).waitFor({ state: "hidden" });
+  assert.equal(JSON.parse(debtor.customFields)["Attribute 10"], "");
+  await page.getByTestId("phone-phone-6").getByRole("button", { name: /^Remove/ }).click();
+  await page.getByTestId("phone-phone-6").waitFor({ state: "hidden" });
+  assert.equal(contacts.length, 6);
   await page.screenshot({ path: "/tmp/account-slots-detail.jpg", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "/tmp/account-slots-mobile.jpg", fullPage: true });
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${base}/app/workstation`);
+  await page.getByTestId("queue-item-browser-debtor").click();
+  await page.getByText("Employment Records", { exact: true }).click();
+  await page.getByTestId("button-add-employment").click();
+  assert.equal(await page.getByRole("dialog").getByTestId("input-reference-phone2").count(), 0);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByText("References", { exact: true }).click();
+  await page.getByTestId("button-add-reference").click();
+  await page.getByTestId("input-reference-name").fill("Workstation Relative");
+  await page.getByTestId("input-reference-phone").fill("2025550441");
+  await page.getByTestId("input-reference-phone2").fill("2025550442");
+  await page.getByTestId("input-reference-phone3").fill("2025550443");
+  await page.getByTestId("button-save-reference").click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(references[3].phone2, "2025550442");
+  assert.equal(references[3].phone3, "2025550443");
+  await page.getByTestId("button-edit-reference-ref-3").click();
+  await page.getByTestId("input-reference-phone2").fill("");
+  await page.getByTestId("input-reference-phone3").fill("");
+  await page.getByTestId("button-save-reference").click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(lastReferenceUpdate.phone2, null);
+  assert.equal(lastReferenceUpdate.phone3, null);
+  assert.equal(references[3].phone, "2025550441");
+  for (const importType of ["Debtor Accounts", "Contact Information"]) {
+    await page.goto(`${base}/app/admin/tools/import-export`);
+    await page.getByTestId("select-import-type").click();
+    await page.getByRole("option", { name: importType, exact: true }).click();
+    await page.getByTestId("select-import-client").click();
+    await page.getByRole("option", { name: client.name, exact: true }).click();
+    await page.getByTestId("select-import-portfolio").click();
+    await page.getByRole("option", { name: portfolio.name, exact: true }).click();
+    await page.getByTestId("input-import-file").setInputFiles({
+      name: "expanded-fields.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("Account,Seventh,Relative Third,Custom\nUI-001,2025550107,2025550333,sample"),
+    });
+    await page.getByTestId("button-continue-mapping").click();
+    await page.getByTestId("select-mapping-Seventh").click();
+    await page.getByRole("option", { name: "Phone 7", exact: true }).click();
+    await page.getByTestId("select-mapping-Custom").click();
+    await page.getByRole("option", { name: /Custom Field 10/ }).click();
+    await page.getByTestId("select-mapping-Relative Third").click();
+    await page.getByRole("option", { name: /Reference 3 Phone 3/ }).click();
+    await page.screenshot({ path: `/tmp/account-slots-mapping-${importType.split(" ")[0]}.jpg` });
+  }
   assert.deepEqual(errors, []);
-  console.log("UI passed: seven phones, nine relative phones, ten custom values, save-error retention, detail display, explicit relative clear, reload.");
+  console.log("UI passed: seven phones, nine relative phones, ten custom values, unnamed-reference validation, save-error retention, reload, detail/workstation add/edit/clear, and expanded account/contact import mappings.");
+} catch (error) {
+  console.error("Browser errors:", errors);
+  console.error("Visible page:", (await page.locator("body").innerText()).slice(0, 5000));
+  throw error;
 } finally {
   await browser.close();
 }

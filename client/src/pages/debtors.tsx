@@ -124,6 +124,11 @@ export default function Debtors() {
       const populatedPhones = phones.filter((p) => p.value.trim());
       const labels = populatedPhones.map((p) => p.label.trim().toLocaleLowerCase()).filter(Boolean);
       if (new Set(labels).size !== labels.length) throw new Error("Each phone label must be unique.");
+      references.forEach((reference, index) => {
+        if (!reference.name.trim() && Object.values(reference).some((value) => value.trim())) {
+          throw new Error(`Reference ${index + 1} name is required when reference details are entered.`);
+        }
+      });
       const fields: Record<string, string> = {};
       for (const field of customValues) {
         const label = field.label.trim();
