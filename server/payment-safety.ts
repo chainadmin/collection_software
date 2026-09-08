@@ -73,3 +73,56 @@ export async function claimDeclinedPaymentForRerun(paymentId: string, organizati
   );
   return result.rows[0];
 }
+
+const INCOMPLETE_PROCESSING_NOTE =
+  "NEEDS REVIEW: Processing attempt did not complete; verify the gateway outcome before retrying.";
+
+/**
+ * Preserve an uncertain gateway attempt for manual reconciliation. The status
+ * guard prevents this from overwriting a conclusive result written by another
+ * worker after the caller observed an error.
+ */
+export async function markPaymentNeedsReviewIfProcessing(paymentId: string, organizationId: string) {
+  const result = await pool.query(
+    `UPDATE payments
+        SET status = 'needs_review',
+            completed_at = NOW(),
+            notes = CASE
+              WHEN notes IS NULL OR notes = '' THEN $3
+              ELSE notes || ' ' || $3
+            END
+      WHERE id = $1 AND organization_id = $2 AND status = 'processing'
+      RETURNING *`,
+    [paymentId, organizationId, INCOMPLETE_PROCESSING_NOTE],
+  );
+  return result.rows[0];
+}
+
+/**
+ * A process can stop after a provider accepted a charge but before the result
+ * reached the database. Never return those rows to the automatic retry pool.
+ */
+export async function markStaleProcessingPaymentsNeedsReview(
+  organizationId?: string,
+  staleAfterMinutes = 30,
+) {
+  const safeMinutes = Number.isInteger(staleAfterMinutes) && staleAfterMinutes > 0
+    ? staleAfterMinutes
+    : 30;
+  const result = await pool.query(
+    `UPDATE payments
+        SET status = 'needs_review',
+            completed_at = NOW(),
+            notes = CASE
+              WHEN notes IS NULL OR notes = '' THEN $3
+              ELSE notes || ' ' || $3
+            END
+      WHERE status = 'processing'
+        AND processing_started_at IS NOT NULL
+        AND processing_started_at < NOW() - make_interval(mins => $1)
+        AND ($2::text IS NULL OR organization_id = $2)
+      RETURNING id`,
+    [safeMinutes, organizationId ?? null, INCOMPLETE_PROCESSING_NOTE],
+  );
+  return result.rowCount ?? 0;
+}

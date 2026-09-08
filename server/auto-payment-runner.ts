@@ -2,16 +2,21 @@ import { storage } from "./storage";
 import { processPayment } from "./payment-processor";
 import { sendOrgNotificationEmail } from "./email";
 import type { Payment } from "@shared/schema";
-import { claimPaymentForProcessing } from "./payment-safety";
+import {
+  claimPaymentForProcessing,
+  markPaymentNeedsReviewIfProcessing,
+  markStaleProcessingPaymentsNeedsReview,
+} from "./payment-safety";
 import { getPaymentBusinessDate } from "./payment-date";
 
-interface RunResult {
+export interface RunResult {
   runTime: string;
   totalProcessed: number;
   totalSuccess: number;
   totalDeclined: number;
   totalNeedsReview: number;
   totalSkipped: number;
+  alreadyRunning?: boolean;
   orgResults: Record<string, {
     orgName: string;
     processed: number;
@@ -23,9 +28,42 @@ interface RunResult {
   }>;
 }
 
-let lastRunResult: RunResult | null = null;
-let isRunning = false;
-let lastRunTimestamp: string | null = null;
+export class AutoPaymentRunRegistry {
+  private readonly lastResultsByOrg = new Map<string, RunResult>();
+  private readonly lastTimestampsByOrg = new Map<string, string>();
+  private readonly runningOrgIds = new Set<string>();
+  private isGlobalRunRunning = false;
+
+  tryStart(organizationId?: string): boolean {
+    const alreadyRunning = organizationId
+      ? this.isGlobalRunRunning || this.runningOrgIds.has(organizationId)
+      : this.isGlobalRunRunning || this.runningOrgIds.size > 0;
+    if (alreadyRunning) return false;
+    if (organizationId) this.runningOrgIds.add(organizationId);
+    else this.isGlobalRunRunning = true;
+    return true;
+  }
+
+  finish(organizationId: string | undefined, result: RunResult, timestamp: string) {
+    if (organizationId) {
+      this.runningOrgIds.delete(organizationId);
+      this.lastResultsByOrg.set(organizationId, result);
+      this.lastTimestampsByOrg.set(organizationId, timestamp);
+    } else {
+      this.isGlobalRunRunning = false;
+    }
+  }
+
+  getStatus(organizationId: string) {
+    return {
+      isRunning: this.isGlobalRunRunning || this.runningOrgIds.has(organizationId),
+      lastRunTimestamp: this.lastTimestampsByOrg.get(organizationId) ?? null,
+      lastRunResult: this.lastResultsByOrg.get(organizationId) ?? null,
+    };
+  }
+}
+
+const runRegistry = new AutoPaymentRunRegistry();
 
 const CHECK_INTERVAL_MS = 60 * 1000;
 const DEFAULT_RUN_HOURS = [7, 18];
@@ -51,20 +89,20 @@ function getEasternDateString(): string {
 
 export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean }): Promise<RunResult> {
   const manualTrigger = options?.manualTrigger === true;
-  if (isRunning) {
-    console.log("[Auto Runner] Already running, skipping");
-    return lastRunResult || {
+  if (!runRegistry.tryStart(singleOrgId)) {
+    console.log(`[Auto Runner] Already running${singleOrgId ? ` for org ${singleOrgId}` : ""}, skipping`);
+    return {
       runTime: new Date().toISOString(),
       totalProcessed: 0,
       totalSuccess: 0,
       totalDeclined: 0,
       totalNeedsReview: 0,
       totalSkipped: 0,
+      alreadyRunning: true,
       orgResults: {},
     };
   }
 
-  isRunning = true;
   const startTime = new Date();
   console.log(`[Auto Runner] Starting auto payment run at ${startTime.toISOString()}${singleOrgId ? ` (scoped to org: ${singleOrgId})` : " (all orgs)"}`);
 
@@ -80,12 +118,14 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
 
   try {
     const today = getEasternDateString();
+    const staleCount = await markStaleProcessingPaymentsNeedsReview(singleOrgId);
+    if (staleCount > 0) {
+      console.warn(`[Auto Runner] Moved ${staleCount} incomplete processing attempt(s) to needs_review`);
+    }
     const pendingPayments = await storage.getPendingPaymentsDueByDate(today);
 
     if (pendingPayments.length === 0) {
       console.log("[Auto Runner] No pending payments due today or earlier");
-      lastRunResult = result;
-      lastRunTimestamp = startTime.toISOString();
       return result;
     }
 
@@ -190,7 +230,25 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
         } catch (err) {
           console.error(`[Auto Runner] Error processing payment ${payment.id} for org ${orgName}:`, err);
           orgResult.processed++;
-          orgResult.declined++;
+          try {
+            const marked = await markPaymentNeedsReviewIfProcessing(payment.id, orgId);
+            if (marked) {
+              orgResult.needsReview++;
+            } else {
+              // Another worker may have persisted a conclusive result first.
+              const current = await storage.getPayment(payment.id);
+              if (current?.status === "processed" || current?.status === "posted") {
+                orgResult.success++;
+              } else if (current?.status === "needs_review" || current?.status === "processing") {
+                orgResult.needsReview++;
+              } else {
+                orgResult.declined++;
+              }
+            }
+          } catch (recoveryError) {
+            console.error(`[Auto Runner] Failed to preserve uncertain payment ${payment.id} for review:`, recoveryError);
+            orgResult.needsReview++;
+          }
         }
       }
 
@@ -200,10 +258,10 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       result.totalDeclined += orgResult.declined;
       result.totalNeedsReview += orgResult.needsReview;
 
-      console.log(`[Auto Runner] Org "${orgName}": ${orgResult.processed} processed, ${orgResult.success} success, ${orgResult.declined} declined`);
+      console.log(`[Auto Runner] Org "${orgName}": ${orgResult.processed} processed, ${orgResult.success} success, ${orgResult.declined} declined, ${orgResult.needsReview} needs review`);
 
       if (orgResult.processed > 0) {
-        const subject = `Payment Runner Report — ${orgResult.processed} processed (${orgResult.success} approved, ${orgResult.declined} declined)`;
+        const subject = `Payment Runner Report — ${orgResult.processed} processed (${orgResult.success} approved, ${orgResult.declined} declined, ${orgResult.needsReview} needs review)`;
         const html = `<h2>Automatic Payment Runner Report</h2>
 <p><strong>${orgName}</strong></p>
 <p>Run time: ${startTime.toLocaleString("en-US", { timeZone: "America/New_York" })} ET</p>
@@ -211,8 +269,9 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
   <li>Payments processed: <strong>${orgResult.processed}</strong></li>
   <li>Approved: <strong>${orgResult.success}</strong></li>
   <li>Declined: <strong>${orgResult.declined}</strong></li>
+  <li>Needs review: <strong>${orgResult.needsReview}</strong></li>
 </ul>`;
-        const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}`;
+        const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}\nNeeds review: ${orgResult.needsReview}`;
         sendOrgNotificationEmail(orgId, subject, html, text).catch((err) => {
           console.error(`[Auto Runner] Failed to send report email for org ${orgName}:`, err);
         });
@@ -223,20 +282,14 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
   } catch (err) {
     console.error("[Auto Runner] Fatal error during auto run:", err);
   } finally {
-    isRunning = false;
-    lastRunResult = result;
-    lastRunTimestamp = startTime.toISOString();
+    runRegistry.finish(singleOrgId, result, startTime.toISOString());
   }
 
   return result;
 }
 
-export function getAutoRunnerStatus() {
-  return {
-    isRunning,
-    lastRunTimestamp,
-    lastRunResult,
-  };
+export function getAutoRunnerStatus(organizationId: string) {
+  return runRegistry.getStatus(organizationId);
 }
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;

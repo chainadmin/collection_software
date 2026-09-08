@@ -9,6 +9,7 @@ import {
 import { sendPaymentOutcomeAutomation } from "./payment-message-automation";
 import Stripe from "stripe";
 import { nextRecurringOccurrence } from "./recurring-payments";
+import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -139,6 +140,7 @@ async function processNmiCard(
       ccnumber: cardNumber.replace(/\s/g, ""),
       ccexp: expDate,
       cvv: cvv,
+      dup_seconds: "300",
     });
     if (invoiceNumber) params.set("orderid", invoiceNumber);
 
@@ -159,6 +161,9 @@ async function processNmiCard(
       return { success: true, transactionId, declineReason: null };
     }
     if (responseCode === "2" || responseCode === "3") {
+      if (isPotentialDuplicateGatewayMessage(responseText)) {
+        return ambiguousGatewayResult("NMI reported a possible duplicate payment", transactionId);
+      }
       return { success: false, transactionId, declineReason: responseText };
     }
     return ambiguousGatewayResult("NMI returned an inconclusive payment response", transactionId);
@@ -189,6 +194,7 @@ async function processNmiAch(
       account_type: accountType,
       checkname: nameOnAccount,
       sec_code: "WEB",
+      dup_seconds: "300",
     });
     if (invoiceNumber) params.set("orderid", invoiceNumber);
 
@@ -209,6 +215,9 @@ async function processNmiAch(
       return { success: true, transactionId, declineReason: null };
     }
     if (responseCode === "2" || responseCode === "3") {
+      if (isPotentialDuplicateGatewayMessage(responseText)) {
+        return ambiguousGatewayResult("NMI reported a possible duplicate ACH payment", transactionId);
+      }
       return { success: false, transactionId, declineReason: responseText };
     }
     return ambiguousGatewayResult("NMI returned an inconclusive ACH response", transactionId);
@@ -263,10 +272,14 @@ async function processUsaepayCard(
       };
     }
     if (data.result_code || data.result || data.error) {
+      const message = data.error || data.result || "Transaction declined";
+      if (isPotentialDuplicateGatewayMessage(message)) {
+        return ambiguousGatewayResult("USAePay reported a possible duplicate payment", data.refnum || data.key || null);
+      }
       return {
         success: false,
         transactionId: data.refnum || data.key || null,
-        declineReason: data.error || data.result || "Transaction declined",
+        declineReason: message,
       };
     }
     return ambiguousGatewayResult("USAePay returned an inconclusive payment response", data.refnum || data.key || null);
@@ -323,10 +336,14 @@ async function processUsaepayAch(
       };
     }
     if (data.result_code || data.result || data.error) {
+      const message = data.error || data.result || "ACH transaction declined";
+      if (isPotentialDuplicateGatewayMessage(message)) {
+        return ambiguousGatewayResult("USAePay reported a possible duplicate ACH payment", data.refnum || data.key || null);
+      }
       return {
         success: false,
         transactionId: data.refnum || data.key || null,
-        declineReason: data.error || data.result || "ACH transaction declined",
+        declineReason: message,
       };
     }
     return ambiguousGatewayResult("USAePay returned an inconclusive ACH response", data.refnum || data.key || null);
@@ -390,6 +407,7 @@ async function processViaGateway(
         success: result.success,
         transactionId: result.transactionId || null,
         declineReason: result.errorMessage || null,
+        ambiguous: result.ambiguous,
       };
     }
     if (paymentMethod === "ach" && achData) {
@@ -408,6 +426,7 @@ async function processViaGateway(
         success: result.success,
         transactionId: result.transactionId || null,
         declineReason: result.errorMessage || null,
+        ambiguous: result.ambiguous,
       };
     }
   }
@@ -438,7 +457,11 @@ async function processViaGateway(
         const transactionId = result.get("transactionid");
         if (responseCode === "1") return { success: true, transactionId, declineReason: null };
         if (responseCode === "2" || responseCode === "3") {
-          return { success: false, transactionId, declineReason: result.get("responsetext") || "NMI transaction declined" };
+          const message = result.get("responsetext") || "NMI transaction declined";
+          if (isPotentialDuplicateGatewayMessage(message)) {
+            return ambiguousGatewayResult("NMI reported a possible duplicate saved-card payment", transactionId);
+          }
+          return { success: false, transactionId, declineReason: message };
         }
         return ambiguousGatewayResult("NMI returned an inconclusive payment response", transactionId);
       } catch (error: any) {
@@ -497,7 +520,11 @@ async function processViaGateway(
           return { success: true, transactionId, declineReason: null };
         }
         if (data.result_code || data.result || data.error) {
-          return { success: false, transactionId, declineReason: data.error || data.result || "USAePay transaction declined" };
+          const message = data.error || data.result || "USAePay transaction declined";
+          if (isPotentialDuplicateGatewayMessage(message)) {
+            return ambiguousGatewayResult("USAePay reported a possible duplicate saved-card payment", transactionId);
+          }
+          return { success: false, transactionId, declineReason: message };
         }
         return ambiguousGatewayResult("USAePay returned an inconclusive payment response", transactionId);
       } catch (error: any) {
@@ -565,7 +592,34 @@ export async function processPayment(
     };
   }
 
+  if (!Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+    const result: ProcessPaymentResult = {
+      success: false,
+      transactionId: null,
+      declineReason: "Payment amount must be a positive whole number of cents",
+    };
+    const updatedPayment = await storage.updatePayment(payment.id, {
+      status: "declined",
+      completedAt: new Date(),
+      notes: `DECLINED: ${result.declineReason}`,
+    });
+    return { ...result, updatedPayment };
+  }
+
   const debtor = await storage.getDebtor(payment.debtorId);
+  if (!debtor || debtor.organizationId !== orgId) {
+    const result: ProcessPaymentResult = {
+      success: false,
+      transactionId: null,
+      declineReason: "Account does not belong to the payment organization",
+    };
+    const updatedPayment = await storage.updatePayment(payment.id, {
+      status: "declined",
+      completedAt: new Date(),
+      notes: `DECLINED: ${result.declineReason}`,
+    });
+    return { ...result, updatedPayment };
+  }
 
   const merchants = await storage.getMerchants(orgId);
   let activeMerchant = getActiveMerchant(merchants);

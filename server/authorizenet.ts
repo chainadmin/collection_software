@@ -11,6 +11,7 @@
  */
 
 import authorizenet from 'authorizenet';
+import { classifyAuthorizeNetDisposition } from "./payment-gateway-result";
 
 const APIContracts = authorizenet.APIContracts;
 const APIControllers = authorizenet.APIControllers;
@@ -272,6 +273,15 @@ export interface AchPaymentData {
   nameOnAccount: string;
 }
 
+function addDuplicateWindow(transactionRequest: any) {
+  const duplicateWindow = new APIContracts.SettingType();
+  duplicateWindow.setSettingName("duplicateWindow");
+  duplicateWindow.setSettingValue("300");
+  const transactionSettings = new APIContracts.ArrayOfSetting();
+  transactionSettings.setSetting([duplicateWindow]);
+  transactionRequest.setTransactionSettings(transactionSettings);
+}
+
 /** Charge a reusable CIM customer/payment profile. */
 export async function processDebtorTokenPayment(
   merchantCredentials: MerchantCredentials,
@@ -301,12 +311,7 @@ export async function processDebtorTokenPayment(
     transactionRequest.setProfile(profile);
     transactionRequest.setAmount(amount);
     transactionRequest.setOrder(orderDetails);
-    const duplicateWindow = new APIContracts.SettingType();
-    duplicateWindow.setSettingName("duplicateWindow");
-    duplicateWindow.setSettingValue("300");
-    const transactionSettings = new APIContracts.ArrayOfSetting();
-    transactionSettings.setSetting([duplicateWindow]);
-    transactionRequest.setTransactionSettings(transactionSettings);
+    addDuplicateWindow(transactionRequest);
 
     if (customerEmail) {
       const customer = new APIContracts.CustomerDataType();
@@ -325,23 +330,28 @@ export async function processDebtorTokenPayment(
       try {
         const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
         const transResponse = response.getTransactionResponse();
-        if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK && transResponse?.getMessages()) {
+        const responseCode = transResponse?.getResponseCode();
+        const hasApprovalMessage =
+          response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK &&
+          Boolean(transResponse?.getMessages());
+        const explicitError = transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
+          || response.getMessages()?.getMessage()?.[0]?.getText();
+        const disposition = classifyAuthorizeNetDisposition(responseCode, hasApprovalMessage, explicitError);
+        if (disposition === "approved") {
           resolve({
             success: true,
             transactionId: transResponse.getTransId(),
             authCode: transResponse.getAuthCode(),
-            responseCode: transResponse.getResponseCode(),
+            responseCode,
           });
           return;
         }
-        const explicitError = transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
-          || response.getMessages()?.getMessage()?.[0]?.getText();
         resolve({
           success: false,
           errorMessage: explicitError || "Authorize.Net returned no conclusive response",
-          responseCode: transResponse?.getResponseCode(),
+          responseCode,
           transactionId: transResponse?.getTransId(),
-          ambiguous: !explicitError || /duplicate/i.test(explicitError),
+          ambiguous: disposition === "ambiguous",
         });
       } catch {
         resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net returned a malformed response" });
@@ -395,6 +405,7 @@ export async function processDebtorCardPayment(
     transactionRequest.setPayment(paymentType);
     transactionRequest.setAmount(amount);
     transactionRequest.setOrder(orderDetails);
+    addDuplicateWindow(transactionRequest);
 
     if (customerEmail) {
       const customer = new APIContracts.CustomerDataType();
@@ -412,38 +423,42 @@ export async function processDebtorCardPayment(
     const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
     ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
 
-    ctrl.execute(() => {
-      const apiResponse = ctrl.getResponse();
-      const response = new APIContracts.CreateTransactionResponse(apiResponse);
-
-      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK) {
+    const complete = () => {
+      try {
+        const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
         const transResponse = response.getTransactionResponse();
-        if (transResponse && transResponse.getMessages()) {
+        const responseCode = transResponse?.getResponseCode();
+        const hasApprovalMessage =
+          response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK &&
+          Boolean(transResponse?.getMessages());
+        const explicitError = transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
+          || response.getMessages()?.getMessage()?.[0]?.getText();
+        const disposition = classifyAuthorizeNetDisposition(responseCode, hasApprovalMessage, explicitError);
+        if (disposition === "approved") {
           resolve({
             success: true,
             transactionId: transResponse.getTransId(),
             authCode: transResponse.getAuthCode(),
-            responseCode: transResponse.getResponseCode(),
+            responseCode,
           });
-        } else {
-          const errors = transResponse?.getErrors()?.getError();
-          resolve({
-            success: false,
-            errorMessage: errors?.[0]?.getErrorText() || 'Transaction failed',
-            responseCode: transResponse?.getResponseCode(),
-          });
+          return;
         }
-      } else {
-        const transResponse = response.getTransactionResponse();
-        const errors = transResponse?.getErrors()?.getError();
-        const messages = response.getMessages()?.getMessage();
         resolve({
           success: false,
-          errorMessage: errors?.[0]?.getErrorText() || messages?.[0]?.getText() || 'API Error',
-          responseCode: transResponse?.getResponseCode(),
+          errorMessage: explicitError || "Authorize.Net returned no conclusive response",
+          responseCode,
+          transactionId: transResponse?.getTransId(),
+          ambiguous: disposition === "ambiguous",
         });
+      } catch {
+        resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net returned a malformed response" });
       }
-    });
+    };
+    try {
+      ctrl.execute(complete);
+    } catch {
+      resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net transport failed before a conclusive outcome" });
+    }
   });
 }
 
@@ -492,6 +507,7 @@ export async function processDebtorAchPayment(
     transactionRequest.setPayment(paymentType);
     transactionRequest.setAmount(amount);
     transactionRequest.setOrder(orderDetails);
+    addDuplicateWindow(transactionRequest);
 
     const createRequest = new APIContracts.CreateTransactionRequest();
     createRequest.setMerchantAuthentication(merchantAuth);
@@ -502,38 +518,42 @@ export async function processDebtorAchPayment(
     const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
     ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
 
-    ctrl.execute(() => {
-      const apiResponse = ctrl.getResponse();
-      const response = new APIContracts.CreateTransactionResponse(apiResponse);
-
-      if (response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK) {
+    const complete = () => {
+      try {
+        const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
         const transResponse = response.getTransactionResponse();
-        if (transResponse && transResponse.getMessages()) {
+        const responseCode = transResponse?.getResponseCode();
+        const hasApprovalMessage =
+          response.getMessages().getResultCode() === APIContracts.MessageTypeEnum.OK &&
+          Boolean(transResponse?.getMessages());
+        const explicitError = transResponse?.getErrors()?.getError()?.[0]?.getErrorText()
+          || response.getMessages()?.getMessage()?.[0]?.getText();
+        const disposition = classifyAuthorizeNetDisposition(responseCode, hasApprovalMessage, explicitError);
+        if (disposition === "approved") {
           resolve({
             success: true,
             transactionId: transResponse.getTransId(),
             authCode: transResponse.getAuthCode(),
-            responseCode: transResponse.getResponseCode(),
+            responseCode,
           });
-        } else {
-          const errors = transResponse?.getErrors()?.getError();
-          resolve({
-            success: false,
-            errorMessage: errors?.[0]?.getErrorText() || 'Transaction failed',
-            responseCode: transResponse?.getResponseCode(),
-          });
+          return;
         }
-      } else {
-        const transResponse = response.getTransactionResponse();
-        const errors = transResponse?.getErrors()?.getError();
-        const messages = response.getMessages()?.getMessage();
         resolve({
           success: false,
-          errorMessage: errors?.[0]?.getErrorText() || messages?.[0]?.getText() || 'API Error',
-          responseCode: transResponse?.getResponseCode(),
+          errorMessage: explicitError || "Authorize.Net returned no conclusive ACH response",
+          responseCode,
+          transactionId: transResponse?.getTransId(),
+          ambiguous: disposition === "ambiguous",
         });
+      } catch {
+        resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net returned a malformed ACH response" });
       }
-    });
+    };
+    try {
+      ctrl.execute(complete);
+    } catch {
+      resolve({ success: false, ambiguous: true, errorMessage: "Authorize.Net ACH transport failed before a conclusive outcome" });
+    }
   });
 }
 

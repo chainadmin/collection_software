@@ -49,6 +49,7 @@ import { and, desc, eq } from "drizzle-orm";
 import {
   claimDeclinedPaymentForRerun,
   claimPaymentForProcessing,
+  markPaymentNeedsReviewIfProcessing,
   postPaymentAtomically,
 } from "./payment-safety";
 import {
@@ -3112,7 +3113,7 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const org = await storage.getOrganization(orgId);
-      const status = getAutoRunnerStatus();
+      const status = getAutoRunnerStatus(orgId);
       res.json({
         autoRunnerEnabled: org?.autoRunnerEnabled ?? false,
         autoRunnerHours: org?.autoRunnerHours ?? "7,18",
@@ -3128,14 +3129,17 @@ export async function registerRoutes(
   app.post("/api/payment-runner/auto-trigger", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const collector = req.session.collector;
-      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
-        return res.status(403).json({ error: "Only admins and managers can trigger auto-runner" });
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
       }
+      const collector = req.session.collector!;
       console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);
       // Manual trigger bypasses the org's autoRunnerEnabled toggle — the
       // explicit click by an authorized admin/manager is the authorization.
       const result = await runAutoPayments(orgId, { manualTrigger: true });
+      if (result.alreadyRunning) {
+        return res.status(409).json({ error: "The automatic payment runner is already running for this organization" });
+      }
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Failed to trigger auto-runner" });
@@ -3447,6 +3451,9 @@ export async function registerRoutes(
   app.patch("/api/organization/auto-runner", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Active admin or manager access required" });
+      }
       const { enabled, hours } = req.body;
       const updates: any = {};
       if (typeof enabled === "boolean") updates.autoRunnerEnabled = enabled;
@@ -3599,6 +3606,7 @@ export async function registerRoutes(
 
   // Process a single payment
   app.post("/api/payments/:id/process", async (req, res) => {
+    let claimedContext: { paymentId: string; organizationId: string } | null = null;
     try {
       const orgId = getOrgId(req);
       const payment = await storage.getPayment(req.params.id);
@@ -3614,6 +3622,7 @@ export async function registerRoutes(
       }
       const claimed = await claimPaymentForProcessing(payment.id, orgId, getPaymentBusinessDate());
       if (!claimed) return res.status(409).json({ error: "Payment is not due or is already being processed" });
+      claimedContext = { paymentId: payment.id, organizationId: orgId };
       const claimedPayment = await storage.getPayment(payment.id);
       if (!claimedPayment || claimedPayment.status !== "processing") {
         return res.status(409).json({ error: "Payment is no longer available for processing" });
@@ -3621,14 +3630,23 @@ export async function registerRoutes(
       const result = await processPayment(claimedPayment, storage, orgId);
       const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
       if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
+      claimedContext = null;
       res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment processing error:", error);
+      if (claimedContext) {
+        try {
+          await markPaymentNeedsReviewIfProcessing(claimedContext.paymentId, claimedContext.organizationId);
+        } catch (recoveryError) {
+          console.error("Failed to preserve uncertain payment for review:", recoveryError);
+        }
+      }
       res.status(500).json({ error: "Failed to process payment" });
     }
   });
 
   app.post("/api/payments/:id/rerun", async (req, res) => {
+    let claimedContext: { paymentId: string; organizationId: string } | null = null;
     try {
       const orgId = getOrgId(req);
       const payment = await storage.getPayment(req.params.id);
@@ -3646,6 +3664,7 @@ export async function registerRoutes(
       if (!claimed) {
         return res.status(409).json({ error: "Payment is already being processed or is no longer declined" });
       }
+      claimedContext = { paymentId: payment.id, organizationId: orgId };
       const claimedPayment = await storage.getPayment(payment.id);
       if (!claimedPayment || claimedPayment.status !== "processing") {
         return res.status(409).json({ error: "Payment is no longer available for processing" });
@@ -3653,9 +3672,17 @@ export async function registerRoutes(
       const result = await processPayment(claimedPayment, storage, orgId);
       const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
       if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
+      claimedContext = null;
       res.json({ ...redactPayment(responsePayment), declineReason: result.declineReason, transactionId: result.transactionId });
     } catch (error) {
       console.error("Payment rerun error:", error);
+      if (claimedContext) {
+        try {
+          await markPaymentNeedsReviewIfProcessing(claimedContext.paymentId, claimedContext.organizationId);
+        } catch (recoveryError) {
+          console.error("Failed to preserve uncertain payment rerun for review:", recoveryError);
+        }
+      }
       res.status(500).json({ error: "Failed to re-run payment" });
     }
   });
