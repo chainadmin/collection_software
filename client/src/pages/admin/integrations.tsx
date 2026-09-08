@@ -62,6 +62,13 @@ type MaskedApiToken = {
   organizationId: string | null;
 };
 
+type ChainConnectionTestResult = {
+  status: "success" | "error";
+  code: string;
+  message: string;
+  portfolioCount: number;
+};
+
 type MaskedCampaignIntegration = {
   id: string;
   name: string;
@@ -311,6 +318,7 @@ export default function Integrations() {
   const [showSendInfoDialog, setShowSendInfoDialog] = useState(false);
   const [sendInfoEmail, setSendInfoEmail] = useState("");
   const [sendInfoPhone, setSendInfoPhone] = useState("");
+  const [chainTestResults, setChainTestResults] = useState<Record<string, ChainConnectionTestResult>>({});
 
   const { data: apiTokens = [], isLoading: tokensLoading } = useQuery<MaskedApiToken[]>({
     queryKey: ["/api/settings/tokens"],
@@ -343,6 +351,75 @@ export default function Integrations() {
       toast({ title: "Error", description: "Failed to revoke API token.", variant: "destructive" });
     },
   });
+
+  const testChainMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/settings/tokens/${id}/test-chain`);
+      return response.json() as Promise<ChainConnectionTestResult>;
+    },
+    onMutate: (id) => {
+      setChainTestResults((results) => {
+        const { [id]: _, ...remainingResults } = results;
+        return remainingResults;
+      });
+    },
+    onSuccess: (result, id) => {
+      setChainTestResults((results) => ({ ...results, [id]: result }));
+    },
+    onError: (error, id) => {
+      const errorText = error instanceof Error ? error.message : "";
+      const jsonStart = errorText.indexOf("{");
+      let result: ChainConnectionTestResult = {
+        status: "error",
+        code: "CONNECTION_TEST_FAILED",
+        message: "Connection could not be verified. Please try again.",
+        portfolioCount: 0,
+      };
+
+      if (jsonStart >= 0) {
+        try {
+          const response = JSON.parse(errorText.slice(jsonStart)) as Partial<ChainConnectionTestResult>;
+          if (typeof response.code === "string") result.code = response.code;
+        } catch {
+          // Use the safe generic message when the server response is not JSON.
+        }
+      }
+
+      setChainTestResults((results) => ({ ...results, [id]: result }));
+    },
+  });
+
+  const getChainTestResultMessage = (result: ChainConnectionTestResult) => {
+    if (result.status === "success") {
+      return result.portfolioCount > 0
+        ? `Connected with ${result.portfolioCount} ${result.portfolioCount === 1 ? "portfolio" : "portfolios"}.`
+        : "Connected — no portfolios.";
+    }
+
+    switch (result.code) {
+      case "TOKEN_INACTIVE":
+      case "TOKEN_EXPIRED":
+      case "TOKEN_UNAVAILABLE":
+      case "INVALID_CREDENTIALS":
+      case "CREDENTIALS_INVALID":
+      case "CREDENTIALS_REVOKED":
+      case "CREDENTIALS_EXPIRED":
+        return "Credentials are invalid, revoked, or expired. Generate a new API key and update Chain's token/password field.";
+      case "ORGANIZATION_INACTIVE":
+      case "ORG_INACTIVE":
+        return "This organization is inactive. Reactivate the organization before connecting Chain.";
+      case "IP_NOT_ALLOWED":
+      case "IP_BLOCKED":
+      case "IP_ACCESS_DENIED":
+        return "Your current browser IP is not allowed. Use an allowed network, and make sure Chain's server IP is also allowlisted.";
+      case "PORTFOLIO_CONTRACT_INVALID":
+      case "PORTFOLIO_INVALID":
+      case "INVALID_PORTFOLIO_CONTRACT":
+        return "The portfolio contract is invalid. Review the portfolios available to this organization.";
+      default:
+        return "Connection could not be verified. Check your organization settings and try again.";
+    }
+  };
 
   const handleCreateToken = () => {
     if (!newTokenName.trim()) {
@@ -467,9 +544,9 @@ export default function Integrations() {
               </div>
 
               <div className="space-y-1">
-                <p className="text-sm font-medium">3. Password (an API key)</p>
+                <p className="text-sm font-medium">3. Chain token/password (an API key)</p>
                 <p className="text-xs text-muted-foreground">
-                  Generate an API key below and paste it into Chain's password field. The key is shown only once.
+                  Generate an API key below and paste it into Chain's token/password field. The key is shown only once.
                 </p>
               </div>
             </div>
@@ -516,7 +593,9 @@ export default function Integrations() {
                         <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Created</th>
                         <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Last Used</th>
                         <th className="text-left p-2 text-xs font-medium text-muted-foreground hidden md:table-cell">Expires</th>
-                        <th className="p-2 w-16"></th>
+                        <th className="p-2 w-28">
+                          <span className="sr-only">Actions</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -531,6 +610,20 @@ export default function Integrations() {
                             <code className="text-xs text-muted-foreground font-mono" data-testid={`text-token-masked-${token.id}`}>
                               {token.tokenMasked}
                             </code>
+                            {chainTestResults[token.id] && (
+                              <p
+                                className={`mt-1 text-xs ${
+                                  chainTestResults[token.id].status === "success"
+                                    ? "text-green-700 dark:text-green-400"
+                                    : "text-destructive"
+                                }`}
+                                role="status"
+                                aria-live="polite"
+                                data-testid={`chain-test-result-${token.id}`}
+                              >
+                                {getChainTestResultMessage(chainTestResults[token.id])}
+                              </p>
+                            )}
                           </td>
                           <td className="p-2 text-xs text-muted-foreground hidden md:table-cell">
                             {new Date(token.createdDate).toLocaleDateString()}
@@ -542,6 +635,19 @@ export default function Integrations() {
                             {token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : "Never"}
                           </td>
                           <td className="p-2">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => testChainMutation.mutate(token.id)}
+                                disabled={testChainMutation.isPending}
+                                data-testid={`button-verify-token-${token.id}`}
+                              >
+                                {testChainMutation.isPending && testChainMutation.variables === token.id ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : null}
+                                Verify Chain Setup
+                              </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -572,6 +678,7 @@ export default function Integrations() {
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
+                            </div>
                           </td>
                         </tr>
                       ))}

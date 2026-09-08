@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { registerExternalApiRoutes } from "./external-api";
+import { registerChainConnectionTestRoute, registerExternalApiRoutes } from "./external-api";
 import { buildInternalPaymentInsert, rejectRawCardData } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
@@ -353,6 +353,10 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   registerPaymentMessagePublicLogoRoute(app, storage);
+  // This route provides its own current-session, live-role, tenant, token, and
+  // IP checks so it can return structured Chain diagnostics instead of being
+  // intercepted by the generic /api guard below.
+  registerChainConnectionTestRoute(app);
   
   // Public routes that don't require authentication (paths relative to /api)
   // Note: These should be minimal - only what's needed before login

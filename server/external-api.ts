@@ -17,6 +17,7 @@ import {
   type ChainOutcome,
 } from "./chain-payment";
 import { getPaymentBusinessDate } from "./payment-date";
+import { isActiveAdminOrManagerRecord } from "./access-control";
 
 /** Returns an opaque external credential or throws before any payment is stored. */
 export function externalOpaquePaymentToken(body: Record<string, unknown>): string | null {
@@ -217,6 +218,152 @@ async function organizationAllowsIp(organizationId: string, requestIp: string | 
   return !!ip && await storage.isIpWhitelisted(organizationId, ip);
 }
 
+function isExpiredOrMalformed(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  const expiresAtMs = Date.parse(expiresAt);
+  return !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now();
+}
+
+/**
+ * The shape consumed by Chain's portfolio picker.  `id` is retained as an
+ * alias because some Chain clients use it while older clients use
+ * `portfolioId`.
+ */
+function presentChainPortfolio(portfolio: {
+  id: string;
+  name: string;
+  clientId: string | null;
+  purchaseDate: string | null;
+  totalAccounts: number | null;
+  totalFaceValue: number | null;
+  status: string | null;
+  creditorName: string | null;
+  debtType: string | null;
+}) {
+  return {
+    id: portfolio.id,
+    portfolioId: portfolio.id,
+    name: portfolio.name,
+    clientId: portfolio.clientId,
+    purchaseDate: portfolio.purchaseDate,
+    totalAccounts: portfolio.totalAccounts,
+    totalFaceValue: portfolio.totalFaceValue,
+    status: portfolio.status,
+    creditorName: portfolio.creditorName,
+    debtType: portfolio.debtType,
+  };
+}
+
+function hasValidChainPortfolioIdentity(portfolio: ReturnType<typeof presentChainPortfolio>): boolean {
+  return typeof portfolio.id === "string" &&
+    portfolio.id.trim().length > 0 &&
+    portfolio.portfolioId === portfolio.id;
+}
+
+export type ChainConnectionTestResult = {
+  status: "success" | "error";
+  code: string;
+  message: string;
+  portfolioCount: number;
+};
+
+type ChainCredentialErrorCode =
+  | "INVALID_CREDENTIALS"
+  | "TOKEN_INACTIVE"
+  | "TOKEN_EXPIRED"
+  | "ORGANIZATION_INACTIVE"
+  | "IP_NOT_ALLOWED";
+
+async function validateChainCredential(input: {
+  organization: { id: string; isActive: boolean | null };
+  token: {
+    id: string;
+    token: string;
+    organizationId: string | null;
+    isActive: boolean | null;
+    expiresAt: string | null;
+  } | undefined;
+  suppliedKey: string;
+  requestIp: string | undefined;
+  expectedTokenId?: string;
+}): Promise<ChainCredentialErrorCode | null> {
+  if (!input.organization.isActive) return "ORGANIZATION_INACTIVE";
+  if (!input.suppliedKey.startsWith("dmv2_")) return "INVALID_CREDENTIALS";
+  if (!input.token || input.token.token !== input.suppliedKey) return "INVALID_CREDENTIALS";
+  if (input.expectedTokenId && input.token.id !== input.expectedTokenId) return "INVALID_CREDENTIALS";
+  if (input.token.organizationId !== input.organization.id) return "INVALID_CREDENTIALS";
+  if (!input.token.isActive) return "TOKEN_INACTIVE";
+  if (isExpiredOrMalformed(input.token.expiresAt)) return "TOKEN_EXPIRED";
+  if (!await organizationAllowsIp(input.organization.id, input.requestIp)) return "IP_NOT_ALLOWED";
+  return null;
+}
+
+/**
+ * Tests an existing integration key without accepting or exposing its secret.
+ * Callers must establish that `organizationId` is the authenticated session's
+ * organization before invoking this function.
+ */
+export async function testChainConnectionForOrganization(
+  organizationId: string,
+  tokenId: string,
+  requestIp: string | undefined,
+): Promise<ChainConnectionTestResult> {
+  // Storage intentionally has no getApiToken(id) API. Looking only in this
+  // organization makes an arbitrary foreign ID indistinguishable from absent.
+  const token = (await storage.getApiTokensByOrg(organizationId)).find((candidate) => candidate.id === tokenId);
+  if (!token) {
+    return { status: "error", code: "TOKEN_UNAVAILABLE", message: "Connection could not be verified", portfolioCount: 0 };
+  }
+  const organization = await storage.getOrganization(organizationId);
+  if (!organization) {
+    return { status: "error", code: "ORGANIZATION_INACTIVE", message: "This organization is not active", portfolioCount: 0 };
+  }
+
+  // Exercise the same indexed lookups used by /api/v2/login without returning
+  // the stored secret or updating its last-used timestamp.
+  const chainOrganization = organization.slug
+    ? await storage.getOrganizationBySlug(organization.slug.trim().toLowerCase())
+    : undefined;
+  const chainToken = await storage.getApiTokenByToken(token.token);
+  if (chainOrganization?.id !== organizationId) {
+    return { status: "error", code: "INVALID_CREDENTIALS", message: "The company code could not be verified", portfolioCount: 0 };
+  }
+  const credentialError = await validateChainCredential({
+    organization,
+    token: chainToken,
+    suppliedKey: token.token,
+    requestIp,
+    expectedTokenId: token.id,
+  });
+  if (credentialError) {
+    const messages: Record<ChainCredentialErrorCode, string> = {
+      INVALID_CREDENTIALS: "The selected credentials could not be verified",
+      TOKEN_INACTIVE: "The selected key is inactive",
+      TOKEN_EXPIRED: "The selected key has expired",
+      ORGANIZATION_INACTIVE: "This organization is not active",
+      IP_NOT_ALLOWED: "This IP address is not authorized for the organization",
+    };
+    return { status: "error", code: credentialError, message: messages[credentialError], portfolioCount: 0 };
+  }
+
+  // Run exactly the presentation mapper used by getportfoliolist. The test
+  // response deliberately returns only the count, not portfolio details.
+  const portfolios = (await storage.getPortfolios())
+    .filter((portfolio) => portfolio.organizationId === organizationId)
+    .map(presentChainPortfolio);
+  if (portfolios.some((portfolio) => !hasValidChainPortfolioIdentity(portfolio))) {
+    return {
+      status: "error",
+      code: "PORTFOLIO_CONTRACT_INVALID",
+      message: "A portfolio does not have a valid Chain identifier",
+      portfolioCount: 0,
+    };
+  }
+  return portfolios.length
+    ? { status: "success", code: "PORTFOLIOS_AVAILABLE", message: "Connection verified", portfolioCount: portfolios.length }
+    : { status: "success", code: "NO_PORTFOLIOS", message: "Connection verified; no portfolios are available", portfolioCount: 0 };
+}
+
 // Verify a password against a stored hash. Supports bcrypt hashes (start
 // with "$2") and legacy SHA-256 hashes (64 hex chars), matching the
 // verification logic used by the main app's auth routes.
@@ -258,7 +405,7 @@ async function authenticateToken(req: AuthenticatedRequest, res: Response, next:
       return res.status(401).json({ error: "Unauthorized", message: "Token is inactive" });
     }
     
-    if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) {
+    if (isExpiredOrMalformed(apiToken.expiresAt)) {
       return res.status(401).json({ error: "Unauthorized", message: "Token has expired" });
     }
     
@@ -293,6 +440,38 @@ async function authenticateToken(req: AuthenticatedRequest, res: Response, next:
   }
 }
 
+export function registerChainConnectionTestRoute(app: Express) {
+  // This route uses the application's browser session, not the integration
+  // bearer credential. Only an ID is accepted, so a settings page can safely
+  // test the same Chain portfolio contract without re-disclosing a key.
+  app.post("/api/settings/tokens/:id/test-chain", async (req: Request & { session?: any }, res) => {
+    try {
+      const sessionCollector = req.session?.collector;
+      if (!sessionCollector?.id || !sessionCollector.organizationId) {
+        return res.status(401).json({
+          status: "error", code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required", portfolioCount: 0,
+        });
+      }
+      const organizationId = sessionCollector.organizationId;
+      const liveCollector = await storage.getCollector(sessionCollector.id);
+      if (!isActiveAdminOrManagerRecord(sessionCollector, liveCollector, organizationId)) {
+        return res.status(403).json({
+          status: "error", code: "ACCESS_DENIED",
+          message: "Administrator or manager access is required", portfolioCount: 0,
+        });
+      }
+      const result = await testChainConnectionForOrganization(organizationId, req.params.id, req.ip);
+      return res.status(result.status === "success" ? 200 : result.code === "TOKEN_UNAVAILABLE" ? 404 : 422).json(result);
+    } catch {
+      return res.status(500).json({
+        status: "error", code: "CONNECTION_TEST_FAILED",
+        message: "Connection could not be verified", portfolioCount: 0,
+      });
+    }
+  });
+}
+
 export function registerExternalApiRoutes(app: Express) {
   
   // POST /api/v2/login - Generate or validate token
@@ -313,9 +492,6 @@ export function registerExternalApiRoutes(app: Express) {
         if (!org) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
-        if (!org.isActive) {
-          return res.status(403).json({ error: "Your organization is not active" });
-        }
 
         // The password must be a long-lived API key created in Settings. Requiring
         // its "dmv2_" prefix prevents legacy session tokens from being exchanged.
@@ -327,16 +503,23 @@ export function registerExternalApiRoutes(app: Express) {
         // The key must be valid, active, and belong to this org.
         // Defense-in-depth: never allow a key from another org to authenticate here.
         const apiKey = await storage.getApiTokenByToken(suppliedKey);
-        if (
-          !apiKey ||
-          apiKey.organizationId !== org.id ||
-          !apiKey.isActive ||
-          (apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date())
-        ) {
+        const credentialError = await validateChainCredential({
+          organization: org,
+          token: apiKey,
+          suppliedKey,
+          requestIp: req.ip,
+        });
+        if (credentialError === "ORGANIZATION_INACTIVE") {
+          return res.status(403).json({ error: "Your organization is not active" });
+        }
+        if (credentialError === "IP_NOT_ALLOWED") {
+          return res.status(403).json({ error: "This IP address is not authorized for your organization" });
+        }
+        if (credentialError) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
-        if (!await organizationAllowsIp(org.id, req.ip)) {
-          return res.status(403).json({ error: "This IP address is not authorized for your organization" });
+        if (!apiKey) {
+          return res.status(401).json({ error: "Invalid credentials" });
         }
 
         await storage.updateApiTokenLastUsed(apiKey.id);
@@ -420,17 +603,7 @@ export function registerExternalApiRoutes(app: Express) {
       
       res.json({
         success: true,
-        data: portfolios.map((p) => ({
-          portfolioId: p.id,
-          name: p.name,
-          clientId: p.clientId,
-          purchaseDate: p.purchaseDate,
-          totalAccounts: p.totalAccounts,
-          totalFaceValue: p.totalFaceValue,
-          status: p.status,
-          creditorName: p.creditorName,
-          debtType: p.debtType,
-        })),
+        data: portfolios.map(presentChainPortfolio),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch portfolios" });
