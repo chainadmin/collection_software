@@ -260,6 +260,15 @@ function hasValidChainPortfolioIdentity(portfolio: ReturnType<typeof presentChai
     portfolio.portfolioId === portfolio.id;
 }
 
+function readChainPortfolioId(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const candidate = (body as Record<string, unknown>).portfolioId ??
+    (body as Record<string, unknown>).id;
+  return typeof candidate === "string" && candidate.trim()
+    ? candidate.trim()
+    : null;
+}
+
 export type ChainConnectionTestResult = {
   status: "success" | "error";
   code: string;
@@ -679,11 +688,12 @@ export function registerExternalApiRoutes(app: Express) {
   // POST /api/v2/get_accounts_in_portfolio - Get accounts in a portfolio
   app.post("/api/v2/get_accounts_in_portfolio", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { portfolioId, limit, offset } = req.body;
+      const { limit, offset } = req.body ?? {};
+      const portfolioId = readChainPortfolioId(req.body);
       const orgId = req.apiToken?.organizationId;
       
       if (!portfolioId) {
-        return res.status(400).json({ error: "portfolioId is required" });
+        return res.status(400).json({ error: "portfolioId or id is required" });
       }
       
       let debtors = await storage.getDebtors();

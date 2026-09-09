@@ -37,8 +37,16 @@ async function fixture() {
   const alphaPortfolio = await memory.createPortfolio({
     organizationId: alpha.id, name: "Alpha portfolio", purchaseDate: "2025-01-01", purchasePrice: 100, totalFaceValue: 200, totalAccounts: 1,
   });
-  await memory.createPortfolio({
+  const betaPortfolio = await memory.createPortfolio({
     organizationId: beta.id, name: "Beta portfolio", purchaseDate: "2025-01-01", purchasePrice: 100, totalFaceValue: 200, totalAccounts: 1,
+  });
+  await memory.createDebtor({
+    organizationId: alpha.id, portfolioId: alphaPortfolio.id, accountNumber: "ALPHA-1",
+    firstName: "Alpha", lastName: "Debtor", originalBalance: 10000, currentBalance: 10000, status: "open",
+  });
+  await memory.createDebtor({
+    organizationId: beta.id, portfolioId: betaPortfolio.id, accountNumber: "BETA-1",
+    firstName: "Beta", lastName: "Debtor", originalBalance: 10000, currentBalance: 10000, status: "open",
   });
 
   const app = express();
@@ -58,7 +66,7 @@ async function fixture() {
     Object.defineProperties(storage, originalProperties);
     Object.setPrototypeOf(storage, originalPrototype);
   };
-  return { memory, alpha, beta, empty, admin, agent, manager, alphaKey, betaKey, emptyKey, alphaPortfolio, request, restore };
+  return { memory, alpha, beta, empty, admin, agent, manager, alphaKey, betaKey, emptyKey, alphaPortfolio, betaPortfolio, request, restore };
 }
 
 test("Chain login and portfolio contract are tenant isolated and stable", async () => {
@@ -79,6 +87,33 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(portfolios.data.length, 1);
     assert.equal(portfolios.data[0].id, f.alphaPortfolio.id);
     assert.equal(portfolios.data[0].portfolioId, f.alphaPortfolio.id);
+
+    const accountsByChainId = await f.request("/api/v2/get_accounts_in_portfolio", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${first.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: portfolios.data[0].id }),
+    });
+    const accountsByChainIdPayload: any = await accountsByChainId.json();
+    assert.equal(accountsByChainId.status, 200);
+    assert.equal(accountsByChainIdPayload.total, 1);
+    assert.equal(accountsByChainIdPayload.data[0].accountNumber, "ALPHA-1");
+
+    const foreignAccountsByChainId = await f.request("/api/v2/get_accounts_in_portfolio", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${first.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: f.betaPortfolio.id }),
+    });
+    const foreignAccountsPayload: any = await foreignAccountsByChainId.json();
+    assert.equal(foreignAccountsByChainId.status, 200);
+    assert.equal(foreignAccountsPayload.total, 0);
+    assert.deepEqual(foreignAccountsPayload.data, []);
+
     const warningLines: string[] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => warningLines.push(args.map(String).join(" "));
