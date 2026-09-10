@@ -37,6 +37,7 @@ import { formatCardNumber } from "@/lib/bin-lookup";
 import { CardValidationFeedback } from "@/components/card-validation-feedback";
 import { parseCustomFields } from "@/components/account-data-editors";
 import { Link, useSearch } from "wouter";
+import { announceAccountChange } from "@/lib/account-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -241,6 +242,10 @@ export default function Workstation() {
   const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : null;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
+
+  useEffect(() => {
+    if (selectedDebtorId) announceAccountChange(selectedDebtorId);
+  }, [selectedDebtorId]);
 
   const { data: activeTimeEntry } = useQuery<TimeClockEntry | null>({
     queryKey: ["/api/time-clock/active", currentCollector?.id],

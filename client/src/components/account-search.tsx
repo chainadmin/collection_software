@@ -90,7 +90,7 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search by name, phone, file number, account, or SSN..."
+              placeholder="Search name, phone, account, SSN, or custom fields..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"
