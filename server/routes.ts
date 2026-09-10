@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerChainConnectionTestRoute, registerExternalApiRoutes } from "./external-api";
-import { buildInternalPaymentInsert, parseOneTimeCardInput, rejectRawCardData, type OneTimeCardInput } from "./payment-input";
+import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTimeCardInput, rejectRawCardData, type OneTimeCardInput } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
@@ -2803,7 +2803,7 @@ export async function registerRoutes(
           debtorId: req.params.id,
           organizationId: orgId,
           idempotencyKey,
-          processedBy: req.session?.collectorId ?? null,
+          processedBy: authenticatedPaymentCollectorId(req.session),
         }));
       } catch (error: any) {
         // A concurrent request may win the unique-key race. Return that same
