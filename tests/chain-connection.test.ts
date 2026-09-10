@@ -42,7 +42,8 @@ async function fixture() {
   });
   const alphaDebtor = await memory.createDebtor({
     organizationId: alpha.id, portfolioId: alphaPortfolio.id, accountNumber: "ALPHA-1",
-    fileNumber: "1001", firstName: "Alpha", lastName: "Debtor", originalBalance: 10000, currentBalance: 10000, status: "open",
+    fileNumber: "1001", firstName: "Alpha", lastName: "Debtor", dateOfBirth: "1986-04-12",
+    originalBalance: 10000, currentBalance: 10000, status: "open",
   });
   await memory.createDebtorContact({
     organizationId: alpha.id, debtorId: alphaDebtor.id, type: "email", value: "alpha@example.test",
@@ -106,6 +107,8 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(accountsByChainIdPayload.data[0].accountNumber, "ALPHA-1");
     assert.equal(accountsByChainIdPayload.data[0].email, "alpha@example.test");
     assert.equal(accountsByChainIdPayload.data[0].emailAddress, "alpha@example.test");
+    assert.equal(accountsByChainIdPayload.data[0].dob, "1986-04-12");
+    assert.equal(accountsByChainIdPayload.data[0].dateOfBirth, "1986-04-12");
 
     const updatedAccount = await f.request("/api/v2/updatedbase", {
       method: "PUT",
@@ -113,7 +116,11 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
         Authorization: `Bearer ${first.token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ fileNumber: f.alphaDebtor.fileNumber, emailAddress: "updated@example.test" }),
+      body: JSON.stringify({
+        fileNumber: f.alphaDebtor.fileNumber,
+        emailAddress: "updated@example.test",
+        dob: "1987-05-13",
+      }),
     });
     assert.equal(updatedAccount.status, 200);
     assert.equal((await updatedAccount.json()).data.email, "updated@example.test");
@@ -123,6 +130,8 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     })).json();
     assert.equal(account.data.email, "updated@example.test");
     assert.equal(account.data.emailAddress, "updated@example.test");
+    assert.equal(account.data.dob, "1987-05-13");
+    assert.equal(account.data.dateOfBirth, "1987-05-13");
 
     const emails: any = await (await f.request(`/api/v2/getemails/${f.alphaDebtor.fileNumber}`, {
       headers: { Authorization: `Bearer ${first.token}` },

@@ -1094,7 +1094,7 @@ export function registerExternalApiRoutes(app: Express) {
   // PUT /api/v2/updatedbase - Update debtor fields
   app.put("/api/v2/updatedbase", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { fileNumber, emailAddress, ...updates } = req.body;
+      const { fileNumber, emailAddress, dob, birthDate, ...updates } = req.body;
       const orgId = req.apiToken?.organizationId;
       
       if (!fileNumber) {
@@ -1119,7 +1119,16 @@ export function registerExternalApiRoutes(app: Express) {
         updates.email = emailAddress;
       }
 
-      const allowedFields = ["email", "address", "city", "state", "zipCode", "status", "lastContactDate", "nextFollowUpDate"];
+      // The Chain account contract calls this field `dob`, while DMP stores it
+      // as `dateOfBirth`. Accept the common legacy `birthDate` spelling too,
+      // but always persist the value in the debtor's canonical DOB column.
+      // An explicitly supplied dateOfBirth wins when clients send aliases.
+      if (updates.dateOfBirth === undefined) {
+        if (dob !== undefined) updates.dateOfBirth = dob;
+        else if (birthDate !== undefined) updates.dateOfBirth = birthDate;
+      }
+
+      const allowedFields = ["email", "dateOfBirth", "address", "city", "state", "zipCode", "status", "lastContactDate", "nextFollowUpDate"];
       const filteredUpdates: Record<string, any> = {};
       
       for (const field of allowedFields) {
@@ -1231,7 +1240,7 @@ export function registerExternalApiRoutes(app: Express) {
         
         if (phoneMatch) {
           results.push({
-            ...formatDebtorForApi(debtor),
+            ...await formatDebtorForApi(debtor),
             matchedPhone: phoneMatch.value,
           });
         }
@@ -2153,7 +2162,8 @@ export function registerExternalApiRoutes(app: Express) {
             firstName: debtor.firstName,
             lastName: debtor.lastName,
             fullName: `${debtor.firstName} ${debtor.lastName}`,
-            dateOfBirth: debtor.dateOfBirth,
+            dob: debtor.dateOfBirth || null,
+            dateOfBirth: debtor.dateOfBirth || null,
             ssnLast4: debtor.ssnLast4,
             address: debtor.address,
             city: debtor.city,
@@ -2479,13 +2489,19 @@ async function formatDebtorForApi(debtor: any) {
   )?.value;
   const email = debtor.email || contactEmail || null;
 
+  const dateOfBirth = debtor.dateOfBirth || null;
+
   return {
     fileNumber: debtor.fileNumber,
     accountNumber: debtor.accountNumber,
     firstName: debtor.firstName,
     lastName: debtor.lastName,
     fullName: `${debtor.firstName} ${debtor.lastName}`,
-    dateOfBirth: debtor.dateOfBirth,
+    // `dob` is Chain's field name. Keep dateOfBirth as a compatibility alias
+    // and ensure both are sourced from the canonical debtors.date_of_birth
+    // value rather than an unrelated date on the account.
+    dob: dateOfBirth,
+    dateOfBirth,
     ssnLast4: debtor.ssnLast4,
     email,
     // getemails already uses `emailAddress`; retain `email` for compatibility
