@@ -226,7 +226,6 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-          saveWithoutTokenization: true,
           idempotencyKey: cardRequestKey,
         }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
         const newCard = await newCardResponse.json() as { id: string };

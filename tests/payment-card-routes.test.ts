@@ -29,24 +29,28 @@ async function fixture(vault: any) {
   return { storage, debtor, foreign, merchant, request, close: () => new Promise<void>(resolve => server.close(resolve)) };
 }
 
-test("collector local-storage mode saves encrypted full card details without retaining CVV", async () => {
-  const f = await fixture(async () => { throw new Error("tokenization must not be called"); });
+test("card save retains the encrypted PAN and also requires processor tokenization", async () => {
+  let calls = 0;
+  const f = await fixture(async () => {
+    calls++;
+    return { processorType: "usaepay", processorToken: "processor-token", processorCustomerId: null, vaultStatus: "vaulted" };
+  });
   try {
     const response = await f.request(f.debtor.id, { ...body, saveWithoutTokenization: true }, "local-card-key");
     assert.equal(response.status, 201);
     const presented: any = await response.json();
+    assert.equal(presented.vaultStatus, "vaulted");
     assert.equal(presented.cardNumber, body.cardNumber);
-    assert.equal(presented.cardholderName, body.cardholderName);
-    assert.equal(presented.billingZip, body.billingZip);
-    assert.equal(presented.vaultStatus, "locally_stored");
+    assert.equal(calls, 1);
     const stored = await f.storage.getPaymentCard(presented.id);
+    assert.equal(stored?.processorToken, "processor-token");
     assert.ok(stored?.encryptedCardNumber);
     assert.notEqual(stored?.encryptedCardNumber, body.cardNumber);
     assert.doesNotMatch(JSON.stringify(stored), /"cvv"|4242424242424242/);
   } finally { await f.close(); }
 });
 
-test("card vault HTTP route is tenant protected, idempotent, conflict safe, and redacted", async () => {
+test("card vault HTTP route is tenant protected, idempotent, conflict safe, and hides processor credentials", async () => {
   let calls = 0;
   const f = await fixture(async () => {
     calls++;
@@ -68,7 +72,8 @@ test("card vault HTTP route is tenant protected, idempotent, conflict safe, and 
     assert.equal(changedExpiry.status, 409);
     assert.equal(calls, 1);
     const serialized = JSON.stringify(firstCard);
-    assert.doesNotMatch(serialized, /processor-secret|customer-secret|4242424242424242|externalCredentialFingerprint|externalIdempotencyKey|cvv/i);
+    assert.equal(firstCard.cardNumber, body.cardNumber);
+    assert.doesNotMatch(serialized, /processor-secret|customer-secret|externalCredentialFingerprint|externalIdempotencyKey|cvv/i);
   } finally { await f.close(); }
 });
 

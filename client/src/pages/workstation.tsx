@@ -449,7 +449,6 @@ export default function Workstation() {
         cardholderName: data.cardholderName,
         billingZip: data.billingZip,
         cvv: data.cvv,
-        saveWithoutTokenization: true,
       }, { timeoutMs: 30_000 });
     },
     onSuccess: () => {
@@ -1013,7 +1012,6 @@ export default function Workstation() {
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-          saveWithoutTokenization: true,
         }, { timeoutMs: 30_000 });
         const newCard = await response.json();
         cardIdToUse = newCard.id;
