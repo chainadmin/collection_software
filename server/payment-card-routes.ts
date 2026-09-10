@@ -76,7 +76,9 @@ export function registerPaymentCardRoutes(
         card.cardholderName === cardholderName && card.billingZip === billingZip;
       if (reservation) {
         if (!matches(reservation)) return res.status(409).json({ error: "Card idempotency key conflicts with a different request" });
-        if (reservation.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
+        if (reservation.vaultStatus === "vaulted" || reservation.vaultStatus === "locally_stored") {
+          return res.status(200).json(redactPaymentCard(reservation));
+        }
         if (reservation.vaultStatus !== "vault_failed") {
           return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
         }
@@ -91,7 +93,9 @@ export function registerPaymentCardRoutes(
         card.vaultStatus === "vaulted" &&
         card.processorCustomerId
       )?.processorCustomerId || undefined;
-      const makeDefault = req.body.isDefault === true || !existingCards.some(card => card.vaultStatus === "vaulted");
+      const makeDefault = req.body.isDefault === true || !existingCards.some(card =>
+        card.vaultStatus === "vaulted" || card.vaultStatus === "locally_stored"
+      );
       if (!reservation) {
         try {
           reservation = await storage.createPaymentCard({
@@ -105,11 +109,33 @@ export function registerPaymentCardRoutes(
         } catch (error: any) {
           if (error?.code !== "23505" || !externalKey) throw error;
           reservation = await storage.getPaymentCardByExternalIdempotencyKey(orgId, externalKey);
-          if (reservation?.vaultStatus === "vaulted" && matches(reservation)) return res.status(200).json(redactPaymentCard(reservation));
+          if ((reservation?.vaultStatus === "vaulted" || reservation?.vaultStatus === "locally_stored") && matches(reservation)) {
+            return res.status(200).json(redactPaymentCard(reservation));
+          }
           return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
         }
       }
       reservationId = reservation.id;
+      // Pending payments do not require a gateway-side vault token. The UI can
+      // deliberately retain the PAN in our authenticated encrypted store and
+      // submit it as a card-on-file transaction when the payment becomes due.
+      // CVV is never retained. This keeps future payments usable when a
+      // processor's optional vault service is unavailable or incompatible.
+      // Local encrypted storage is the default for this collector/admin UI
+      // endpoint. Processor vaulting is retained only as an explicit opt-in
+      // for integrations that intentionally send `false`.
+      if (req.body.saveWithoutTokenization !== false) {
+        if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault).map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
+        const card = await storage.updatePaymentCard(reservation.id, {
+          vaultStatus: "locally_stored",
+          processorToken: null,
+          processorCustomerId: null,
+          merchantId: merchant.id,
+          isDefault: makeDefault,
+        });
+        if (!card) throw new Error("Card reservation disappeared");
+        return res.status(201).json(redactPaymentCard(card));
+      }
       let vaulted: VaultedCard;
       try {
         vaulted = await vault(merchant, debtor, { pan, cvv, expiryMonth, expiryYear, cardholderName, billingZip }, customer);
