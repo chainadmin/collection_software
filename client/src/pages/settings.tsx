@@ -84,6 +84,7 @@ const SYSTEM_STATUSES = [
   { code: "final", label: "Final", color: "red" },
   { code: "promise", label: "Promise", color: "green" },
   { code: "payments_pending", label: "Payments Pending", color: "purple" },
+  { code: "nsf", label: "NSF", color: "red" },
   { code: "in_payment", label: "In Payment", color: "teal" },
   { code: "paid", label: "Paid in Full", color: "emerald" },
   { code: "closed", label: "Closed", color: "gray" },

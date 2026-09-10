@@ -625,7 +625,7 @@ export async function processPayment(
       declineReason: "Payment amount must be a positive whole number of cents",
     };
     const updatedPayment = await storage.updatePayment(payment.id, {
-      status: "declined",
+      status: "pending",
       completedAt: new Date(),
       notes: `DECLINED: ${result.declineReason}`,
     });
@@ -640,7 +640,7 @@ export async function processPayment(
       declineReason: "Account does not belong to the payment organization",
     };
     const updatedPayment = await storage.updatePayment(payment.id, {
-      status: "declined",
+      status: "pending",
       completedAt: new Date(),
       notes: `DECLINED: ${result.declineReason}`,
     });
@@ -701,7 +701,8 @@ export async function processPayment(
           declineReason: "Direct card payments require the active USAePay merchant",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "declined",
+          status: "pending",
+          completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
         return { ...result, updatedPayment };
@@ -739,7 +740,8 @@ export async function processPayment(
           declineReason: "Saved card is not available for this debtor and active processor",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "declined",
+          status: "pending",
+          completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
         if (debtor) {
@@ -768,7 +770,8 @@ export async function processPayment(
         declineReason: "A usable saved card is required",
       };
       const updatedPayment = await storage.updatePayment(payment.id, {
-        status: "declined",
+        status: "pending",
+        completedAt: new Date(),
         notes: `DECLINED: ${result.declineReason}`,
       });
       return { ...result, updatedPayment };
@@ -791,7 +794,8 @@ export async function processPayment(
           declineReason: "No bank account on file",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "declined",
+          status: "pending",
+          completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
         if (debtor) {
@@ -831,7 +835,7 @@ export async function processPayment(
   }
 
   const updatedPayment = await storage.updatePayment(payment.id, {
-    status: result.success ? "processed" : result.ambiguous ? "needs_review" : "declined",
+    status: result.success ? "processed" : result.ambiguous ? "needs_review" : "pending",
     providerTransactionId: result.transactionId,
     completedAt: new Date(),
     notes: result.success
@@ -848,7 +852,7 @@ export async function processPayment(
   }
 
   if (debtor && !result.ambiguous) {
-    await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });
+    if (result.success) await storage.updateDebtor(payment.debtorId, { status: "processed" });
   }
 
   if (!result.success && !result.ambiguous && debtor) {

@@ -60,6 +60,7 @@ import {
   previewReturn,
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
+import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -3723,71 +3724,31 @@ export async function registerRoutes(
 
 
 
-  // Reverse declined payments for one debtor and mark the account NSF
+  // Delete a declined pending payment and its future schedule, then mark the account NSF.
   app.post("/api/payments/:id/reverse-declined-account", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (!(await isActiveAdminOrManager(req, orgId))) return res.status(403).json({ error: "Only admins and managers can manage NSF payments" });
       const { reason } = req.body;
       const payment = await storage.getPayment(req.params.id);
       if (!payment) return res.status(404).json({ error: "Payment not found" });
       if (payment.organizationId !== orgId) return res.status(403).json({ error: "Payment does not belong to this organization" });
-      if (!["declined", "failed"].includes(payment.status)) return res.status(400).json({ error: "Only declined payments can be reversed this way" });
-
-      const debtorPayments = (await storage.getPaymentsForDebtor(payment.debtorId)).filter((p) =>
-        p.organizationId === orgId && ["pending", "declined", "failed"].includes(p.status)
-      );
-      for (const p of debtorPayments) {
-        await storage.updatePayment(p.id, {
-          status: "reversed",
-          notes: `NSF REVERSED: ${reason || "Declined payment reversed from payment dashboard"}`,
-        });
-      }
+      const businessDate = getPaymentBusinessDate();
+      if (!isEligibleForNsfDecision(payment, businessDate)) return res.status(400).json({ error: "NSF action is available only after a declined pending payment is past due" });
+      const debtorPayments = paymentsToDeleteAfterNsf(await storage.getPaymentsForDebtor(payment.debtorId), payment);
+      const deletedPayments = await storage.deletePayments(debtorPayments.map((item) => item.id), orgId);
       await storage.updateDebtor(payment.debtorId, { status: "nsf" });
       await storage.createNote({
         debtorId: payment.debtorId,
         collectorId: payment.processedBy || "system",
-        content: `NSF reversal completed after declined payment. ${debtorPayments.length} pending/declined payment(s) reversed. Reason: ${reason || "No reason provided"}.`,
+        content: `NSF selected after a past-due declined payment. ${deletedPayments} current/future pending payment(s) deleted. Reason: ${reason || "No reason provided"}.`,
         noteType: "payment",
         createdDate: new Date().toISOString().split("T")[0],
         organizationId: orgId,
       });
-      res.json({ reversedPayments: debtorPayments.length, debtorStatus: "nsf" });
+      res.json({ deletedPayments, debtorStatus: "nsf" });
     } catch (error) {
       res.status(500).json({ error: "Failed to reverse declined account payments" });
-    }
-  });
-
-  // Bulk reverse declined accounts older than a specified number of days
-  app.post("/api/payments/reverse-declines", async (req, res) => {
-    try {
-      const orgId = getOrgId(req);
-      const days = Math.max(0, Number(req.body.days ?? 0));
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      const cutoffDate = cutoff.toISOString().split("T")[0];
-      const allPayments = (await storage.getAllPayments()).filter((p) => p.organizationId === orgId);
-      const declined = allPayments.filter((p) => ["declined", "failed"].includes(p.status) && p.paymentDate <= cutoffDate);
-      const debtorIds = Array.from(new Set(declined.map((p) => p.debtorId)));
-      let reversedPayments = 0;
-      for (const debtorId of debtorIds) {
-        const debtorPayments = allPayments.filter((p) => p.debtorId === debtorId && ["pending", "declined", "failed"].includes(p.status));
-        for (const p of debtorPayments) {
-          await storage.updatePayment(p.id, { status: "reversed", notes: `NSF BULK REVERSED after ${days} day(s) in decline` });
-          reversedPayments++;
-        }
-        await storage.updateDebtor(debtorId, { status: "nsf" });
-        await storage.createNote({
-          debtorId,
-          collectorId: "system",
-          content: `Bulk NSF reversal completed after ${days} day(s) in decline. ${debtorPayments.length} payment(s) reversed.`,
-          noteType: "payment",
-          createdDate: new Date().toISOString().split("T")[0],
-          organizationId: orgId,
-        });
-      }
-      res.json({ accountsReversed: debtorIds.length, reversedPayments, cutoffDate });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to bulk reverse declined payments" });
     }
   });
 
@@ -4693,7 +4654,7 @@ export async function registerRoutes(
       if (!cleanCode) return res.status(400).json({ error: "Invalid code" });
       const RESERVED_SYSTEM_CODES = [
         "newbiz", "1st_message", "final", "promise", "payments_pending",
-        "open", "in_payment", "paid", "decline", "disputed", "settled",
+        "open", "in_payment", "paid", "decline", "nsf", "disputed", "settled",
         "closed", "bankruptcy", "legal",
       ];
       if (RESERVED_SYSTEM_CODES.includes(cleanCode)) {
