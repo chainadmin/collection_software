@@ -276,8 +276,8 @@ export const paymentCards = pgTable("payment_cards", {
   debtorId: varchar("debtor_id").notNull(),
   cardType: text("card_type").notNull(), // visa, mastercard, amex, discover
   cardholderName: text("cardholder_name").notNull(),
-  // AES-GCM ciphertext containing the PAN for installations that temporarily
-  // cannot use processor tokenization. CVV is intentionally never retained.
+  // AES-GCM ciphertext containing the PAN retained alongside the processor
+  // token for authorized collector access. CVV is intentionally never retained.
   encryptedCardNumber: text("encrypted_card_number"),
   cardNumberLast4: text("card_number_last_4").notNull(),
   expiryMonth: text("expiry_month").notNull(),

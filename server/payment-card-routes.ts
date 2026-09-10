@@ -57,20 +57,6 @@ export function registerPaymentCardRoutes(
       if (cardholderName.length < 2 || cardholderName.length > 100 || !/^[A-Za-z][A-Za-z .,'-]+$/.test(cardholderName)) return res.status(400).json({ error: "Invalid cardholder name" });
       const billingZip = typeof req.body.billingZip === "string" ? req.body.billingZip.trim() : "";
       if (!/^\d{5}(?:-\d{4})?$/.test(billingZip)) return res.status(400).json({ error: "A valid billing ZIP is required" });
-      // Explicit local storage mode keeps a usable card record while gateway
-      // tokenization is unavailable. The PAN is encrypted and CVV is discarded.
-      if (req.body.saveWithoutTokenization === true) {
-        const existingCards = (await storage.getPaymentCards(debtor.id)).filter(card => card.organizationId === orgId);
-        const makeDefault = req.body.isDefault === true || existingCards.length === 0;
-        if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault).map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
-        const card = await storage.createPaymentCard({
-          organizationId: orgId, debtorId: debtor.id, cardType: networkType[network], cardholderName,
-          encryptedCardNumber: encryptCardNumber(pan), cardNumberLast4: pan.slice(-4), expiryMonth,
-          expiryYear, billingZip, vaultStatus: "locally_stored", isDefault: makeDefault,
-          addedDate: new Date().toISOString().split("T")[0], addedBy: req.session.collector.id,
-        });
-        return res.status(201).json(redactPaymentCard(card));
-      }
       const merchant = (await storage.getMerchants(orgId)).find(item => item.isActive && (
         (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
         (item.processorType === "stripe" && item.stripeSecretKey) ||
@@ -110,7 +96,8 @@ export function registerPaymentCardRoutes(
         try {
           reservation = await storage.createPaymentCard({
             organizationId: orgId, debtorId: debtor.id, cardType: networkType[network], cardholderName,
-            cardNumberLast4: pan.slice(-4), expiryMonth, expiryYear, billingZip, processorType: merchant.processorType,
+            encryptedCardNumber: encryptCardNumber(pan), cardNumberLast4: pan.slice(-4),
+            expiryMonth, expiryYear, billingZip, processorType: merchant.processorType,
             merchantId: merchant.id, vaultStatus: "vaulting", externalIdempotencyKey: externalKey,
             externalCredentialFingerprint: fingerprint, isDefault: false,
             addedDate: new Date().toISOString().split("T")[0], addedBy: req.session.collector.id,

@@ -38,9 +38,8 @@ as authorization.
 
 ## Saved-card storage and vaulting
 
-The collector workstation currently requests local card storage when processor
-tokenization is unavailable. In this mode the PAN is encrypted with AES-256-GCM
-before database persistence and is returned only by the authenticated,
+Collector-entered cards have their PAN encrypted with AES-256-GCM before
+database persistence, and it is returned only by the authenticated,
 tenant-scoped card endpoint. Configure a stable, high-entropy
 `PAYMENT_CARD_ENCRYPTION_KEY` before collectors save or view these cards; losing
 or rotating this value without first re-encrypting existing rows makes their
@@ -52,11 +51,11 @@ card-on-file transaction without CVV. Deleting a card permanently removes its
 encrypted PAN and metadata from the live database; backup retention remains an
 operator responsibility.
 
-Card saves are no-charge vault operations performed before a metadata row is
-inserted. The application schema maps only brand, last four, expiration,
-cardholder/billing metadata, processor type, reusable processor identifiers,
-default selection, and vault status. PAN and CVV exist only in request memory
-for the duration of the processor vault call and are never returned or logged.
+Card saves also perform a no-charge processor vault operation. A successful
+save therefore retains both the AES-GCM-encrypted PAN and the reusable processor
+token. Payments prefer the processor token; they do not decrypt and submit the
+PAN when a valid token is available. CVV exists only in request memory for the
+duration of the vault call and is never persisted, returned, or logged.
 
 Authenticated Chain requests use one contract at
 `POST /api/v2/insert_payments_external`. Lowercase and camel-case aliases are
