@@ -428,7 +428,11 @@ export default function Workstation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setShowPaymentDialog(false);
       setPaymentAmount("");
       toast({ title: "Payment recorded", description: "Payment has been added to the queue." });
@@ -460,6 +464,9 @@ export default function Workstation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setShowCardDialog(false);
       setCardNumber("");
       setCardExpiry("");
@@ -482,6 +489,9 @@ export default function Workstation() {
     mutationFn: async (cardId: string) => apiRequest("DELETE", `/api/cards/${cardId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Card deleted", description: "The card information was removed from this account." });
     },
     onError: (error: Error) => toast({ title: "Unable to delete card", description: error.message, variant: "destructive" }),
@@ -1024,6 +1034,7 @@ export default function Workstation() {
         const newCard = await response.json();
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
       } catch (error) {
         toast({
           title: "Card save failed",

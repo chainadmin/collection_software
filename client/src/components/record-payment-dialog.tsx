@@ -235,6 +235,7 @@ export function RecordPaymentDialog({
           // encrypted local card instead of posting the PAN a second time.
           setSelectedCardId(newCard.id);
           queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
         }
       }
 
@@ -251,6 +252,9 @@ export function RecordPaymentDialog({
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payment-arrangements"] });
         queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
         toast({
           title: manageAction === "cancel" ? "Schedule cancelled" : "Schedule updated",
           description: manageAction === "cancel" ? "All remaining pending payments were cancelled." : "The remaining pending payments were updated.",
@@ -270,6 +274,9 @@ export function RecordPaymentDialog({
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
         queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
         toast({ title: "Payments scheduled", description: `${rows.length} pending payments were saved. No payment was taken today.` });
         resetForm();
         onOpenChange(false);
@@ -315,6 +322,9 @@ export function RecordPaymentDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
 
       if (shouldProcessNow) {
         const approved = processedPayment?.status === "processed" || processedPayment?.status === "posted";
