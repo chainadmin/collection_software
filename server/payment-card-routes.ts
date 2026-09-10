@@ -94,7 +94,11 @@ export function registerPaymentCardRoutes(
       }
       if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault).map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
       res.status(201).json(redactPaymentCard(card));
-    } catch {
+    } catch (error) {
+      // Do not log request bodies (they contain PAN/CVV), but retain the actual
+      // storage failure in server logs so production card-save incidents are
+      // diagnosable instead of appearing only as an unexplained edge 500.
+      console.error("[payment-cards] Failed to save encrypted payment card:", error);
       res.status(500).json({ error: "Failed to save payment card" });
     }
   });

@@ -75,6 +75,34 @@ interface UsaepayCredentials {
   testMode: boolean;
 }
 
+async function usaepayHttpFailure(response: Response, paymentKind = "payment"): Promise<ProcessPaymentResult> {
+  let detail = "";
+  try {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        detail = String(data.error || data.result || data.message || data.errorcode || "");
+      } catch {
+        detail = raw;
+      }
+    }
+  } catch {
+    // The status code still lets us distinguish a rejected request from an
+    // uncertain upstream failure when the response body cannot be read.
+  }
+  detail = detail.replace(/\s+/g, " ").trim().slice(0, 300);
+  const message = `USAePay rejected the ${paymentKind} request (HTTP ${response.status})${detail ? `: ${detail}` : ""}`;
+
+  // A 4xx response (other than conflict/rate limiting) proves USAePay rejected
+  // the request before approval.  Server errors and throttling can occur after
+  // submission, so those outcomes must remain quarantined for review.
+  if (response.status >= 400 && response.status < 500 && response.status !== 409 && response.status !== 429) {
+    return { success: false, transactionId: null, declineReason: message };
+  }
+  return ambiguousGatewayResult(message);
+}
+
 function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
   return merchants.find(
     (m) =>
@@ -261,7 +289,7 @@ async function processUsaepayCard(
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive response");
+    if (!res.ok) return usaepayHttpFailure(res);
     const data = await res.json();
 
     if (data.result_code === "A" || data.result === "Approved") {
@@ -322,7 +350,7 @@ async function processUsaepayAch(
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive ACH response");
+    if (!res.ok) return usaepayHttpFailure(res, "ACH payment");
     const data = await res.json();
 
     if (data.result_code === "A" || data.result === "Approved") {
@@ -510,7 +538,7 @@ async function processViaGateway(
             ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
           }),
         });
-        if (!response.ok) return ambiguousGatewayResult("USAePay transport returned an inconclusive response");
+        if (!response.ok) return usaepayHttpFailure(response, "saved-card payment");
         const data = await response.json();
         const transactionId = data.refnum || data.key || null;
         if (data.result_code === "A" || data.result === "Approved") {
