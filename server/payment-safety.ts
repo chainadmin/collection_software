@@ -52,7 +52,8 @@ export async function postPaymentAtomically(paymentId: string, organizationId: s
 export async function claimPaymentForProcessing(paymentId: string, organizationId: string, dueByDate: string) {
   const result = await pool.query(
     `UPDATE payments SET status = 'processing', processing_started_at = NOW()
-     WHERE id = $1 AND organization_id = $2 AND status = 'pending' AND payment_date <= $3
+     WHERE id = $1 AND organization_id = $2 AND status = 'pending'
+       AND completed_at IS NULL AND payment_date <= $3
      RETURNING *`,
     [paymentId, organizationId, dueByDate],
   );

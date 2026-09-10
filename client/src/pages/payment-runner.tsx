@@ -26,8 +26,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
@@ -47,7 +51,6 @@ export default function PaymentRunner() {
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
   const [reverseReason, setReverseReason] = useState("");
-  const [bulkReverseDays, setBulkReverseDays] = useState("7");
 
   const { data: pendingPayments, isLoading: pendingLoading, refetch } = useQuery<PaymentWithDebtor[]>({
     queryKey: ["/api/payments/pending"],
@@ -141,7 +144,7 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Payment was successful." });
-      } else if (data.status === "declined" || data.status === "failed") {
+      } else if (data.declineReason || data.status === "declined" || data.status === "failed") {
         toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
@@ -162,7 +165,7 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Re-run was successful." });
-      } else if (data.status === "declined" || data.status === "failed") {
+      } else if (data.declineReason || data.status === "declined" || data.status === "failed") {
         toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined again.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
@@ -205,26 +208,10 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Declined Account Reversed", description: `${data.reversedPayments} payment(s) reversed and account marked NSF.` });
+      toast({ title: "Account Marked NSF", description: `${data.deletedPayments} current/future pending payment(s) deleted.` });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to reverse declined account.", variant: "destructive" });
-    },
-  });
-
-  const bulkReverseDeclinesMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/payments/reverse-declines", { days: Number(bulkReverseDays) });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Bulk Reverse Complete", description: `${data.accountsReversed} account(s) marked NSF and ${data.reversedPayments} payment(s) reversed.` });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to bulk reverse declines.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to apply the NSF decision.", variant: "destructive" });
     },
   });
 
@@ -369,7 +356,11 @@ export default function PaymentRunner() {
     return new Date(p.paymentDate) < new Date(format(new Date(), "yyyy-MM-dd"));
   }) || [];
 
-  const declinedPayments = allPayments?.filter((p) => p.status === "declined" || p.status === "failed") || [];
+  const today = format(new Date(), "yyyy-MM-dd");
+  const declinedPayments = allPayments?.filter((p) =>
+    p.status === "pending" && Boolean(p.completedAt) &&
+    String(p.notes || "").startsWith("DECLINED:") && p.paymentDate < today
+  ) || [];
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
@@ -414,7 +405,7 @@ export default function PaymentRunner() {
             )}
           </Button>
         )}
-        {!isDeclined && !isProcessed && (
+        {!isDeclined && !isProcessed && !payment.completedAt && (
           <Button
             variant="ghost"
             size="icon"
@@ -778,32 +769,8 @@ export default function PaymentRunner() {
                 <XCircle className="h-5 w-5" />
                 Declined Payments
               </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Reverse declined accounts to NSF without deleting the account.</p>
+              <p className="text-sm text-muted-foreground mt-1">Past-due declines remain pending until you choose whether to delete the current and future payments.</p>
             </div>
-            {canPostOrReverse && (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="bulk-reverse-days" className="text-xs text-muted-foreground whitespace-nowrap">Days in decline</Label>
-                <Input
-                  id="bulk-reverse-days"
-                  className="w-20"
-                  type="number"
-                  min="0"
-                  value={bulkReverseDays}
-                  onChange={(e) => setBulkReverseDays(e.target.value)}
-                  data-testid="input-bulk-reverse-days"
-                />
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => bulkReverseDeclinesMutation.mutate()}
-                  disabled={bulkReverseDeclinesMutation.isPending}
-                  data-testid="button-bulk-reverse-declines"
-                >
-                  {bulkReverseDeclinesMutation.isPending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Undo2 className="h-4 w-4 mr-2" />}
-                  Bulk Reverse
-                </Button>
-              </div>
-            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -827,18 +794,32 @@ export default function PaymentRunner() {
                     <p className="text-xs text-red-600 dark:text-red-400">{formatDate(payment.paymentDate)}</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    {renderPaymentActions(payment, true, false)}
                     {canPostOrReverse && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
-                        disabled={reverseDeclinedAccountMutation.isPending}
-                        title="Reverse this declined account to NSF"
-                        data-testid={`button-reverse-declined-account-${payment.id}`}
-                      >
-                        <Undo2 className="h-4 w-4 text-red-600" />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" data-testid={`button-reverse-declined-account-${payment.id}`}>
+                            NSF options
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Past-due declined payment</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Delete this payment and its future pending payments and select the NSF account category, or leave everything pending and make no changes.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel data-testid={`button-leave-pending-${payment.id}`}>Leave pending</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
+                              disabled={reverseDeclinedAccountMutation.isPending}
+                              data-testid={`button-delete-nsf-${payment.id}`}
+                            >
+                              Delete payments &amp; select NSF
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                 </div>

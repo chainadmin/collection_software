@@ -146,7 +146,7 @@ export const insertPortfolioAssignmentSchema = createInsertSchema(portfolioAssig
 export type InsertPortfolioAssignment = z.infer<typeof insertPortfolioAssignmentSchema>;
 export type PortfolioAssignment = typeof portfolioAssignments.$inferSelect;
 
-// Collection-specific statuses: newbiz, 1st_message, final, promise, payments_pending, decline
+// Collection-specific statuses: newbiz, 1st_message, final, promise, payments_pending, decline, nsf
 // Also supports: open, in_payment, settled, closed, disputed, bankruptcy, legal
 
 // Debtors (accounts to collect)

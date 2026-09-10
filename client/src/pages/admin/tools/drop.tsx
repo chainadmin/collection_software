@@ -23,6 +23,7 @@ const SYSTEM_STATUS_OPTIONS = [
   { code: "final", label: "Final" },
   { code: "promise", label: "Promise" },
   { code: "payments_pending", label: "Payments Pending" },
+  { code: "nsf", label: "NSF" },
   { code: "in_payment", label: "In Payment" },
   { code: "paid", label: "Paid in Full" },
   { code: "closed", label: "Closed" },
@@ -341,6 +342,7 @@ export default function DropAccounts() {
                   <SelectItem value="promise">Promise</SelectItem>
                   <SelectItem value="payments_pending">Payments Pending</SelectItem>
                   <SelectItem value="decline">Decline</SelectItem>
+                  <SelectItem value="nsf">NSF</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
                   <SelectItem value="in_payment">In Payment</SelectItem>
                 </SelectContent>

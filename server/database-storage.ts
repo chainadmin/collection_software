@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, lte, ilike, or, sql } from "drizzle-orm";
+import { eq, and, desc, lte, ilike, or, sql, isNull, inArray } from "drizzle-orm";
 import {
   organizations,
   users,
@@ -651,9 +651,19 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payments).where(
       and(
         eq(payments.status, "pending"),
+        isNull(payments.completedAt),
         lte(payments.paymentDate, maxDate)
       )
     );
+  }
+
+  async deletePayments(ids: string[], organizationId: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    const deleted = await db.delete(payments).where(and(
+      eq(payments.organizationId, organizationId),
+      inArray(payments.id, ids),
+    )).returning({ id: payments.id });
+    return deleted.length;
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {

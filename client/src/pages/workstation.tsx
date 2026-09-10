@@ -106,6 +106,7 @@ const SYSTEM_STATUS_OPTIONS = [
   { code: "final", label: "Final" },
   { code: "promise", label: "Promise" },
   { code: "payments_pending", label: "Payments Pending" },
+  { code: "nsf", label: "NSF" },
   { code: "open", label: "Open" },
   { code: "in_payment", label: "In Payment" },
   { code: "paid", label: "Paid in Full" },
