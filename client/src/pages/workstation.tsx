@@ -36,7 +36,7 @@ import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bi
 import { formatCardNumber } from "@/lib/bin-lookup";
 import { CardValidationFeedback } from "@/components/card-validation-feedback";
 import { parseCustomFields } from "@/components/account-data-editors";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -125,6 +125,7 @@ type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_num
 export default function Workstation() {
   const { toast } = useToast();
   const { user: authUser, isLoading: authLoading } = useAuth();
+  const search = useSearch();
   const [selectedDebtorId, setSelectedDebtorId] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState("");
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -207,6 +208,14 @@ export default function Workstation() {
   const [showBulkAddNotesDialog, setShowBulkAddNotesDialog] = useState(false);
   const [bulkContactsText, setBulkContactsText] = useState("");
   const [bulkNotesText, setBulkNotesText] = useState("");
+
+  const accountIdFromSearch = new URLSearchParams(search).get("account");
+
+  useEffect(() => {
+    if (accountIdFromSearch) {
+      setSelectedDebtorId(accountIdFromSearch);
+    }
+  }, [accountIdFromSearch]);
 
   const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
     queryKey: ["/api/account-statuses"],
