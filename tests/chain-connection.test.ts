@@ -43,7 +43,7 @@ async function fixture() {
   const alphaDebtor = await memory.createDebtor({
     organizationId: alpha.id, portfolioId: alphaPortfolio.id, accountNumber: "ALPHA-1",
     fileNumber: "1001", firstName: "Alpha", lastName: "Debtor", dateOfBirth: "1986-04-12",
-    originalBalance: 10000, currentBalance: 10000, status: "open",
+    originalBalance: 10000, currentBalance: 7350, status: "open",
   });
   await memory.createDebtorContact({
     organizationId: alpha.id, debtorId: alphaDebtor.id, type: "email", value: "alpha@example.test",
@@ -109,6 +109,9 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(accountsByChainIdPayload.data[0].emailAddress, "alpha@example.test");
     assert.equal(accountsByChainIdPayload.data[0].dob, "1986-04-12");
     assert.equal(accountsByChainIdPayload.data[0].dateOfBirth, "1986-04-12");
+    assert.equal(accountsByChainIdPayload.data[0].balance, 7350);
+    assert.equal(accountsByChainIdPayload.data[0].currentBalance, 7350);
+    assert.equal(accountsByChainIdPayload.data[0].originalBalance, 10000);
 
     const updatedAccount = await f.request("/api/v2/updatedbase", {
       method: "PUT",
@@ -132,6 +135,7 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(account.data.emailAddress, "updated@example.test");
     assert.equal(account.data.dob, "1987-05-13");
     assert.equal(account.data.dateOfBirth, "1987-05-13");
+    assert.equal((await f.memory.getDebtor(f.alphaDebtor.id))?.dateOfBirth, "1987-05-13");
 
     const emails: any = await (await f.request(`/api/v2/getemails/${f.alphaDebtor.fileNumber}`, {
       headers: { Authorization: `Bearer ${first.token}` },

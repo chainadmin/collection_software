@@ -1124,8 +1124,10 @@ export function registerExternalApiRoutes(app: Express) {
       // but always persist the value in the debtor's canonical DOB column.
       // An explicitly supplied dateOfBirth wins when clients send aliases.
       if (updates.dateOfBirth === undefined) {
-        if (dob !== undefined) updates.dateOfBirth = dob;
-        else if (birthDate !== undefined) updates.dateOfBirth = birthDate;
+        if (dob !== undefined) updates.dateOfBirth = normalizeDateOfBirth(dob);
+        else if (birthDate !== undefined) updates.dateOfBirth = normalizeDateOfBirth(birthDate);
+      } else {
+        updates.dateOfBirth = normalizeDateOfBirth(updates.dateOfBirth);
       }
 
       const allowedFields = ["email", "dateOfBirth", "address", "city", "state", "zipCode", "status", "lastContactDate", "nextFollowUpDate"];
@@ -2489,7 +2491,8 @@ async function formatDebtorForApi(debtor: any) {
   )?.value;
   const email = debtor.email || contactEmail || null;
 
-  const dateOfBirth = debtor.dateOfBirth || null;
+  const dateOfBirth = formatDateOfBirthForChain(debtor.dateOfBirth);
+  const currentBalance = debtor.currentBalance;
 
   return {
     fileNumber: debtor.fileNumber,
@@ -2514,11 +2517,34 @@ async function formatDebtorForApi(debtor: any) {
     originalCreditor: debtor.originalCreditor,
     clientName: debtor.clientName,
     originalBalance: debtor.originalBalance,
-    currentBalance: debtor.currentBalance,
+    currentBalance,
+    // Chain imports the generic `balance` field during account sync. It must
+    // reflect the live amount owed, not the original placed balance.
+    balance: currentBalance,
     status: debtor.status,
     lastContactDate: debtor.lastContactDate,
     nextFollowUpDate: debtor.nextFollowUpDate,
     portfolioId: debtor.portfolioId,
     assignedCollectorId: debtor.assignedCollectorId,
   };
+}
+
+/** Keep the outbound DOB in Chain's ISO calendar-date contract. */
+function formatDateOfBirthForChain(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+
+  const normalized = normalizeDateOfBirth(value);
+  return typeof normalized === "string" ? normalized : null;
+}
+
+/** Keep incoming Chain dates canonical for the database date column. */
+function normalizeDateOfBirth(value: unknown): any {
+  if (typeof value !== "string") return value;
+
+  const trimmed = value.trim();
+  const chainDate = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!chainDate) return trimmed;
+
+  const [, month, day, year] = chainDate;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
