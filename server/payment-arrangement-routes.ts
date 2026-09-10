@@ -99,18 +99,18 @@ export function registerPaymentArrangementRoutes(app: Express, storage: IStorage
       let cardId: string | null = null;
       if (paymentMethod === "card") {
         cardId = typeof req.body.cardId === "string" ? req.body.cardId : null;
-        if (!cardId) return res.status(400).json({ error: "A saved vaulted card is required" });
+        if (!cardId) return res.status(400).json({ error: "A saved card is required" });
         const card = await storage.getPaymentCard(cardId);
         if (!card || card.organizationId !== organizationId || card.debtorId !== debtor.id) {
           return res.status(400).json({ error: "Payment card does not belong to this debtor" });
         }
-        if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken) {
-          return res.status(409).json({ error: "Payment card is not vaulted and cannot be scheduled" });
-        }
-        const activeMerchant = (await storage.getMerchants(organizationId))
-          .find(merchant => merchant.isActive && merchant.id === card.merchantId);
-        if (!activeMerchant || activeMerchant.processorType !== card.processorType) {
-          return res.status(409).json({ error: "Payment card is not vaulted with its active merchant" });
+        const activeMerchants = (await storage.getMerchants(organizationId)).filter(merchant => merchant.isActive);
+        const locallyStored = card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber;
+        const vaulted = card.vaultStatus === "vaulted" && !!card.processorType && !!card.processorToken;
+        if ((!locallyStored && !vaulted) ||
+            (vaulted && !activeMerchants.some(merchant => merchant.id === card.merchantId && merchant.processorType === card.processorType)) ||
+            (locallyStored && activeMerchants.length === 0)) {
+          return res.status(409).json({ error: "Payment card cannot be scheduled with an active merchant" });
         }
       } else if (req.body.cardId != null) {
         return res.status(400).json({ error: "A card may only be used with card payments" });
@@ -174,11 +174,13 @@ export function registerPaymentArrangementRoutes(app: Express, storage: IStorage
           if (!card || card.organizationId !== organizationId || card.debtorId !== debtor.id) {
             return res.status(400).json({ error: "Payment card does not belong to this debtor" });
           }
-          const activeMerchant = (await storage.getMerchants(organizationId))
-            .find(merchant => merchant.isActive && merchant.id === card.merchantId);
-          if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
-              !activeMerchant || activeMerchant.processorType !== card.processorType) {
-            return res.status(409).json({ error: "Replacement card must be vaulted with its active merchant" });
+          const activeMerchants = (await storage.getMerchants(organizationId)).filter(merchant => merchant.isActive);
+          const locallyStored = card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber;
+          const vaulted = card.vaultStatus === "vaulted" && !!card.processorType && !!card.processorToken;
+          if ((!locallyStored && !vaulted) ||
+              (vaulted && !activeMerchants.some(merchant => merchant.id === card.merchantId && merchant.processorType === card.processorType)) ||
+              (locallyStored && activeMerchants.length === 0)) {
+            return res.status(409).json({ error: "Replacement card cannot be scheduled with an active merchant" });
           }
         }
       }

@@ -2900,18 +2900,23 @@ export async function registerRoutes(
       }
       if (req.body.paymentMethod === "card") {
         if (typeof req.body.cardId !== "string" || !req.body.cardId) {
-          return res.status(400).json({ error: "A saved vaulted card is required" });
+          return res.status(400).json({ error: "A saved card is required" });
         }
         const card = await storage.getPaymentCard(req.body.cardId);
         if (!card || card.organizationId !== orgId || card.debtorId !== debtor.id) {
           return res.status(400).json({ error: "Payment card does not belong to this debtor" });
         }
-        if (card.vaultStatus !== "vaulted" || !card.processorToken || !card.processorType) {
-          return res.status(409).json({ error: "Payment card is not vaulted and cannot be scheduled" });
+        const locallyStored = card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber;
+        const vaulted = card.vaultStatus === "vaulted" && !!card.processorToken && !!card.processorType;
+        if (!locallyStored && !vaulted) {
+          return res.status(409).json({ error: "Payment card cannot be scheduled" });
         }
-        const activeMerchant = (await storage.getMerchants(orgId)).find(item => item.isActive && item.id === card.merchantId);
-        if (!activeMerchant || activeMerchant.processorType !== card.processorType) {
-          return res.status(409).json({ error: "Payment card is not vaulted with its active merchant" });
+        const activeMerchants = (await storage.getMerchants(orgId)).filter(item => item.isActive);
+        if (vaulted && !activeMerchants.some(item => item.id === card.merchantId && item.processorType === card.processorType)) {
+          return res.status(409).json({ error: "Payment card is not associated with its active merchant" });
+        }
+        if (locallyStored && activeMerchants.length === 0) {
+          return res.status(409).json({ error: "No active merchant is configured for this card" });
         }
       }
       const idempotencyKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || crypto.randomUUID());

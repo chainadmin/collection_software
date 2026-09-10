@@ -97,6 +97,8 @@ import type {
   AccountStatus,
 } from "@shared/schema";
 
+type CollectorPaymentCard = PaymentCard & { cardNumber?: string };
+
 const SYSTEM_STATUS_OPTIONS = [
   { code: "newbiz", label: "New Business" },
   { code: "1st_message", label: "1st Message" },
@@ -309,7 +311,7 @@ export default function Workstation() {
     enabled: !!selectedDebtorId,
   });
 
-  const { data: paymentCards } = useQuery<PaymentCard[]>({
+  const { data: paymentCards } = useQuery<CollectorPaymentCard[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "cards"],
     enabled: !!selectedDebtorId,
   });
@@ -447,6 +449,7 @@ export default function Workstation() {
         cardholderName: data.cardholderName,
         billingZip: data.billingZip,
         cvv: data.cvv,
+        saveWithoutTokenization: true,
       }, { timeoutMs: 30_000 });
     },
     onSuccess: () => {
@@ -462,11 +465,20 @@ export default function Workstation() {
     },
     onError: (error) => {
       toast({
-        title: "Card vaulting failed",
-        description: error instanceof Error ? error.message : "The card could not be vaulted.",
+        title: "Card save failed",
+        description: error instanceof Error ? error.message : "The card could not be saved.",
         variant: "destructive",
       });
     },
+  });
+
+  const deleteCardMutation = useMutation({
+    mutationFn: async (cardId: string) => apiRequest("DELETE", `/api/cards/${cardId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
+      toast({ title: "Card deleted", description: "The card information was removed from this account." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to delete card", description: error.message, variant: "destructive" }),
   });
 
   const updateContactMutation = useMutation({
@@ -1001,6 +1013,7 @@ export default function Workstation() {
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
+          saveWithoutTokenization: true,
         }, { timeoutMs: 30_000 });
         const newCard = await response.json();
         cardIdToUse = newCard.id;
@@ -1693,14 +1706,45 @@ export default function Workstation() {
                             {paymentCards.map((card) => (
                               <div key={card.id} className="p-3 rounded-md bg-muted/50">
                                 <div className="flex items-center justify-between">
-                                  <p className="font-medium capitalize">{card.cardType}</p>
-                                  <Badge variant="secondary" className="text-xs font-mono">
-                                    •••• {card.cardNumberLast4}
-                                  </Badge>
+                                  <div>
+                                    <p className="font-medium capitalize">{card.cardType}</p>
+                                    <p className="text-xs text-muted-foreground">{card.cardholderName}</p>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Badge variant="secondary" className="text-xs font-mono">
+                                      {card.cardNumber ? formatCardNumber(card.cardNumber) : `•••• ${card.cardNumberLast4}`}
+                                    </Badge>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" data-testid={`button-delete-card-${card.id}`}>
+                                          <Trash2 className="h-4 w-4" />
+                                          <span className="sr-only">Delete card</span>
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Delete this payment card?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This permanently removes the saved card information from the account.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => deleteCardMutation.mutate(card.id)}
+                                            className="bg-destructive text-destructive-foreground"
+                                          >
+                                            Delete card
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </div>
                                 </div>
                                 <p className="text-sm text-muted-foreground">
                                   Exp: {card.expiryMonth}/{card.expiryYear}
                                 </p>
+                                {card.billingZip && <p className="text-sm text-muted-foreground">Billing ZIP: {card.billingZip}</p>}
                               </div>
                             ))}
                           </div>

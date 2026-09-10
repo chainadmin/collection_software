@@ -10,6 +10,7 @@ import { sendPaymentOutcomeAutomation } from "./payment-message-automation";
 import Stripe from "stripe";
 import { nextRecurringOccurrence } from "./recurring-payments";
 import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
+import { decryptCardNumber } from "./card-encryption";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -664,7 +665,17 @@ export async function processPayment(
 
     if (payment.paymentMethod === "card" && payment.cardId) {
       const card = await storage.getPaymentCard(payment.cardId);
-      if (
+      if (card && card.organizationId === orgId && card.debtorId === payment.debtorId &&
+          card.vaultStatus === "locally_stored" && card.encryptedCardNumber) {
+        cardData = {
+          cardNumber: decryptCardNumber(card.encryptedCardNumber),
+          expirationDate: `${card.expiryMonth}${card.expiryYear.slice(-2)}`,
+          // PCI DSS prohibits retaining CVV after authorization. Gateways can
+          // process a card-on-file transaction without resubmitting it.
+          cardCode: "",
+        };
+        gatewayPaymentToken = null;
+      } else if (
         card &&
         card.organizationId === orgId &&
         card.debtorId === payment.debtorId &&
@@ -680,7 +691,7 @@ export async function processPayment(
         result = {
           success: false,
           transactionId: null,
-          declineReason: "Saved card is not vaulted for this debtor and active processor",
+          declineReason: "Saved card is not available for this debtor and active processor",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
           status: "declined",
