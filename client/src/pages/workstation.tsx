@@ -734,7 +734,7 @@ export default function Workstation() {
     );
   };
 
-  const handleCallOutcome = (outcome: CallOutcome) => {
+  const handleCallOutcome = (outcome: CallOutcome, phoneNumber?: string) => {
     if (!selectedDebtorId || !currentCollector) return;
 
     const today = new Date().toISOString().split("T")[0];
@@ -768,6 +768,10 @@ export default function Workstation() {
         noteType = "promise";
         nextFollowUp = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
         break;
+    }
+
+    if (phoneNumber) {
+      noteContent = `${noteContent} - Called ${phoneNumber}`;
     }
 
     addNoteMutation.mutate({
@@ -2140,7 +2144,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("connected");
+                  handleCallOutcome("connected", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-connected"
@@ -2151,7 +2155,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("no_answer");
+                  handleCallOutcome("no_answer", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-no-answer"
@@ -2162,7 +2166,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("voicemail");
+                  handleCallOutcome("voicemail", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-voicemail"
@@ -2173,7 +2177,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("busy");
+                  handleCallOutcome("busy", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-busy"
@@ -2184,7 +2188,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("wrong_number");
+                  handleCallOutcome("wrong_number", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-wrong-number"
@@ -2195,7 +2199,7 @@ export default function Workstation() {
               <Button
                 variant="default"
                 onClick={() => {
-                  handleCallOutcome("promise");
+                  handleCallOutcome("promise", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-promise"
