@@ -11,7 +11,7 @@ import {
 import { nextRecurringOccurrence } from "../server/recurring-payments";
 import { redactPaymentCard } from "../server/payment-card-presenter";
 import { ambiguousGatewayResult, gatewayReferences } from "../server/payment-processor";
-import { buildInternalPaymentInsert } from "../server/payment-input";
+import { buildInternalPaymentInsert, parseOneTimeCardInput } from "../server/payment-input";
 import { redactPayment, redactPayments } from "../server/payment-presenter";
 import {
   chainCardIdentity,
@@ -23,7 +23,6 @@ import {
   verifyChainCredentialFingerprint,
 } from "../server/chain-payment";
 import { MemStorage } from "../server/storage";
-import { CardVaultError, vaultCard } from "../server/card-vault";
 import { usaepayAuthorization } from "../server/usaepay-auth";
 
 function withTestFingerprintKey<T>(run: () => T): T {
@@ -76,6 +75,22 @@ test("internal payment persistence rejects PAN and never accepts a caller paymen
   assert.equal(insert.paymentToken, null);
   assert.equal(insert.status, "pending");
   assert.equal(insert.providerTransactionId, undefined);
+});
+
+test("one-time card input is normalized for direct processing without persistence fields", () => {
+  assert.deepEqual(parseOneTimeCardInput({
+    cardNumber: "4242 4242 4242 4242",
+    expiryMonth: "7",
+    expiryYear: "30",
+    cvv: "123",
+  }), {
+    cardNumber: "4242424242424242",
+    expirationDate: "0730",
+    cardCode: "123",
+  });
+  assert.throws(() => parseOneTimeCardInput({ cardNumber: "4242", expiryMonth: "7", expiryYear: "30", cvv: "123" }), /valid card number/);
+  assert.throws(() => parseOneTimeCardInput({ cardNumber: "4242424242424242", expiryMonth: "13", expiryYear: "30", cvv: "123" }), /expiration/);
+  assert.throws(() => parseOneTimeCardInput({ cardNumber: "4242424242424242", expiryMonth: "7", expiryYear: "30", cvv: "1" }), /security code/);
 });
 
 test("card responses omit vault credentials and sensitive metadata", () => {
@@ -400,7 +415,7 @@ test("posted Chain notifications retain transaction identity and do not require 
   assert.equal(chainPaymentIdentity(item), "chain:txn-chain-1:2030-03-02");
 });
 
-test("storage identities reject concurrent arrangement and vault duplicates per tenant", async () => {
+test("storage identities reject concurrent arrangement and card duplicates per tenant", async () => {
   const store = new MemStorage();
   const payment = {
     organizationId: "org-a", debtorId: "debtor-a", amount: 1000,
@@ -438,128 +453,12 @@ test("recursive Chain screening rejects PAN hidden in paymentdata invoice fields
   }));
 });
 
-test("USAePay vault uses documented cc:save transaction contract", async () => {
-  const originalFetch = globalThis.fetch;
-  let request: any;
-  globalThis.fetch = (async (url: string, init: any) => {
-    request = { url, init };
-    return { ok: true, json: async () => ({ result_code: "A", savedcard: { key: "saved_card_123" } }) } as any;
-  }) as typeof fetch;
-  try {
-    const vaulted = await vaultCard(
-      { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any,
-      { id: "debtor-1" } as any,
-      { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" },
-    );
-    assert.equal(request.url, "https://sandbox.usaepay.com/api/v2/transactions");
-    assert.equal(request.init.method, "POST");
-    const [sourceKey, seed, hash] = Buffer.from(request.init.headers.Authorization.slice("Basic ".length), "base64").toString("utf8").split(":");
-    assert.equal(sourceKey, "source");
-    assert.ok(seed);
-    assert.equal(hash, createHash("sha256").update(`source${seed}pin`).digest("hex"));
-    assert.ok(request.init.signal instanceof AbortSignal);
-    assert.deepEqual(JSON.parse(request.init.body), {
-      command: "cc:save",
-      creditcard: { cardholder: "Jane Doe", number: "4242424242424242", expiration: "1230", cvc: "123", avs_zip: "12345" },
-    });
-    assert.equal(vaulted.processorToken, "saved_card_123");
-    assert.equal(vaulted.processorCustomerId, null);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test("USAePay REST authentication signs the source key without exposing the PIN", () => {
   const authorization = usaepayAuthorization("source", "secret-pin", "fixed-seed");
   const credentials = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
   const expectedHash = createHash("sha256").update("sourcefixed-seedsecret-pin").digest("hex");
   assert.equal(credentials, `source:fixed-seed:${expectedHash}`);
   assert.equal(credentials.includes("secret-pin"), false);
-});
-
-test("USAePay vault treats transport failures as ambiguous and non-approvals as failures", async () => {
-  const originalFetch = globalThis.fetch;
-  const merchant = { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any;
-  const card = { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" };
-  globalThis.fetch = (async () => ({ ok: false, status: 503, json: async () => ({}) })) as typeof fetch;
-  await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
-    error instanceof CardVaultError && /uncertain/.test(error.message));
-  globalThis.fetch = (async () => ({ ok: false, status: 401, json: async () => ({ error: "Authentication failed" }) })) as typeof fetch;
-  await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
-    error instanceof CardVaultError && !error.uncertain && /Authentication failed/.test(error.message));
-  globalThis.fetch = (async () => ({ ok: true, json: async () => ({ result_code: "D" }) })) as typeof fetch;
-  await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
-    error instanceof CardVaultError && /failed/.test(error.message));
-  globalThis.fetch = originalFetch;
-});
-
-test("USAePay vault accepts compatible approved cc:save response shapes", async () => {
-  const originalFetch = globalThis.fetch;
-  const merchant = { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any;
-  const card = { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" };
-  globalThis.fetch = (async () => ({
-    ok: true,
-    json: async () => ({ result: "Approved", savedcard: "saved_card_legacy" }),
-  })) as typeof fetch;
-  try {
-    const vaulted = await vaultCard(merchant, { id: "debtor-1" } as any, card);
-    assert.equal(vaulted.processorToken, "saved_card_legacy");
-    assert.equal(vaulted.vaultStatus, "vaulted");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("concurrent two-date arrangement retry reuses one vault and becomes runner eligible", async () => {
-  const store = new MemStorage();
-  const items = normalizeChainPaymentRequest({
-    filenumber: "F-1", invoice: "ARR-CONCURRENT", cardnumber: "4242424242424242",
-    paymentdata: [
-      { paymentdate: "2030-06-01", paymentamount: "10" },
-      { paymentdate: "2030-07-01", paymentamount: "20" },
-    ],
-  });
-  const reservations = await Promise.all(items.map(item => store.createPayment({
-    organizationId: "org-1", debtorId: "debtor-1", amount: item.amountCents,
-    paymentDate: item.paymentDate, paymentMethod: "card", status: "needs_review",
-    idempotencyKey: chainPaymentIdentity(item),
-  })));
-  const sharedIdentity = chainCardIdentity("org-1", items[0].invoice);
-  assert.equal(sharedIdentity, chainCardIdentity("org-1", items[1].invoice));
-  const fingerprint = withTestFingerprintKey(() =>
-    chainCredentialFingerprint("org-1", items[0].invoice, items[0].cardNumber));
-  let card = await store.createPaymentCard({
-    organizationId: "org-1", debtorId: "debtor-1", cardType: "visa",
-    cardholderName: "Jane Doe", cardNumberLast4: "4242", expiryMonth: "12",
-    expiryYear: "2030", addedDate: "2026-01-01", processorType: "usaepay",
-    vaultStatus: "vaulting", externalIdempotencyKey: sharedIdentity,
-    externalCredentialFingerprint: fingerprint,
-  });
-
-  const originalFetch = globalThis.fetch;
-  let vaultCalls = 0;
-  globalThis.fetch = (async () => {
-    vaultCalls++;
-    return { ok: true, json: async () => ({ result_code: "A", savedcard: { key: "saved_card_once" } }) } as any;
-  }) as typeof fetch;
-  try {
-    const vaulted = await vaultCard(
-      { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any,
-      { id: "debtor-1" } as any,
-      { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" },
-    );
-    card = (await store.updatePaymentCard(card.id, { ...vaulted, vaultStatus: "vaulted" }))!;
-    // Retry the reservation that lost while the shared card was vaulting.
-    const resumed = await store.updatePayment(reservations[1].id, { cardId: card.id, status: "pending" });
-    // The first installment attaches the exact same protected card as well.
-    const first = await store.updatePayment(reservations[0].id, { cardId: card.id, status: "pending" });
-    assert.equal(vaultCalls, 1);
-    assert.equal(first?.cardId, resumed?.cardId);
-    assert.equal(resumed?.status, "pending");
-    assert.equal((await store.getPendingPayments("org-1")).length, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });
 
 test("concurrent due-today reservation recovery has one promotion winner and no status regression", async () => {
