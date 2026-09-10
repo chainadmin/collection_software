@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Mail, Loader2 } from "lucide-react";
+import { Mail, Loader2, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -41,6 +41,19 @@ export default function EmailSettings() {
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message || "Failed to save email settings.", variant: "destructive" });
+    },
+  });
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/email-settings/test");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Test Email Sent", description: "Check the configured notification inbox." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Test Failed", description: error.message || "Failed to send test email.", variant: "destructive" });
     },
   });
 
@@ -94,10 +107,19 @@ export default function EmailSettings() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Separate multiple addresses with commas. These addresses receive your company's
-                  notifications and reports.
+                  notifications and reports. Save changes before sending a test email.
                 </p>
               </div>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  data-testid="button-test-email"
+                  onClick={() => testMutation.mutate()}
+                  disabled={testMutation.isPending || saveMutation.isPending || !isActive || !notificationEmail.trim()}
+                >
+                  {testMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                  Send Test Email
+                </Button>
                 <Button
                   data-testid="button-save-settings"
                   onClick={() => saveMutation.mutate({ notificationEmail, isActive })}

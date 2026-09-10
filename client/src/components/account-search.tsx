@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useDebounce } from "@/hooks/use-debounce";
 import type { Debtor } from "@shared/schema";
 
 interface AccountSearchProps {
@@ -22,22 +23,18 @@ interface AccountSearchProps {
 export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSearchProps) {
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm.trim(), 250);
 
-  const { data: debtors = [] } = useQuery<Debtor[]>({
-    queryKey: ["/api/debtors"],
-  });
-
-  const filteredDebtors = debtors.filter((debtor) => {
-    if (!searchTerm) return false;
-    const term = searchTerm.toLowerCase();
-    const fullName = `${debtor.firstName} ${debtor.lastName}`.toLowerCase();
-    return (
-      fullName.includes(term) ||
-      debtor.fileNumber?.toLowerCase().includes(term) ||
-      debtor.accountNumber.toLowerCase().includes(term) ||
-      debtor.ssn?.includes(term) ||
-      debtor.ssnLast4?.includes(term)
-    );
+  const { data: filteredDebtors = [], isFetching } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors/search", debouncedSearchTerm],
+    queryFn: async () => {
+      const response = await fetch(`/api/debtors/search?q=${encodeURIComponent(debouncedSearchTerm)}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to search accounts");
+      return response.json();
+    },
+    enabled: open && debouncedSearchTerm.length > 0,
   });
 
   const handleSelect = (debtor: Debtor) => {
@@ -93,7 +90,7 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search by name, file number, account, or SSN..."
+              placeholder="Search by name, phone, file number, account, or SSN..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"
@@ -102,7 +99,7 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
             />
           </div>
           <ScrollArea className="h-[300px]">
-            {searchTerm && filteredDebtors.length === 0 && (
+            {searchTerm && !isFetching && debouncedSearchTerm === searchTerm.trim() && filteredDebtors.length === 0 && (
               <p className="text-center text-muted-foreground py-8">
                 No accounts found matching "{searchTerm}"
               </p>

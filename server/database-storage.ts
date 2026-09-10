@@ -369,13 +369,39 @@ export class DatabaseStorage implements IStorage {
 
   async searchDebtors(query: string, organizationId?: string): Promise<Debtor[]> {
     const searchPattern = `%${query}%`;
+    const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normalizedPattern = `%${normalizedQuery}%`;
+    const normalizedMatch = normalizedQuery ? or(
+      sql`regexp_replace(lower(coalesce(${debtors.ssn}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}`,
+      sql`EXISTS (
+        SELECT 1 FROM ${debtorContacts}
+        WHERE ${debtorContacts.debtorId} = ${debtors.id}
+          AND regexp_replace(lower(${debtorContacts.value}), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
+      )`,
+      sql`EXISTS (
+        SELECT 1 FROM ${employmentRecords}
+        WHERE ${employmentRecords.debtorId} = ${debtors.id}
+          AND regexp_replace(lower(coalesce(${employmentRecords.employerPhone}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
+      )`,
+      sql`EXISTS (
+        SELECT 1 FROM ${debtorReferences}
+        WHERE ${debtorReferences.debtorId} = ${debtors.id}
+          AND (
+            regexp_replace(lower(coalesce(${debtorReferences.phone}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
+            OR regexp_replace(lower(coalesce(${debtorReferences.phone2}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
+            OR regexp_replace(lower(coalesce(${debtorReferences.phone3}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
+          )
+      )`,
+    ) : sql`false`;
     const matchClause = or(
       ilike(debtors.firstName, searchPattern),
       ilike(debtors.lastName, searchPattern),
+      sql`concat_ws(' ', ${debtors.firstName}, ${debtors.lastName}) ILIKE ${searchPattern}`,
       ilike(debtors.email, searchPattern),
       ilike(debtors.accountNumber, searchPattern),
       ilike(debtors.fileNumber, searchPattern),
-      ilike(debtors.ssnLast4, searchPattern)
+      ilike(debtors.ssnLast4, searchPattern),
+      normalizedMatch,
     );
     if (organizationId) {
       return await db.select().from(debtors).where(

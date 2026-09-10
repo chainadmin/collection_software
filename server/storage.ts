@@ -1426,6 +1426,8 @@ export class MemStorage implements IStorage {
       const searchableFields = [
         ref.name,
         ref.phone,
+        ref.phone2,
+        ref.phone3,
         ref.relationship,
       ].filter(Boolean).map(f => f!.toLowerCase().replace(/[^a-z0-9]/g, ''));
 
@@ -1436,7 +1438,7 @@ export class MemStorage implements IStorage {
 
     return Array.from(matchedDebtorIds)
       .map(id => this.debtors.get(id))
-      .filter((d): d is Debtor => d !== undefined);
+      .filter((d): d is Debtor => d !== undefined && (!organizationId || d.organizationId === organizationId));
   }
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {

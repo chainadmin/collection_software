@@ -184,8 +184,6 @@ export default function Workstation() {
   const [clickedPhone, setClickedPhone] = useState("");
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
   const [calculatorMonths, setCalculatorMonths] = useState("12");
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedNoteRef = useRef<string>("");
   
   // Inline editing state
   const [showEditAddressDialog, setShowEditAddressDialog] = useState(false);
@@ -654,41 +652,9 @@ export default function Workstation() {
     }
   };
 
-  // Auto-save notes with debounce
-  useEffect(() => {
-    if (!quickNote.trim() || !selectedDebtorId || !currentCollector) {
-      return;
-    }
-    if (quickNote === lastSavedNoteRef.current) {
-      return;
-    }
-    
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-    
-    autoSaveTimerRef.current = setTimeout(() => {
-      if (quickNote.trim() && quickNote !== lastSavedNoteRef.current) {
-        lastSavedNoteRef.current = quickNote;
-        addNoteMutation.mutate({
-          debtorId: selectedDebtorId,
-          content: quickNote.trim(),
-          noteType: "general",
-        });
-      }
-    }, 3000); // Auto-save after 3 seconds of inactivity
-    
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [quickNote, selectedDebtorId, currentCollector]);
-
   // Reset note when switching accounts
   useEffect(() => {
     setQuickNote("");
-    lastSavedNoteRef.current = "";
   }, [selectedDebtorId]);
 
   const handleCardNumberChange = (value: string) => {
@@ -1988,7 +1954,7 @@ export default function Workstation() {
               <div className="p-4 border-b">
                 <div className="flex gap-2">
                   <Textarea
-                    placeholder="Add a quick note... (auto-saves after 3 seconds)"
+                    placeholder="Add a quick note..."
                     value={quickNote}
                     onChange={(e) => setQuickNote(e.target.value)}
                     className="min-h-[60px] resize-none"
@@ -2003,12 +1969,6 @@ export default function Workstation() {
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                {quickNote.trim() && quickNote !== lastSavedNoteRef.current && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
-                    <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                    Auto-saving...
-                  </p>
-                )}
               </div>
               <ScrollArea className="flex-1">
                 <div className="p-4 space-y-2">
