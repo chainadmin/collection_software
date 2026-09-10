@@ -13,6 +13,7 @@ const body = {
 
 async function fixture(vault: any) {
   process.env.PAYMENT_FINGERPRINT_KEY = "card-route-test-key";
+  process.env.PAYMENT_CARD_ENCRYPTION_KEY = "card-route-encryption-key-for-unit-tests";
   const storage = new MemStorage();
   const debtor = await storage.createDebtor({ organizationId: "card-org", portfolioId: "p", accountNumber: "a", firstName: "Jane", lastName: "Doe", originalBalance: 10000, currentBalance: 10000, status: "open" });
   const foreign = await storage.createDebtor({ organizationId: "foreign-org", portfolioId: "p", accountNumber: "b", firstName: "F", lastName: "D", originalBalance: 10000, currentBalance: 10000, status: "open" });
@@ -27,6 +28,23 @@ async function fixture(vault: any) {
   });
   return { storage, debtor, foreign, merchant, request, close: () => new Promise<void>(resolve => server.close(resolve)) };
 }
+
+test("collector local-storage mode saves encrypted full card details without retaining CVV", async () => {
+  const f = await fixture(async () => { throw new Error("tokenization must not be called"); });
+  try {
+    const response = await f.request(f.debtor.id, { ...body, saveWithoutTokenization: true }, "local-card-key");
+    assert.equal(response.status, 201);
+    const presented: any = await response.json();
+    assert.equal(presented.cardNumber, body.cardNumber);
+    assert.equal(presented.cardholderName, body.cardholderName);
+    assert.equal(presented.billingZip, body.billingZip);
+    assert.equal(presented.vaultStatus, "locally_stored");
+    const stored = await f.storage.getPaymentCard(presented.id);
+    assert.ok(stored?.encryptedCardNumber);
+    assert.notEqual(stored?.encryptedCardNumber, body.cardNumber);
+    assert.doesNotMatch(JSON.stringify(stored), /"cvv"|4242424242424242/);
+  } finally { await f.close(); }
+});
 
 test("card vault HTTP route is tenant protected, idempotent, conflict safe, and redacted", async () => {
   let calls = 0;

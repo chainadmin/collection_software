@@ -226,6 +226,7 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
+          saveWithoutTokenization: true,
           idempotencyKey: cardRequestKey,
         }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
         const newCard = await newCardResponse.json() as { id: string };
@@ -554,7 +555,7 @@ export function RecordPaymentDialog({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">Enter New Card</SelectItem>
-                      {paymentCards.filter(card => card.vaultStatus === "vaulted" && !!card.processorType && !!card.merchantId).map((card) => (
+                      {paymentCards.filter(card => card.vaultStatus === "locally_stored" || (card.vaultStatus === "vaulted" && !!card.processorType && !!card.merchantId)).map((card) => (
                         <SelectItem key={card.id} value={card.id}>
                           {card.cardType.toUpperCase()} •••• {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
                         </SelectItem>

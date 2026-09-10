@@ -210,6 +210,7 @@ export async function runMigrations() {
         "debtor_id" varchar NOT NULL,
         "card_type" text NOT NULL,
         "cardholder_name" text NOT NULL,
+        "encrypted_card_number" text,
         "card_number_last_4" text NOT NULL,
         "expiry_month" text NOT NULL,
         "expiry_year" text NOT NULL,
@@ -617,6 +618,7 @@ export async function runMigrations() {
     // an administrator replaces the card.
     await db.execute(sql`
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_type text;
+      ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS encrypted_card_number text;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_token text;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS processor_customer_id text;
       ALTER TABLE payment_cards ADD COLUMN IF NOT EXISTS merchant_id varchar;

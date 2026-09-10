@@ -1690,6 +1690,7 @@ export class MemStorage implements IStorage {
       debtorId: card.debtorId,
       cardType: card.cardType,
       cardholderName: card.cardholderName,
+      encryptedCardNumber: card.encryptedCardNumber ?? null,
       cardNumberLast4: card.cardNumberLast4,
       expiryMonth: card.expiryMonth,
       expiryYear: card.expiryYear,

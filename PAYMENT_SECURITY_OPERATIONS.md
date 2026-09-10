@@ -36,7 +36,21 @@ The intentionally public list is maintained beside the middleware in
 token authorization. New routes must not accept a body/query organization ID
 as authorization.
 
-## Saved-card vaulting
+## Saved-card storage and vaulting
+
+The collector workstation currently requests local card storage when processor
+tokenization is unavailable. In this mode the PAN is encrypted with AES-256-GCM
+before database persistence and is returned only by the authenticated,
+tenant-scoped card endpoint. Configure a stable, high-entropy
+`PAYMENT_CARD_ENCRYPTION_KEY` before collectors save or view these cards; losing
+or rotating this value without first re-encrypting existing rows makes their
+PANs unrecoverable. Treat browser access, database access, backups, logs, and
+the encryption key as PCI-scoped. CVV is validated in request memory and is
+never persisted or returned. The payment runner decrypts the PAN only while
+constructing the gateway request and submits the saved credential as a
+card-on-file transaction without CVV. Deleting a card permanently removes its
+encrypted PAN and metadata from the live database; backup retention remains an
+operator responsibility.
 
 Card saves are no-charge vault operations performed before a metadata row is
 inserted. The application schema maps only brand, last four, expiration,
