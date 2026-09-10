@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import { CollectorSidebar } from "@/components/collector-sidebar";
 import { AccountSearch } from "@/components/account-search";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
@@ -53,6 +54,19 @@ import Subscribe from "@/pages/subscribe";
 import NotFound from "@/pages/not-found";
 import type { Collector, Debtor } from "@shared/schema";
 import { OrganizationProvider } from "@/lib/organization-context";
+import { ArrowLeft } from "lucide-react";
+import { ACCOUNT_CHANGED_EVENT, recordAccountChange, type AccountHistory } from "@/lib/account-history";
+
+const ACCOUNT_HISTORY_STORAGE_KEY = "debtflow-account-history";
+
+function accountIdFromLocation(location: string): string | null {
+  const detailMatch = location.match(/^\/app\/debtors\/([^/?#]+)/);
+  if (detailMatch) return decodeURIComponent(detailMatch[1]);
+  if (location.startsWith("/app/workstation")) {
+    return new URLSearchParams(location.split("?")[1] || "").get("account");
+  }
+  return null;
+}
 
 function AppRouter() {
   return (
@@ -95,6 +109,40 @@ function AppRouter() {
 function AppLayout() {
   const [location, setLocation] = useLocation();
   const { user: authUser } = useAuth();
+  const initialHistory = (): AccountHistory => {
+    if (typeof window === "undefined") return { currentAccountId: null, previousAccountId: null };
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(ACCOUNT_HISTORY_STORAGE_KEY) || "null");
+      if (saved && typeof saved === "object") return saved;
+    } catch {
+      // Ignore malformed browser state and begin a fresh history.
+    }
+    return { currentAccountId: null, previousAccountId: null };
+  };
+  const historyRef = useRef<AccountHistory>(initialHistory());
+  const [previousAccountId, setPreviousAccountId] = useState(historyRef.current.previousAccountId);
+
+  const trackAccount = useCallback((accountId: string) => {
+    const next = recordAccountChange(historyRef.current, accountId);
+    if (next === historyRef.current) return;
+    historyRef.current = next;
+    setPreviousAccountId(next.previousAccountId);
+    sessionStorage.setItem(ACCOUNT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  }, []);
+
+  useEffect(() => {
+    const locationAccountId = accountIdFromLocation(location);
+    if (locationAccountId) trackAccount(locationAccountId);
+  }, [location, trackAccount]);
+
+  useEffect(() => {
+    const handleAccountChange = (event: Event) => {
+      const accountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+      if (accountId) trackAccount(accountId);
+    };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, handleAccountChange);
+    return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, handleAccountChange);
+  }, [trackAccount]);
   
   const { data: collectors = [] } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
@@ -141,11 +189,21 @@ function AppLayout() {
   }, [isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, setLocation]);
 
   const handleAccountSelect = (debtor: Debtor) => {
+    trackAccount(debtor.id);
     if (isCollectorRoute || isCollectorRole) {
       setLocation(`/app/workstation?account=${debtor.id}`);
     } else {
       setLocation(`/app/debtors/${debtor.id}`);
     }
+  };
+
+  const returnToPreviousAccount = () => {
+    if (!previousAccountId) return;
+    const destination = previousAccountId;
+    trackAccount(destination);
+    setLocation(showCollectorSidebar
+      ? `/app/workstation?account=${encodeURIComponent(destination)}`
+      : `/app/debtors/${encodeURIComponent(destination)}`);
   };
 
   const style = {
@@ -181,6 +239,21 @@ function AppLayout() {
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-muted-foreground hover:text-foreground" />
               <div className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
               <AccountSearch onSelect={handleAccountSelect} />
+              {previousAccountId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={returnToPreviousAccount}
+                  className="h-9 px-2 text-muted-foreground hover:text-foreground sm:px-3"
+                  title="Return to the previously worked account"
+                  aria-label="Previous account"
+                  data-testid="button-previous-account"
+                >
+                  <ArrowLeft className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Previous account</span>
+                </Button>
+              )}
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               {authUser && (

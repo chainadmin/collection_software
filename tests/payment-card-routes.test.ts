@@ -46,9 +46,10 @@ test("every saved payment card is encrypted locally without a gateway setup call
 test("local card save is tenant protected, idempotent, and conflict safe", async () => {
   const f = await fixture();
   try {
-    assert.equal((await f.request(f.debtor.id, body, "unauth-card", false)).status, 401);
-    assert.equal((await f.request(f.foreign.id, body, "foreign-card")).status, 403);
-    const first = await f.request(f.debtor.id, body);
+    const tokenizedBody = { ...body, saveWithoutTokenization: false };
+    assert.equal((await f.request(f.debtor.id, tokenizedBody, "unauth-card", false)).status, 401);
+    assert.equal((await f.request(f.foreign.id, tokenizedBody, "foreign-card")).status, 403);
+    const first = await f.request(f.debtor.id, tokenizedBody);
     assert.equal(first.status, 201);
     const saved: any = await first.json();
     const replay = await f.request(f.debtor.id, body);

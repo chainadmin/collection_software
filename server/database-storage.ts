@@ -392,6 +392,7 @@ export class DatabaseStorage implements IStorage {
             OR regexp_replace(lower(coalesce(${debtorReferences.phone3}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}
           )
       )`,
+      sql`regexp_replace(lower(coalesce(${debtors.customFields}, '')), '[^a-z0-9]', '', 'g') LIKE ${normalizedPattern}`,
     ) : sql`false`;
     const matchClause = or(
       ilike(debtors.firstName, searchPattern),
@@ -401,6 +402,7 @@ export class DatabaseStorage implements IStorage {
       ilike(debtors.accountNumber, searchPattern),
       ilike(debtors.fileNumber, searchPattern),
       ilike(debtors.ssnLast4, searchPattern),
+      ilike(debtors.customFields, searchPattern),
       normalizedMatch,
     );
     if (organizationId) {
