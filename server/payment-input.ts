@@ -77,6 +77,15 @@ interface TrustedPaymentFields {
   processedBy?: string | null;
 }
 
+/** Resolve payment attribution from the authenticated session, never the request body. */
+export function authenticatedPaymentCollectorId(session: unknown): string | null {
+  if (!session || typeof session !== "object") return null;
+  const collector = (session as { collector?: unknown }).collector;
+  if (!collector || typeof collector !== "object") return null;
+  const id = (collector as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /**
  * Converts an internal payment request to an explicit persistence allowlist.
  * Processor credentials are always resolved from the selected saved card.

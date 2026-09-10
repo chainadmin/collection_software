@@ -98,6 +98,17 @@ export function RecordPaymentDialog({
   const [confirmManageAction, setConfirmManageAction] = useState<"update" | "cancel" | null>(null);
   const cardValidation = cardNumber ? lookupBin(cardNumber) : null;
 
+  const refreshPaymentViews = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
+    queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payment-arrangements"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/collectors/performance"] });
+  };
+
   const { data: paymentCards } = useQuery<PaymentCard[]>({
     queryKey: ["/api/debtors", debtorId, "cards"],
     enabled: !!debtorId && open,
@@ -248,9 +259,7 @@ export function RecordPaymentDialog({
             ...(paymentMethod === "card" && cardIdToUse !== manageOriginalCardId ? { cardId: cardIdToUse } : {}),
           } : {}),
         }, { headers: { "Idempotency-Key": manageMutationId } });
-        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payment-arrangements"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+        refreshPaymentViews();
         toast({
           title: manageAction === "cancel" ? "Schedule cancelled" : "Schedule updated",
           description: manageAction === "cancel" ? "All remaining pending payments were cancelled." : "The remaining pending payments were updated.",
@@ -267,9 +276,7 @@ export function RecordPaymentDialog({
           cardId: cardIdToUse || null,
           rows,
         }, { headers: { "Idempotency-Key": arrangementId } });
-        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
-        queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+        refreshPaymentViews();
         toast({ title: "Payments scheduled", description: `${rows.length} pending payments were saved. No payment was taken today.` });
         resetForm();
         onOpenChange(false);
@@ -312,9 +319,7 @@ export function RecordPaymentDialog({
       }, { headers: { "Idempotency-Key": singleSubmissionId } });
       const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null };
 
-      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+      refreshPaymentViews();
 
       if (shouldProcessNow) {
         const approved = processedPayment?.status === "processed" || processedPayment?.status === "posted";
