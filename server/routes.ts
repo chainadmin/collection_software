@@ -3102,15 +3102,28 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const processorType = String(req.body.processorType || "");
+      const body = { ...req.body };
+      // Credentials are commonly pasted from gateway dashboards. Do not let
+      // invisible surrounding whitespace change the signed request.
+      for (const field of [
+        "nmiSecurityKey",
+        "usaepaySourceKey",
+        "usaepayPin",
+        "authorizeNetApiLoginId",
+        "authorizeNetTransactionKey",
+        "stripeSecretKey",
+      ]) {
+        if (typeof body[field] === "string") body[field] = body[field].trim();
+      }
       const validProcessors = ["nmi", "usaepay", "authorize_net", "stripe"];
       if (!validProcessors.includes(processorType)) {
         return res.status(400).json({ error: "Unsupported payment processor" });
       }
       const configured =
-        (processorType === "nmi" && req.body.nmiSecurityKey) ||
-        (processorType === "usaepay" && req.body.usaepaySourceKey && req.body.usaepayPin) ||
-        (processorType === "authorize_net" && req.body.authorizeNetApiLoginId && req.body.authorizeNetTransactionKey) ||
-        (processorType === "stripe" && req.body.stripeSecretKey);
+        (processorType === "nmi" && body.nmiSecurityKey) ||
+        (processorType === "usaepay" && body.usaepaySourceKey && body.usaepayPin) ||
+        (processorType === "authorize_net" && body.authorizeNetApiLoginId && body.authorizeNetTransactionKey) ||
+        (processorType === "stripe" && body.stripeSecretKey);
       if (!configured) {
         return res.status(400).json({ error: `Required ${processorType} credentials are missing` });
       }
@@ -3119,7 +3132,7 @@ export async function registerRoutes(
         await Promise.all(existingMerchants.filter((m) => m.isActive).map((m) => storage.updateMerchant(m.id, { isActive: false })));
       }
       const merchant = await storage.createMerchant({
-        ...req.body,
+        ...body,
         organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });

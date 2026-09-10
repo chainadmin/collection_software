@@ -203,7 +203,7 @@ test("USAePay authentication errors are reported as conclusive declines", async 
     assert.equal(result.success, false);
     assert.equal(result.ambiguous, undefined);
     assert.equal(persisted?.status, "declined");
-    assert.match(result.declineReason || "", /HTTP 401.*Invalid source key or pin/);
+    assert.match(result.declineReason || "", /HTTP 401.*Test Mode off uses production.*transaction API.*sandbox.*Invalid source key or pin/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -461,6 +461,13 @@ test("USAePay REST authentication signs the source key without exposing the PIN"
   assert.equal(credentials.includes("secret-pin"), false);
 });
 
+test("USAePay REST authentication normalizes previously saved pasted credentials", () => {
+  const authorization = usaepayAuthorization("  source\n", " secret-pin\t", "fixed-seed");
+  const credentials = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
+  const expectedHash = createHash("sha256").update("sourcefixed-seedsecret-pin").digest("hex");
+  assert.equal(credentials, `source:fixed-seed:${expectedHash}`);
+});
+
 test("concurrent due-today reservation recovery has one promotion winner and no status regression", async () => {
   const store = new MemStorage();
   const reservation = await store.createPayment({
