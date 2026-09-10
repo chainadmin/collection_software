@@ -27,6 +27,7 @@ import {
   getSuperAdminEmailSettings,
   getOrgEmailSettings,
   sendNewOrgNotificationEmail,
+  sendOrgNotificationEmail,
   sendSignupWelcomeEmail,
 } from "./email";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
@@ -1424,6 +1425,32 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to save org email settings:", error);
       res.status(500).json({ error: "Failed to save email settings" });
+    }
+  });
+
+  app.post("/api/email-settings/test", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can test email settings" });
+      }
+
+      const orgId = getOrgId(req);
+      const organization = await storage.getOrganization(orgId);
+      const result = await sendOrgNotificationEmail(
+        orgId,
+        "Debt Manager Pro test email",
+        `<p>This is a test email for <strong>${(organization?.name || "your organization").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#039;" })[character]!)}</strong>.</p><p>Your email notifications are configured correctly.</p>`,
+        `This is a test email for ${organization?.name || "your organization"}. Your email notifications are configured correctly.`,
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error || "Failed to send test email" });
+      }
+      res.json({ success: true, message: "Test email sent successfully" });
+    } catch (error: any) {
+      console.error("Failed to send org test email:", error);
+      res.status(500).json({ success: false, error: error.message || "Failed to send test email" });
     }
   });
 

@@ -38,3 +38,17 @@ test("nested storage rolls back debtor and companions when a nested write fails"
   ], []), /simulated nested failure/);
   assert.equal((await storage.getDebtors()).length, before);
 });
+
+test("account search finds formatted phone numbers in contacts and every reference slot", async () => {
+  const storage = new MemStorage();
+  const created = await storage.createDebtorWithNested(
+    debtor,
+    [{ type: "phone", value: "(555) 867-5309", label: "Mobile", isPrimary: true, isValid: true }],
+    [{ name: "Grace Hopper", phone: "111-111-1111", phone2: "222-222-2222", phone3: "333-333-3333", addedDate: "2025-01-01" }],
+  );
+
+  assert.deepEqual((await storage.searchDebtors("5558675309", "org-a")).map(({ id }) => id), [created.id]);
+  assert.deepEqual((await storage.searchDebtors("2222222", "org-a")).map(({ id }) => id), [created.id]);
+  assert.deepEqual((await storage.searchDebtors("333-333-3333", "org-a")).map(({ id }) => id), [created.id]);
+  assert.deepEqual(await storage.searchDebtors("5558675309", "org-b"), []);
+});
