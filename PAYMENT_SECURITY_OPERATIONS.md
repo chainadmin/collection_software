@@ -57,6 +57,12 @@ token. Payments prefer the processor token; they do not decrypt and submit the
 PAN when a valid token is available. CVV exists only in request memory for the
 duration of the vault call and is never persisted, returned, or logged.
 
+Pay-now submissions deliberately defer that no-charge vault operation. The
+first sale uses the encrypted raw PAN without retaining CVV; after an approval,
+the server makes a best-effort vault request for later payments. If that vault
+request is unavailable, the approved payment remains approved and the locally
+encrypted card remains usable through the existing card-on-file path.
+
 Authenticated Chain requests use one contract at
 `POST /api/v2/insert_payments_external`. Lowercase and camel-case aliases are
 normalized and every `paymentdata` installment is handled. A same-business-day

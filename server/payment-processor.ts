@@ -12,6 +12,7 @@ import { nextRecurringOccurrence } from "./recurring-payments";
 import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
 import { decryptCardNumber } from "./card-encryption";
 import { usaepayAuthorization } from "./usaepay-auth";
+import { vaultCard } from "./card-vault";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -651,6 +652,7 @@ export async function processPayment(
       expirationDate: string;
       cardCode: string;
     } | null = null;
+    let locallyStoredCardId: string | null = null;
     let achData: {
       accountType: string;
       routingNumber: string;
@@ -669,6 +671,7 @@ export async function processPayment(
           // process a card-on-file transaction without resubmitting it.
           cardCode: "",
         };
+        locallyStoredCardId = card.id;
         gatewayPaymentToken = null;
       } else if (
         card &&
@@ -778,6 +781,33 @@ export async function processPayment(
       debtor?.email || undefined,
       references.idempotencyKey,
     );
+
+    // The sale is the primary operation. Once it is conclusively approved,
+    // make a best-effort vault request for subsequent payments. A vault outage
+    // must never rewrite an approved charge as failed, and CVV is deliberately
+    // not retained or replayed after authorization.
+    if (result.success && locallyStoredCardId && cardData) {
+      const card = await storage.getPaymentCard(locallyStoredCardId);
+      if (card?.vaultStatus === "locally_stored") {
+        try {
+          const vaulted = await vaultCard(activeMerchant, debtor, {
+            pan: cardData.cardNumber,
+            cvv: "",
+            expiryMonth: card.expiryMonth,
+            expiryYear: card.expiryYear,
+            cardholderName: card.cardholderName,
+            billingZip: card.billingZip || "",
+          });
+          await storage.updatePaymentCard(card.id, {
+            ...vaulted,
+            merchantId: activeMerchant.id,
+          });
+        } catch {
+          // Retain the encrypted credential so the approved payment and future
+          // card-on-file attempts remain operational while vaulting is down.
+        }
+      }
+    }
   }
 
   const updatedPayment = await storage.updatePayment(payment.id, {
