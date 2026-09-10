@@ -1,5 +1,6 @@
 import authorizenet from "authorizenet";
 import type { Debtor, Merchant } from "@shared/schema";
+import { usaepayAuthorization } from "./usaepay-auth";
 
 const { APIContracts, APIControllers, Constants } = authorizenet;
 
@@ -184,7 +185,7 @@ async function vaultUsaepay(merchant: Merchant, card: RawCardInput): Promise<Vau
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Basic ${Buffer.from(`${merchant.usaepaySourceKey}:${merchant.usaepayPin}`).toString("base64")}`,
+        Authorization: usaepayAuthorization(merchant.usaepaySourceKey, merchant.usaepayPin),
       },
       body: JSON.stringify({
         command: "cc:save",

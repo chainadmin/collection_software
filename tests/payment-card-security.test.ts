@@ -24,6 +24,7 @@ import {
 } from "../server/chain-payment";
 import { MemStorage } from "../server/storage";
 import { CardVaultError, vaultCard } from "../server/card-vault";
+import { usaepayAuthorization } from "../server/usaepay-auth";
 
 function withTestFingerprintKey<T>(run: () => T): T {
   const prior = process.env.PAYMENT_FINGERPRINT_KEY;
@@ -452,6 +453,10 @@ test("USAePay vault uses documented cc:save transaction contract", async () => {
     );
     assert.equal(request.url, "https://sandbox.usaepay.com/api/v2/transactions");
     assert.equal(request.init.method, "POST");
+    const [sourceKey, seed, hash] = Buffer.from(request.init.headers.Authorization.slice("Basic ".length), "base64").toString("utf8").split(":");
+    assert.equal(sourceKey, "source");
+    assert.ok(seed);
+    assert.equal(hash, createHash("sha256").update(`source${seed}pin`).digest("hex"));
     assert.ok(request.init.signal instanceof AbortSignal);
     assert.deepEqual(JSON.parse(request.init.body), {
       command: "cc:save",
@@ -462,6 +467,14 @@ test("USAePay vault uses documented cc:save transaction contract", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("USAePay REST authentication signs the source key without exposing the PIN", () => {
+  const authorization = usaepayAuthorization("source", "secret-pin", "fixed-seed");
+  const credentials = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
+  const expectedHash = createHash("sha256").update("sourcefixed-seedsecret-pin").digest("hex");
+  assert.equal(credentials, `source:fixed-seed:${expectedHash}`);
+  assert.equal(credentials.includes("secret-pin"), false);
 });
 
 test("USAePay vault treats transport failures as ambiguous and non-approvals as failures", async () => {

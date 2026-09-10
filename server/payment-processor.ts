@@ -11,6 +11,7 @@ import Stripe from "stripe";
 import { nextRecurringOccurrence } from "./recurring-payments";
 import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
 import { decryptCardNumber } from "./card-encryption";
+import { usaepayAuthorization } from "./usaepay-auth";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -251,14 +252,11 @@ async function processUsaepayCard(
     };
     if (invoiceNumber) body.invoice = invoiceNumber;
 
-    const authString = Buffer.from(`${creds.sourceKey}:${creds.pin}`).toString(
-      "base64"
-    );
     const res = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Basic ${authString}`,
+        Authorization: usaepayAuthorization(creds.sourceKey, creds.pin),
       },
       body: JSON.stringify(body),
     });
@@ -315,14 +313,11 @@ async function processUsaepayAch(
     };
     if (invoiceNumber) body.invoice = invoiceNumber;
 
-    const authString = Buffer.from(`${creds.sourceKey}:${creds.pin}`).toString(
-      "base64"
-    );
     const res = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Basic ${authString}`,
+        Authorization: usaepayAuthorization(creds.sourceKey, creds.pin),
       },
       body: JSON.stringify(body),
     });
@@ -505,7 +500,7 @@ async function processViaGateway(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Basic ${Buffer.from(`${creds.sourceKey}:${creds.pin}`).toString("base64")}`,
+            Authorization: usaepayAuthorization(creds.sourceKey, creds.pin),
           },
           body: JSON.stringify({
             command: "cc:sale",
