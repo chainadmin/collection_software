@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerChainConnectionTestRoute, registerExternalApiRoutes } from "./external-api";
-import { buildInternalPaymentInsert, rejectRawCardData } from "./payment-input";
+import { buildInternalPaymentInsert, parseOneTimeCardInput, rejectRawCardData, type OneTimeCardInput } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
@@ -2708,161 +2708,6 @@ export async function registerRoutes(
     }
   });
 
-  /* Historical inline card route implementation removed in favor of
-  registerPaymentCardRoutes. The remaining commented text is retained only
-  temporarily in this migration diff and does not register Express handlers.
-  legacyPostCards("/api/debtors/:id/cards", async (req: any, res) => {
-    try {
-      const orgId = getOrgId(req);
-      const debtor = await storage.getDebtor(req.params.id);
-      if (!debtor) return res.status(404).json({ error: "Debtor not found" });
-      if (!validateOrgOwnership(debtor.organizationId, orgId)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-      const panValue = typeof req.body.cardNumber === "string" ? req.body.cardNumber : "";
-      const { digits: pan, malformed } = normalizeCardNumber(panValue);
-      const network = detectCardNetwork(pan);
-      const networkType: Record<string, string> = {
-        Visa: "visa",
-        Mastercard: "mastercard",
-        "American Express": "amex",
-        Discover: "discover",
-      };
-      const expectedLengths: Record<string, number[]> = {
-        Visa: [13, 16, 19],
-        Mastercard: [16],
-        "American Express": [15],
-        Discover: [16, 19],
-      };
-      if (malformed || network === "Unknown" || !expectedLengths[network].includes(pan.length) || !passesLuhn(pan)) {
-        return res.status(400).json({ error: "Invalid card number" });
-      }
-      if (req.body.cardType && req.body.cardType !== networkType[network]) {
-        return res.status(400).json({ error: "Card network does not match card number" });
-      }
-      const cvv = typeof req.body.cvv === "string" ? req.body.cvv : "";
-      const cvvLength = network === "American Express" ? 4 : 3;
-      if (!new RegExp(`^\\d{${cvvLength}}$`).test(cvv)) {
-        return res.status(400).json({ error: "Invalid security code" });
-      }
-      const expiryMonth = String(req.body.expiryMonth || "").padStart(2, "0");
-      let expiryYear = String(req.body.expiryYear || "");
-      if (/^\d{2}$/.test(expiryYear)) expiryYear = `20${expiryYear}`;
-      if (!/^(0[1-9]|1[0-2])$/.test(expiryMonth) || !/^\d{4}$/.test(expiryYear)) {
-        return res.status(400).json({ error: "Invalid expiration date" });
-      }
-      const expiration = new Date(Number(expiryYear), Number(expiryMonth), 0, 23, 59, 59);
-      if (expiration < new Date()) return res.status(400).json({ error: "Card is expired" });
-      const cardholderName = typeof req.body.cardholderName === "string" ? req.body.cardholderName.trim() : "";
-      if (cardholderName.length < 2 || cardholderName.length > 100 || !/^[A-Za-z][A-Za-z .,'-]+$/.test(cardholderName)) {
-        return res.status(400).json({ error: "Invalid cardholder name" });
-      }
-      const billingZip = typeof req.body.billingZip === "string" ? req.body.billingZip.trim() : "";
-      if (!/^\d{5}(?:-\d{4})?$/.test(billingZip)) {
-        return res.status(400).json({ error: "A valid billing ZIP is required" });
-      }
-      const merchants = await storage.getMerchants(orgId);
-      const merchant = merchants.find(item => item.isActive && (
-        (item.processorType === "authorize_net" && item.authorizeNetApiLoginId && item.authorizeNetTransactionKey) ||
-        (item.processorType === "stripe" && item.stripeSecretKey) ||
-        (item.processorType === "nmi" && item.nmiSecurityKey) ||
-        (item.processorType === "usaepay" && item.usaepaySourceKey && item.usaepayPin)
-      ));
-      if (!merchant) return res.status(409).json({ error: "No active card processor is configured" });
-      const existingCards = (await storage.getPaymentCards(req.params.id))
-        .filter(card => card.organizationId === orgId);
-      const vaultKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || "");
-      if (vaultKey && (!/^[A-Za-z0-9._:-]{8,180}$/.test(vaultKey))) {
-        return res.status(400).json({ error: "Invalid idempotency key" });
-      }
-      const credentialFingerprint = vaultKey
-        ? chainCredentialFingerprint(orgId, `ui-card:${vaultKey}`, pan)
-        : null;
-      let reservation = vaultKey
-        ? await storage.getPaymentCardByExternalIdempotencyKey(orgId, `ui-card:${vaultKey}`)
-        : undefined;
-      if (reservation) {
-        const immutableMatch = reservation.debtorId === debtor.id &&
-          reservation.merchantId === merchant.id &&
-          reservation.externalCredentialFingerprint === credentialFingerprint &&
-          reservation.cardNumberLast4 === pan.slice(-4) &&
-          reservation.expiryMonth === expiryMonth && reservation.expiryYear === expiryYear &&
-          reservation.cardholderName === cardholderName && reservation.billingZip === billingZip;
-        if (!immutableMatch) return res.status(409).json({ error: "Card idempotency key conflicts with a different request" });
-        if (reservation.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
-        // A prior response loss during/after a gateway call is deliberately
-        // never retried automatically; reconciliation is required.
-        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
-      }
-      const existingCustomerId = existingCards.find(card =>
-        card.merchantId === merchant.id &&
-        card.processorType === merchant.processorType &&
-        card.vaultStatus === "vaulted" &&
-        card.processorCustomerId
-      )?.processorCustomerId || undefined;
-      const vaultedCards = existingCards.filter(card => card.vaultStatus === "vaulted");
-      const makeDefault = req.body.isDefault === true || vaultedCards.length === 0;
-      try {
-        reservation = await storage.createPaymentCard({
-          cardType: networkType[network], cardholderName, cardNumberLast4: pan.slice(-4),
-          expiryMonth, expiryYear, billingZip, isDefault: false, processorType: merchant.processorType,
-          merchantId: merchant.id, vaultStatus: "vaulting",
-          externalIdempotencyKey: vaultKey ? `ui-card:${vaultKey}` : null,
-          externalCredentialFingerprint: credentialFingerprint,
-          debtorId: req.params.id, addedDate: new Date().toISOString().split("T")[0],
-          addedBy: req.session?.collector?.id || null, organizationId: orgId,
-        });
-      } catch (error: any) {
-        if (error?.code !== "23505" || !vaultKey) throw error;
-        reservation = await storage.getPaymentCardByExternalIdempotencyKey(orgId, `ui-card:${vaultKey}`);
-        if (reservation?.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
-        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
-      }
-      let vaulted;
-      try {
-        vaulted = await vaultCard(merchant, debtor, { pan, cvv, expiryMonth, expiryYear, cardholderName, billingZip }, existingCustomerId);
-      } catch (error) {
-        await storage.updatePaymentCard(reservation.id, { vaultStatus: "vault_failed" });
-        throw error;
-      }
-      if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault)
-        .map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
-      const card = await storage.updatePaymentCard(reservation.id, { ...vaulted, merchantId: merchant.id, isDefault: makeDefault });
-      if (!card) throw new Error("Card vault reservation disappeared");
-      res.status(201).json(redactPaymentCard(card));
-    } catch (error) {
-      if (error instanceof CardVaultError) return res.status(422).json({ error: error.message });
-      res.status(500).json({ error: "Failed to vault payment card" });
-    }
-  });
-
-  legacyDeleteCard("/api/cards/:id", async (req: any, res) => {
-    try {
-      const orgId = getOrgId(req);
-      const existing = await storage.getPaymentCard(req.params.id);
-      if (!existing) return res.status(404).json({ error: "Payment card not found" });
-      if (!validateOrgOwnership(existing.organizationId, orgId)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-      const success = await storage.deletePaymentCard(req.params.id);
-      if (success) {
-        // Preserve a usable default where possible. Legacy/unvaulted rows are
-        // intentionally never promoted because the runner must refuse them.
-        if (existing.isDefault) {
-          const replacement = (await storage.getPaymentCards(existing.debtorId))
-            .find(card => card.organizationId === orgId && card.vaultStatus === "vaulted");
-          if (replacement) await storage.updatePaymentCard(replacement.id, { isDefault: true });
-        }
-        res.status(204).send();
-      } else {
-        res.status(404).json({ error: "Payment card not found" });
-      }
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete payment card" });
-    }
-  });
-
-  */
   app.get("/api/debtors/:id/payments", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2893,30 +2738,52 @@ export async function registerRoutes(
       if (amount > debtor.currentBalance) {
         return res.status(400).json({ error: "Payment amount cannot exceed the current balance" });
       }
-      try {
-        rejectRawCardData(req.body);
-      } catch {
-        return res.status(400).json({ error: "Raw card data is not accepted by this endpoint" });
-      }
-      if (req.body.paymentMethod === "card") {
-        if (typeof req.body.cardId !== "string" || !req.body.cardId) {
-          return res.status(400).json({ error: "A saved card is required" });
-        }
-        const card = await storage.getPaymentCard(req.body.cardId);
-        if (!card || card.organizationId !== orgId || card.debtorId !== debtor.id) {
-          return res.status(400).json({ error: "Payment card does not belong to this debtor" });
-        }
-        const locallyStored = card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber;
-        const vaulted = card.vaultStatus === "vaulted" && !!card.processorToken && !!card.processorType;
-        if (!locallyStored && !vaulted) {
-          return res.status(409).json({ error: "Payment card cannot be scheduled" });
+      let oneTimeCard: OneTimeCardInput | undefined;
+      const hasDirectCard = req.body.oneTimeCard !== undefined;
+      if (hasDirectCard) {
+        if (req.body.processNow !== true || req.body.paymentMethod !== "card" || req.body.cardId || req.body.frequency !== "one_time") {
+          return res.status(400).json({ error: "Raw card data is accepted only for a one-time Pay Now card payment" });
         }
         const activeMerchants = (await storage.getMerchants(orgId)).filter(item => item.isActive);
-        if (vaulted && !activeMerchants.some(item => item.id === card.merchantId && item.processorType === card.processorType)) {
-          return res.status(409).json({ error: "Payment card is not associated with its active merchant" });
+        if (!activeMerchants.some(item => item.processorType === "usaepay" && item.usaepaySourceKey && item.usaepayPin)) {
+          return res.status(409).json({ error: "An active USAePay merchant is required for a direct card payment" });
         }
-        if (locallyStored && activeMerchants.length === 0) {
-          return res.status(409).json({ error: "No active merchant is configured for this card" });
+        try {
+          const { oneTimeCard: _allowedCardFields, ...nonCardFields } = req.body;
+          rejectRawCardData(nonCardFields);
+          oneTimeCard = parseOneTimeCardInput(req.body.oneTimeCard);
+        } catch (error) {
+          return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid card data" });
+        }
+      } else {
+        try {
+          rejectRawCardData(req.body);
+        } catch {
+          return res.status(400).json({ error: "Raw card data is not accepted by this endpoint" });
+        }
+      }
+      if (req.body.paymentMethod === "card") {
+        if (!oneTimeCard && (typeof req.body.cardId !== "string" || !req.body.cardId)) {
+          return res.status(400).json({ error: "A saved card is required" });
+        }
+        const card = oneTimeCard ? null : await storage.getPaymentCard(req.body.cardId);
+        if (oneTimeCard) {
+          // Direct one-time payments intentionally do not create or reference a vault record.
+        } else if (!card || card.organizationId !== orgId || card.debtorId !== debtor.id) {
+          return res.status(400).json({ error: "Payment card does not belong to this debtor" });
+        } else {
+          const locallyStored = card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber;
+          const vaulted = card.vaultStatus === "vaulted" && !!card.processorToken && !!card.processorType;
+          if (!locallyStored && !vaulted) {
+            return res.status(409).json({ error: "Payment card cannot be scheduled" });
+          }
+          const activeMerchants = (await storage.getMerchants(orgId)).filter(item => item.isActive);
+          if (vaulted && !activeMerchants.some(item => item.id === card.merchantId && item.processorType === card.processorType)) {
+            return res.status(409).json({ error: "Payment card is not associated with its active merchant" });
+          }
+          if (locallyStored && activeMerchants.length === 0) {
+            return res.status(409).json({ error: "No active merchant is configured for this card" });
+          }
         }
       }
       const idempotencyKey = String(req.get("Idempotency-Key") || req.body.idempotencyKey || crypto.randomUUID());
@@ -2927,9 +2794,10 @@ export async function registerRoutes(
       if (existing) return res.status(200).json(existing);
       let payment;
       try {
+        const { oneTimeCard: _discardedCard, ...safeRequestBody } = req.body;
         const paymentBody = req.body.processNow === true
-          ? { ...req.body, paymentDate: getPaymentBusinessDate() }
-          : req.body;
+          ? { ...safeRequestBody, paymentDate: getPaymentBusinessDate() }
+          : safeRequestBody;
         payment = await storage.createPayment(buildInternalPaymentInsert(paymentBody, {
           amount,
           debtorId: req.params.id,
@@ -2959,7 +2827,7 @@ export async function registerRoutes(
         if (!claimedPayment || claimedPayment.status !== "processing") {
           return res.status(409).json({ error: "Payment is no longer available for processing" });
         }
-        const result = await processPayment(claimedPayment, storage, orgId);
+        const result = await processPayment(claimedPayment, storage, orgId, oneTimeCard);
         const responsePayment = result.updatedPayment ?? await storage.getPayment(payment.id);
         if (!responsePayment) return res.status(500).json({ error: "Processed payment could not be reloaded" });
         return res.status(201).json({

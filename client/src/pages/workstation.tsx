@@ -1025,7 +1025,7 @@ export default function Workstation() {
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
       } catch (error) {
         toast({
-          title: "Card vaulting failed",
+          title: "Card save failed",
           description: error instanceof Error ? error.message : "Failed to save card.",
           variant: "destructive",
         });

@@ -804,9 +804,10 @@ export class DatabaseStorage implements IStorage {
             eq(merchants.id, card.merchantId),
             eq(merchants.organizationId, input.organizationId),
           ));
-          if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
-              !merchant?.isActive || merchant.processorType !== card.processorType) {
-            throw Object.assign(new Error("Replacement card must be vaulted with its active merchant"), { status: 409 });
+          const usableCard = (card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber) ||
+            (card.vaultStatus === "vaulted" && !!card.processorToken);
+          if (!usableCard || !card.processorType || !merchant?.isActive || merchant.processorType !== card.processorType) {
+            throw Object.assign(new Error("Replacement card must be usable with its active merchant"), { status: 409 });
           }
         }
         const otherOutstandingRows = await tx.select({ amount: payments.amount }).from(payments).where(and(

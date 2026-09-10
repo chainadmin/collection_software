@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { rejectRawCardData } from "./payment-input";
 import { detectCardNetwork, normalizeCardNumber, passesLuhn } from "@shared/card-validation";
-import { CardVaultError, vaultCard, type RawCardInput } from "./card-vault";
+import type { RawCardInput } from "./payment-card-input";
 import { redactPayment } from "./payment-presenter";
 import { claimPaymentForProcessing, postPaymentAtomically } from "./payment-safety";
 import { processPayment } from "./payment-processor";
@@ -18,6 +18,7 @@ import {
 } from "./chain-payment";
 import { getPaymentBusinessDate } from "./payment-date";
 import { isActiveAdminOrManagerRecord } from "./access-control";
+import { encryptCardNumber } from "./card-encryption";
 
 /** Returns an opaque external credential or throws before any payment is stored. */
 export function externalOpaquePaymentToken(body: Record<string, unknown>): string | null {
@@ -1493,14 +1494,14 @@ export function registerExternalApiRoutes(app: Express) {
                 outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment posting requires review" });
               }
             } else if (!postedReplay && card?.vaultStatus === "vaulting") {
-              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting is already in progress" });
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card preparation is already in progress" });
             } else if (!postedReplay && !card) {
               outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment reservation is already in progress" });
             } else if (!postedReplay && card?.vaultStatus === "vaulted" && card.processorToken &&
               existing.status === "needs_review") {
               await finishReadyPayment(item, existing, card.id);
             } else if (!postedReplay && card?.vaultStatus === "vault_failed" && existing.status === "needs_review") {
-              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting outcome requires review" });
+              outcomes.push({ index: item.index, outcome: "needs_review", message: "Card preparation requires review" });
             } else {
               outcomes.push({ index: item.index, outcome: "duplicate", payment: presentExternalPayment(existing) });
             }
@@ -1624,11 +1625,12 @@ export function registerExternalApiRoutes(app: Express) {
             try {
               card = await storage.createPaymentCard({
                 ...safeCard, organizationId: orgId, debtorId: debtor.id,
+                encryptedCardNumber: parsedRaw ? encryptCardNumber(parsedRaw.card.pan) : null,
                 processorType: merchant.processorType,
                 merchantId: merchant.id,
                 processorToken: token?.processorToken || null,
                 processorCustomerId: token?.customerId || null,
-                vaultStatus: token ? "vaulted" : "vaulting",
+                vaultStatus: token ? "vaulted" : "locally_stored",
                 externalIdempotencyKey: cardIdentity, externalCredentialFingerprint: credentialFingerprint, isDefault: false,
                 addedDate: today, addedBy: null,
               });
@@ -1639,32 +1641,10 @@ export function registerExternalApiRoutes(app: Express) {
           }
           if (!card) throw new Error("Card request could not be reserved");
           const cardId = card.id;
-          if (!createdCard && card.vaultStatus === "vaulting") {
-            outcomes.push({ index: item.index, outcome: "needs_review", message: "Card vaulting is already in progress" });
-            continue;
-          }
-          if (parsedRaw && card.vaultStatus !== "vaulted") {
-            try {
-              const existingCards = await storage.getPaymentCards(debtor.id);
-              const customer = existingCards.find(candidate =>
-                candidate.merchantId === merchant.id && candidate.processorType === merchant.processorType && candidate.vaultStatus === "vaulted"
-              )?.processorCustomerId || undefined;
-              const vaulted = await vaultCard(merchant, debtor, parsedRaw.card, customer);
-              card = await storage.updatePaymentCard(cardId, { ...vaulted, merchantId: merchant.id, vaultStatus: "vaulted" });
-            } catch (error) {
-              await storage.updatePaymentCard(cardId, { vaultStatus: "vault_failed" });
-              const ambiguous = error instanceof CardVaultError && /uncertain|review/i.test(error.message);
-              await storage.updatePayment(payment.id, { status: ambiguous ? "needs_review" : "declined" });
-              outcomes.push({
-                index: item.index,
-                outcome: ambiguous ? "needs_review" : "declined",
-                message: ambiguous ? "Card vaulting outcome requires review" : "Card vaulting failed",
-              });
-              continue;
-            }
-          }
-          if (!card?.processorToken || card.vaultStatus !== "vaulted") {
-            outcomes.push({ index: item.index, outcome: "needs_review", message: "Reusable credential is not ready" });
+          const cardReady = (card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber) ||
+            (card.vaultStatus === "vaulted" && !!card.processorToken);
+          if (!cardReady) {
+            outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment card is not ready" });
             continue;
           }
 
@@ -1672,11 +1652,7 @@ export function registerExternalApiRoutes(app: Express) {
         } catch (error: any) {
           // Do not surface gateway exception text: providers can include a
           // credential or profile reference in malformed error payloads.
-          outcomes.push({
-            index: item.index,
-            outcome: error instanceof CardVaultError ? "needs_review" : "unsupported",
-            message: error instanceof CardVaultError ? "Card vaulting outcome requires review" : "Payment item could not be processed",
-          });
+          outcomes.push({ index: item.index, outcome: "unsupported", message: "Payment item could not be processed" });
         }
       }
       const successful = outcomes.every(item => item.outcome === "created" || item.outcome === "posted" || item.outcome === "duplicate");

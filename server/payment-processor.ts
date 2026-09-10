@@ -12,6 +12,7 @@ import { nextRecurringOccurrence } from "./recurring-payments";
 import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
 import { decryptCardNumber } from "./card-encryption";
 import { usaepayAuthorization } from "./usaepay-auth";
+import type { OneTimeCardInput } from "./payment-input";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -577,7 +578,8 @@ async function processViaGateway(
 export async function processPayment(
   payment: Payment,
   storage: IStorage,
-  orgId: string
+  orgId: string,
+  oneTimeCard?: OneTimeCardInput,
 ): Promise<ProcessPaymentResult & { updatedPayment: Payment | undefined }> {
   if (payment.organizationId !== orgId) {
     return {
@@ -619,7 +621,10 @@ export async function processPayment(
 
   const merchants = await storage.getMerchants(orgId);
   let activeMerchant = getActiveMerchant(merchants);
-  // A token belongs to the merchant that vaulted it. Legacy rows predate this
+  if (oneTimeCard) {
+    activeMerchant = getActiveMerchant(merchants.filter(merchant => merchant.processorType === "usaepay"));
+  }
+  // A reusable token belongs to the merchant that issued it. Legacy rows predate this
   // binding and are usable only when their processor has one unambiguous,
   // configured active merchant.
   if (payment.paymentMethod === "card" && payment.cardId) {
@@ -658,7 +663,24 @@ export async function processPayment(
       nameOnAccount: string;
     } | null = null;
 
-    if (payment.paymentMethod === "card" && payment.cardId) {
+    if (oneTimeCard) {
+      // Raw card data is held only in this request's memory and is sent directly
+      // to USAePay. It is never written to a payment-card or payment record.
+      if (payment.paymentMethod !== "card" || payment.cardId || activeMerchant.processorType !== "usaepay") {
+        result = {
+          success: false,
+          transactionId: null,
+          declineReason: "Direct card payments require the active USAePay merchant",
+        };
+        const updatedPayment = await storage.updatePayment(payment.id, {
+          status: "declined",
+          notes: `DECLINED: ${result.declineReason}`,
+        });
+        return { ...result, updatedPayment };
+      }
+      cardData = oneTimeCard;
+      gatewayPaymentToken = null;
+    } else if (payment.paymentMethod === "card" && payment.cardId) {
       const card = await storage.getPaymentCard(payment.cardId);
       if (card && card.organizationId === orgId && card.debtorId === payment.debtorId &&
           card.vaultStatus === "locally_stored" && card.encryptedCardNumber) {
@@ -715,7 +737,7 @@ export async function processPayment(
       result = {
         success: false,
         transactionId: null,
-        declineReason: "A vaulted saved card is required",
+        declineReason: "A usable saved card is required",
       };
       const updatedPayment = await storage.updatePayment(payment.id, {
         status: "declined",

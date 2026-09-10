@@ -211,32 +211,31 @@ export function RecordPaymentDialog({
           return;
         }
 
-        const cardRequestKey = scheduleMode === "single"
-          ? `single-card:${singleSubmissionId}`
-          : scheduleMode === "manage"
-            ? `arrangement-replacement-card:${manageMutationId}`
-            : `arrangement-card:${arrangementId}`;
-        const newCardResponse = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
-          debtorId,
-          cardType,
-          cardNumber,
-          cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
-          expiryMonth,
-          expiryYear: `20${expiryYear}`,
-          cardholderName: cardHolderName,
-          billingZip: cardBillingZip,
-          cvv: cardCvv,
-          // Card entry must not depend on the optional processor vault. Both
-          // Pay Now and future payments use the encrypted card-on-file record.
-          saveWithoutTokenization: true,
-          idempotencyKey: cardRequestKey,
-        }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
-        const newCard = await newCardResponse.json() as { id: string };
-        cardIdToUse = newCard.id;
-        // If the later payment/arrangement request fails, a user retry reuses
-        // this already-saved card instead of posting the PAN a second time.
-        setSelectedCardId(newCard.id);
-        queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
+        if (!shouldProcessNow) {
+          const cardRequestKey = scheduleMode === "single"
+            ? `single-card:${singleSubmissionId}`
+            : scheduleMode === "manage"
+              ? `arrangement-replacement-card:${manageMutationId}`
+              : `arrangement-card:${arrangementId}`;
+          const newCardResponse = await apiRequest("POST", `/api/debtors/${debtorId}/cards`, {
+            debtorId,
+            cardType,
+            cardNumber,
+            cardNumberLast4: cardNumber.replace(/\D/g, "").slice(-4),
+            expiryMonth,
+            expiryYear: `20${expiryYear}`,
+            cardholderName: cardHolderName,
+            billingZip: cardBillingZip,
+            cvv: cardCvv,
+            idempotencyKey: cardRequestKey,
+          }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
+          const newCard = await newCardResponse.json() as { id: string };
+          cardIdToUse = newCard.id;
+          // If the later arrangement request fails, a user retry reuses this
+          // encrypted local card instead of posting the PAN a second time.
+          setSelectedCardId(newCard.id);
+          queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
+        }
       }
 
       if (scheduleMode === "manage") {
@@ -301,6 +300,14 @@ export function RecordPaymentDialog({
         specificDates: paymentFrequency === "specific_dates" ? selectedDates.map(localCalendarYmd).join(", ") : null,
         cardId: cardIdToUse || null,
         processNow: shouldProcessNow,
+        ...(shouldProcessNow && !cardIdToUse ? {
+          oneTimeCard: {
+            cardNumber,
+            expiryMonth: cardExpiry.split("/")[0],
+            expiryYear: cardExpiry.split("/")[1],
+            cvv: cardCvv,
+          },
+        } : {}),
         idempotencyKey: singleSubmissionId,
       }, { headers: { "Idempotency-Key": singleSubmissionId } });
       const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null };
@@ -313,7 +320,7 @@ export function RecordPaymentDialog({
         const approved = processedPayment?.status === "processed" || processedPayment?.status === "posted";
         toast({
           title: approved ? "Payment approved" : "Payment declined",
-          description: approved ? "The card was saved for future payments." : (processedPayment?.declineReason || "The card payment was not approved."),
+          description: approved ? "The card was charged directly through USAePay and was not saved." : (processedPayment?.declineReason || "The card payment was not approved."),
           variant: approved ? "default" : "destructive",
         });
       } else {
@@ -527,7 +534,7 @@ export function RecordPaymentDialog({
             </Select>
           </div>}
           {scheduleMode === "manage" && selectedArrangementId && paymentMethod === "card" && (
-            <p className="text-sm text-muted-foreground">Choose a different saved card below, or enter a new card to vault it before updating the schedule.</p>
+            <p className="text-sm text-muted-foreground">Choose a different saved card below, or enter a new card before updating the schedule.</p>
           )}
           {paymentMethod === "card" && (
             <>
@@ -762,7 +769,7 @@ export function RecordPaymentDialog({
             data-testid="button-confirm-payment"
           >
             {isSubmitting
-              ? (scheduleMode === "single" && paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
+            ? (scheduleMode === "single" && paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Processing..." : "Saving...")
               : (scheduleMode === "single" && paymentMethod === "card" && cardPaymentTiming === "pay_now" ? "Pay Now" : scheduleMode === "single" ? "Schedule Payment" : "Schedule Payments")}
           </Button>}
         </DialogFooter>

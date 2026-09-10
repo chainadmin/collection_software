@@ -72,7 +72,7 @@ test("arrangement management is tenant-scoped, immutable, and retry-safe", async
   } finally { await f.close(); }
 });
 
-test("arrangement card replacement requires a debtor-owned active vault", async () => {
+test("arrangement card replacement requires a debtor-owned usable card", async () => {
   const f = await fixture();
   try {
     const created: any[] = await (await f.request(f.debtor.id, {

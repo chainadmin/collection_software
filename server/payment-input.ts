@@ -1,6 +1,34 @@
 import type { InsertPayment } from "@shared/schema";
 import { passesLuhn } from "@shared/card-validation";
 
+export interface OneTimeCardInput {
+  cardNumber: string;
+  expirationDate: string;
+  cardCode: string;
+}
+
+/** Validate the ephemeral card fields accepted only by the synchronous Pay Now flow. */
+export function parseOneTimeCardInput(value: unknown): OneTimeCardInput {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const cardNumber = String(input.cardNumber ?? "").replace(/\D/g, "");
+  const expiryMonth = String(input.expiryMonth ?? "").padStart(2, "0");
+  const expiryYear = String(input.expiryYear ?? "");
+  const cardCode = String(input.cvv ?? "");
+  const fullYear = expiryYear.length === 2 ? `20${expiryYear}` : expiryYear;
+  const month = Number(expiryMonth);
+
+  if (!/^\d{13,19}$/.test(cardNumber) || !passesLuhn(cardNumber)) {
+    throw new Error("A valid card number is required");
+  }
+  if (!/^\d{4}$/.test(fullYear) || month < 1 || month > 12) {
+    throw new Error("A valid card expiration date is required");
+  }
+  if (!/^\d{3,4}$/.test(cardCode)) {
+    throw new Error("A valid card security code is required");
+  }
+  return { cardNumber, expirationDate: `${expiryMonth}${fullYear.slice(-2)}`, cardCode };
+}
+
 const RAW_CARD_FIELD = /(?:pan|cvv|cvc|security.?code|verification.?(?:code|value)|(?:card|cc).{0,20}(?:number|num))/i;
 const PAN_SHAPED_VALUE = /^\d{13,19}$/;
 
@@ -51,7 +79,7 @@ interface TrustedPaymentFields {
 
 /**
  * Converts an internal payment request to an explicit persistence allowlist.
- * Processor credentials are always resolved from the selected vaulted card.
+ * Processor credentials are always resolved from the selected saved card.
  */
 export function buildInternalPaymentInsert(
   body: Record<string, unknown>,

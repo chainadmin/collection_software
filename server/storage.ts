@@ -1930,10 +1930,11 @@ export class MemStorage implements IStorage {
         if (!card || card.organizationId !== input.organizationId || card.debtorId !== input.debtorId) {
           throw Object.assign(new Error("Payment card does not belong to this debtor"), { status: 400 });
         }
-        if (card.vaultStatus !== "vaulted" || !card.processorType || !card.processorToken ||
-            !merchant?.isActive || merchant.organizationId !== input.organizationId ||
+        const usableCard = (card.vaultStatus === "locally_stored" && !!card.encryptedCardNumber) ||
+          (card.vaultStatus === "vaulted" && !!card.processorToken);
+        if (!usableCard || !card.processorType || !merchant?.isActive || merchant.organizationId !== input.organizationId ||
             merchant.processorType !== card.processorType) {
-          throw Object.assign(new Error("Replacement card must be vaulted with its active merchant"), { status: 409 });
+          throw Object.assign(new Error("Replacement card must be usable with its active merchant"), { status: 409 });
         }
       }
       const debtor = this.debtors.get(input.debtorId);
