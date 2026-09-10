@@ -40,9 +40,13 @@ async function fixture() {
   const betaPortfolio = await memory.createPortfolio({
     organizationId: beta.id, name: "Beta portfolio", purchaseDate: "2025-01-01", purchasePrice: 100, totalFaceValue: 200, totalAccounts: 1,
   });
-  await memory.createDebtor({
+  const alphaDebtor = await memory.createDebtor({
     organizationId: alpha.id, portfolioId: alphaPortfolio.id, accountNumber: "ALPHA-1",
-    firstName: "Alpha", lastName: "Debtor", originalBalance: 10000, currentBalance: 10000, status: "open",
+    fileNumber: "1001", firstName: "Alpha", lastName: "Debtor", originalBalance: 10000, currentBalance: 10000, status: "open",
+  });
+  await memory.createDebtorContact({
+    organizationId: alpha.id, debtorId: alphaDebtor.id, type: "email", value: "alpha@example.test",
+    label: "Primary", isPrimary: true, isValid: true,
   });
   await memory.createDebtor({
     organizationId: beta.id, portfolioId: betaPortfolio.id, accountNumber: "BETA-1",
@@ -66,7 +70,7 @@ async function fixture() {
     Object.defineProperties(storage, originalProperties);
     Object.setPrototypeOf(storage, originalPrototype);
   };
-  return { memory, alpha, beta, empty, admin, agent, manager, alphaKey, betaKey, emptyKey, alphaPortfolio, betaPortfolio, request, restore };
+  return { memory, alpha, beta, empty, admin, agent, manager, alphaKey, betaKey, emptyKey, alphaPortfolio, betaPortfolio, alphaDebtor, request, restore };
 }
 
 test("Chain login and portfolio contract are tenant isolated and stable", async () => {
@@ -100,6 +104,30 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(accountsByChainId.status, 200);
     assert.equal(accountsByChainIdPayload.total, 1);
     assert.equal(accountsByChainIdPayload.data[0].accountNumber, "ALPHA-1");
+    assert.equal(accountsByChainIdPayload.data[0].email, "alpha@example.test");
+    assert.equal(accountsByChainIdPayload.data[0].emailAddress, "alpha@example.test");
+
+    const updatedAccount = await f.request("/api/v2/updatedbase", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${first.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ fileNumber: f.alphaDebtor.fileNumber, emailAddress: "updated@example.test" }),
+    });
+    assert.equal(updatedAccount.status, 200);
+    assert.equal((await updatedAccount.json()).data.email, "updated@example.test");
+
+    const account: any = await (await f.request(`/api/v2/getaccount/${f.alphaDebtor.fileNumber}`, {
+      headers: { Authorization: `Bearer ${first.token}` },
+    })).json();
+    assert.equal(account.data.email, "updated@example.test");
+    assert.equal(account.data.emailAddress, "updated@example.test");
+
+    const emails: any = await (await f.request(`/api/v2/getemails/${f.alphaDebtor.fileNumber}`, {
+      headers: { Authorization: `Bearer ${first.token}` },
+    })).json();
+    assert.equal(emails.data[0].emailAddress, "updated@example.test");
 
     const foreignAccountsByChainId = await f.request("/api/v2/get_accounts_in_portfolio", {
       method: "POST",

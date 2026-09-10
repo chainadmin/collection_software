@@ -678,7 +678,7 @@ export function registerExternalApiRoutes(app: Express) {
       
       res.json({
         success: true,
-        data: matches.map((d) => formatDebtorForApi(d)),
+        data: await Promise.all(matches.map((d) => formatDebtorForApi(d))),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch account" });
@@ -717,7 +717,7 @@ export function registerExternalApiRoutes(app: Express) {
       res.json({
         success: true,
         total,
-        data: filtered.map((d) => formatDebtorForApi(d)),
+        data: await Promise.all(filtered.map((d) => formatDebtorForApi(d))),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch accounts" });
@@ -742,7 +742,7 @@ export function registerExternalApiRoutes(app: Express) {
       
       res.json({
         success: true,
-        data: formatDebtorForApi(debtor),
+        data: await formatDebtorForApi(debtor),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch account" });
@@ -1094,7 +1094,7 @@ export function registerExternalApiRoutes(app: Express) {
   // PUT /api/v2/updatedbase - Update debtor fields
   app.put("/api/v2/updatedbase", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { fileNumber, ...updates } = req.body;
+      const { fileNumber, emailAddress, ...updates } = req.body;
       const orgId = req.apiToken?.organizationId;
       
       if (!fileNumber) {
@@ -1112,6 +1112,13 @@ export function registerExternalApiRoutes(app: Express) {
         return res.status(404).json({ error: "Account not found" });
       }
       
+      // Chain's contact endpoints call this value `emailAddress`, while older
+      // account clients use `email`. Accept both spellings so an update is not
+      // silently discarded merely because it came from the other contract.
+      if (updates.email === undefined && emailAddress !== undefined) {
+        updates.email = emailAddress;
+      }
+
       const allowedFields = ["email", "address", "city", "state", "zipCode", "status", "lastContactDate", "nextFollowUpDate"];
       const filteredUpdates: Record<string, any> = {};
       
@@ -1122,6 +1129,31 @@ export function registerExternalApiRoutes(app: Express) {
       }
       
       const updated = await storage.updateDebtor(debtor.id, filteredUpdates);
+
+      // Keep the normalized contact collection in step with the legacy account
+      // column. Otherwise getaccount can show the new address while getemails
+      // continues returning the old one.
+      if (typeof filteredUpdates.email === "string" && filteredUpdates.email.trim()) {
+        const email = filteredUpdates.email.trim();
+        const contacts = await storage.getDebtorContacts(debtor.id);
+        const primaryEmail = contacts.find((contact) => contact.type === "email" && contact.isPrimary);
+        const matchingEmail = contacts.find((contact) =>
+          contact.type === "email" && contact.value.trim().toLowerCase() === email.toLowerCase()
+        );
+        if (primaryEmail && primaryEmail.id !== matchingEmail?.id) {
+          await storage.updateDebtorContact(primaryEmail.id, { value: email, isValid: true });
+        } else if (!matchingEmail) {
+          await storage.createDebtorContact({
+            organizationId: debtor.organizationId,
+            debtorId: debtor.id,
+            type: "email",
+            value: email,
+            label: "Primary",
+            isPrimary: true,
+            isValid: true,
+          });
+        }
+      }
       
       res.json({
         success: true,
@@ -2435,7 +2467,18 @@ export function registerExternalApiRoutes(app: Express) {
   });
 }
 
-function formatDebtorForApi(debtor: any) {
+async function formatDebtorForApi(debtor: any) {
+  // Some imports and edits store email addresses as debtor contacts instead of
+  // on the legacy debtors.email column. Fall back to the primary valid contact
+  // (then any valid contact) so account APIs do not lose those addresses.
+  const contacts = await storage.getDebtorContacts(debtor.id);
+  const contactEmail = contacts.find((contact) =>
+    contact.type === "email" && contact.isPrimary && contact.isValid !== false
+  )?.value ?? contacts.find((contact) =>
+    contact.type === "email" && contact.isValid !== false
+  )?.value;
+  const email = debtor.email || contactEmail || null;
+
   return {
     fileNumber: debtor.fileNumber,
     accountNumber: debtor.accountNumber,
@@ -2444,7 +2487,10 @@ function formatDebtorForApi(debtor: any) {
     fullName: `${debtor.firstName} ${debtor.lastName}`,
     dateOfBirth: debtor.dateOfBirth,
     ssnLast4: debtor.ssnLast4,
-    email: debtor.email,
+    email,
+    // getemails already uses `emailAddress`; retain `email` for compatibility
+    // and expose the same value under both names in account payloads.
+    emailAddress: email,
     address: debtor.address,
     city: debtor.city,
     state: debtor.state,
