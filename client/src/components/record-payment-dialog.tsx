@@ -226,6 +226,10 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
+          // Charge the raw credential first. The server promotes it to a
+          // processor token only after the sale succeeds, so a broken vault
+          // cannot prevent today's payment.
+          deferVaulting: shouldProcessNow,
           idempotencyKey: cardRequestKey,
         }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
         const newCard = await newCardResponse.json() as { id: string };

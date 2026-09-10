@@ -50,6 +50,28 @@ test("card save retains the encrypted PAN and also requires processor tokenizati
   } finally { await f.close(); }
 });
 
+test("pay-now card save defers vaulting and returns an operational local card", async () => {
+  let calls = 0;
+  const f = await fixture(async () => {
+    calls++;
+    throw new Error("vault must not run before the sale");
+  });
+  try {
+    const response = await f.request(f.debtor.id, { ...body, deferVaulting: true }, "deferred-card-key");
+    assert.equal(response.status, 201);
+    const presented: any = await response.json();
+    assert.equal(presented.vaultStatus, "locally_stored");
+    assert.equal(calls, 0);
+    const stored = await f.storage.getPaymentCard(presented.id);
+    assert.ok(stored?.encryptedCardNumber);
+    assert.equal(stored?.processorToken, null);
+    const replay = await f.request(f.debtor.id, { ...body, deferVaulting: true }, "deferred-card-key");
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).id, presented.id);
+    assert.equal(calls, 0);
+  } finally { await f.close(); }
+});
+
 test("card vault HTTP route is tenant protected, idempotent, conflict safe, and hides processor credentials", async () => {
   let calls = 0;
   const f = await fixture(async () => {
