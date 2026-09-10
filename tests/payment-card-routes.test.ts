@@ -29,7 +29,7 @@ async function fixture(vault: any) {
   return { storage, debtor, foreign, merchant, request, close: () => new Promise<void>(resolve => server.close(resolve)) };
 }
 
-test("card save retains the encrypted PAN and also requires processor tokenization", async () => {
+test("pending-payment card save can bypass broken processor vaulting and retain an encrypted PAN", async () => {
   let calls = 0;
   const f = await fixture(async () => {
     calls++;
@@ -39,14 +39,33 @@ test("card save retains the encrypted PAN and also requires processor tokenizati
     const response = await f.request(f.debtor.id, { ...body, saveWithoutTokenization: true }, "local-card-key");
     assert.equal(response.status, 201);
     const presented: any = await response.json();
-    assert.equal(presented.vaultStatus, "vaulted");
+    assert.equal(presented.vaultStatus, "locally_stored");
     assert.equal(presented.cardNumber, body.cardNumber);
-    assert.equal(calls, 1);
+    assert.equal(calls, 0);
     const stored = await f.storage.getPaymentCard(presented.id);
-    assert.equal(stored?.processorToken, "processor-token");
+    assert.equal(stored?.processorToken, null);
     assert.ok(stored?.encryptedCardNumber);
     assert.notEqual(stored?.encryptedCardNumber, body.cardNumber);
     assert.doesNotMatch(JSON.stringify(stored), /"cvv"|4242424242424242/);
+  } finally { await f.close(); }
+});
+
+test("locally stored card save is idempotent and does not retry vaulting", async () => {
+  let calls = 0;
+  const f = await fixture(async () => {
+    calls++;
+    throw new CardVaultError("processor vault unavailable");
+  });
+  try {
+    const requestBody = { ...body, saveWithoutTokenization: true };
+    const first = await f.request(f.debtor.id, requestBody, "local-replay-key");
+    assert.equal(first.status, 201);
+    const saved: any = await first.json();
+    assert.equal(saved.vaultStatus, "locally_stored");
+    const replay = await f.request(f.debtor.id, requestBody, "local-replay-key");
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).id, saved.id);
+    assert.equal(calls, 0);
   } finally { await f.close(); }
 });
 
