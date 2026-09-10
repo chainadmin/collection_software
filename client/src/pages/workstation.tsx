@@ -82,6 +82,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { noteTimestamp } from "@shared/note-date";
 import type {
   Debtor,
   DebtorContact,
@@ -385,7 +386,7 @@ export default function Workstation() {
         content: data.content,
         noteType: data.noteType,
         collectorId: currentCollector.id,
-        createdDate: new Date().toISOString().split("T")[0],
+        createdDate: noteTimestamp(),
       });
     },
     onSuccess: () => {
@@ -944,7 +945,7 @@ export default function Workstation() {
           content: trimmedLine,
           noteType: "general",
           collectorId: currentCollector.id,
-          createdDate: new Date().toISOString().split("T")[0],
+          createdDate: noteTimestamp(),
         });
         addedCount++;
       } catch (error) {
