@@ -20,9 +20,12 @@ export interface VaultedCard {
 }
 
 export class CardVaultError extends Error {
-  constructor(message: string) {
+  readonly uncertain: boolean;
+
+  constructor(message: string, options: { uncertain?: boolean } = {}) {
     super(message);
     this.name = "CardVaultError";
+    this.uncertain = options.uncertain === true;
   }
 }
 
@@ -193,9 +196,23 @@ async function vaultUsaepay(merchant: Merchant, card: RawCardInput): Promise<Vau
             avs_zip: card.billingZip,
         },
       }),
+      // Never leave the modal waiting forever when the gateway stops
+      // responding. Aborting is still an uncertain outcome and therefore
+      // remains protected from automatic replay below.
+      signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required");
-    const data: any = await response.json();
+    const data: any = await response.json().catch(() => null);
+    if (!response.ok) {
+      // A 4xx response is a conclusive rejection (bad credentials, validation,
+      // etc.) and can safely be corrected and retried. Only server/transport
+      // failures are ambiguous because the gateway may have saved the card.
+      if (response.status >= 400 && response.status < 500) {
+        const detail = data?.error || data?.message || data?.result;
+        throw new CardVaultError(detail ? `USAePay card vaulting failed: ${detail}` : `USAePay card vaulting failed (HTTP ${response.status})`);
+      }
+      throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required", { uncertain: true });
+    }
+    if (!data) throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required", { uncertain: true });
     const token = data.savedcard?.key || null;
     if (data.result_code !== "A") throw new CardVaultError("USAePay card vaulting failed");
     if (!token) throw new CardVaultError("USAePay card vaulting returned no reusable card key");
@@ -207,7 +224,7 @@ async function vaultUsaepay(merchant: Merchant, card: RawCardInput): Promise<Vau
     };
   } catch (error) {
     if (error instanceof CardVaultError) throw error;
-    throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required");
+    throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required", { uncertain: true });
   }
 }
 

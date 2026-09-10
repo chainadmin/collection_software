@@ -451,6 +451,7 @@ test("USAePay vault uses documented cc:save transaction contract", async () => {
     );
     assert.equal(request.url, "https://sandbox.usaepay.com/api/v2/transactions");
     assert.equal(request.init.method, "POST");
+    assert.ok(request.init.signal instanceof AbortSignal);
     assert.deepEqual(JSON.parse(request.init.body), {
       command: "cc:save",
       creditcard: { cardholder: "Jane Doe", number: "4242424242424242", expiration: "1230", cvc: "123", avs_zip: "12345" },
@@ -466,9 +467,12 @@ test("USAePay vault treats transport failures as ambiguous and non-approvals as 
   const originalFetch = globalThis.fetch;
   const merchant = { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any;
   const card = { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" };
-  globalThis.fetch = (async () => ({ ok: false, json: async () => ({}) })) as typeof fetch;
+  globalThis.fetch = (async () => ({ ok: false, status: 503, json: async () => ({}) })) as typeof fetch;
   await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
     error instanceof CardVaultError && /uncertain/.test(error.message));
+  globalThis.fetch = (async () => ({ ok: false, status: 401, json: async () => ({ error: "Authentication failed" }) })) as typeof fetch;
+  await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
+    error instanceof CardVaultError && !error.uncertain && /Authentication failed/.test(error.message));
   globalThis.fetch = (async () => ({ ok: true, json: async () => ({ result_code: "D" }) })) as typeof fetch;
   await assert.rejects(() => vaultCard(merchant, { id: "debtor-1" } as any, card), (error: any) =>
     error instanceof CardVaultError && /failed/.test(error.message));

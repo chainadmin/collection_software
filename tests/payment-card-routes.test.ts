@@ -89,6 +89,35 @@ test("vault failure preserves the prior usable default", async () => {
   } finally { await f.close(); }
 });
 
+test("a conclusively failed vault reservation can be retried with the same key", async () => {
+  let calls = 0;
+  const f = await fixture(async () => {
+    calls++;
+    if (calls === 1) throw new CardVaultError("credentials rejected");
+    return { processorType: "usaepay", processorToken: "retry-token", processorCustomerId: null, vaultStatus: "vaulted" };
+  });
+  try {
+    assert.equal((await f.request(f.debtor.id, body, "retry-vault-key")).status, 422);
+    const retry = await f.request(f.debtor.id, body, "retry-vault-key");
+    assert.equal(retry.status, 201);
+    assert.equal((await retry.json()).vaultStatus, "vaulted");
+    assert.equal(calls, 2);
+  } finally { await f.close(); }
+});
+
+test("an uncertain vault reservation is held for manual review and is not retried", async () => {
+  let calls = 0;
+  const f = await fixture(async () => {
+    calls++;
+    throw new CardVaultError("outcome uncertain", { uncertain: true });
+  });
+  try {
+    assert.equal((await f.request(f.debtor.id, body, "review-vault-key")).status, 422);
+    assert.equal((await f.request(f.debtor.id, body, "review-vault-key")).status, 409);
+    assert.equal(calls, 1);
+  } finally { await f.close(); }
+});
+
 test("customer profile reuse is bound to both merchant and processor", async () => {
   let receivedCustomer: string | undefined;
   const f = await fixture(async (_merchant: any, _debtor: any, _card: any, customer: string | undefined) => {

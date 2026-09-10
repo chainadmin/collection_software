@@ -76,7 +76,12 @@ export function registerPaymentCardRoutes(
       if (reservation) {
         if (!matches(reservation)) return res.status(409).json({ error: "Card idempotency key conflicts with a different request" });
         if (reservation.vaultStatus === "vaulted") return res.status(200).json(redactPaymentCard(reservation));
-        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
+        if (reservation.vaultStatus !== "vault_failed") {
+          return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
+        }
+        // A conclusive gateway rejection is safe to retry with the same UI
+        // submission identity after credentials or input have been corrected.
+        reservation = await storage.updatePaymentCard(reservation.id, { vaultStatus: "vaulting" });
       }
       const existingCards = (await storage.getPaymentCards(debtor.id)).filter(card => card.organizationId === orgId);
       const customer = existingCards.find(card =>
@@ -86,26 +91,30 @@ export function registerPaymentCardRoutes(
         card.processorCustomerId
       )?.processorCustomerId || undefined;
       const makeDefault = req.body.isDefault === true || !existingCards.some(card => card.vaultStatus === "vaulted");
-      try {
-        reservation = await storage.createPaymentCard({
-          organizationId: orgId, debtorId: debtor.id, cardType: networkType[network], cardholderName,
-          cardNumberLast4: pan.slice(-4), expiryMonth, expiryYear, billingZip, processorType: merchant.processorType,
-          merchantId: merchant.id, vaultStatus: "vaulting", externalIdempotencyKey: externalKey,
-          externalCredentialFingerprint: fingerprint, isDefault: false,
-          addedDate: new Date().toISOString().split("T")[0], addedBy: req.session.collector.id,
-        });
-        reservationId = reservation.id;
-      } catch (error: any) {
-        if (error?.code !== "23505" || !externalKey) throw error;
-        reservation = await storage.getPaymentCardByExternalIdempotencyKey(orgId, externalKey);
-        if (reservation?.vaultStatus === "vaulted" && matches(reservation)) return res.status(200).json(redactPaymentCard(reservation));
-        return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
+      if (!reservation) {
+        try {
+          reservation = await storage.createPaymentCard({
+            organizationId: orgId, debtorId: debtor.id, cardType: networkType[network], cardholderName,
+            cardNumberLast4: pan.slice(-4), expiryMonth, expiryYear, billingZip, processorType: merchant.processorType,
+            merchantId: merchant.id, vaultStatus: "vaulting", externalIdempotencyKey: externalKey,
+            externalCredentialFingerprint: fingerprint, isDefault: false,
+            addedDate: new Date().toISOString().split("T")[0], addedBy: req.session.collector.id,
+          });
+        } catch (error: any) {
+          if (error?.code !== "23505" || !externalKey) throw error;
+          reservation = await storage.getPaymentCardByExternalIdempotencyKey(orgId, externalKey);
+          if (reservation?.vaultStatus === "vaulted" && matches(reservation)) return res.status(200).json(redactPaymentCard(reservation));
+          return res.status(409).json({ error: "Card vaulting is in progress or requires review" });
+        }
       }
+      reservationId = reservation.id;
       let vaulted: VaultedCard;
       try {
         vaulted = await vault(merchant, debtor, { pan, cvv, expiryMonth, expiryYear, cardholderName, billingZip }, customer);
       } catch (error) {
-        await storage.updatePaymentCard(reservation.id, { vaultStatus: "vault_failed" });
+        await storage.updatePaymentCard(reservation.id, {
+          vaultStatus: error instanceof CardVaultError && error.uncertain ? "vault_review" : "vault_failed",
+        });
         throw error;
       }
       if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault).map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
@@ -114,7 +123,12 @@ export function registerPaymentCardRoutes(
       res.status(201).json(redactPaymentCard(card));
     } catch (error) {
       if (error instanceof CardVaultError) return res.status(422).json({ error: error.message });
-      if (reservationId) await storage.updatePaymentCard(reservationId, { vaultStatus: "vault_failed", isDefault: false });
+      if (reservationId) {
+        const current = await storage.getPaymentCard(reservationId);
+        if (current?.vaultStatus === "vaulting") {
+          await storage.updatePaymentCard(reservationId, { vaultStatus: "vault_failed", isDefault: false });
+        }
+      }
       res.status(500).json({ error: "Failed to vault payment card" });
     }
   });

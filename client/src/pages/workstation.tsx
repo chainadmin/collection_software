@@ -447,7 +447,7 @@ export default function Workstation() {
         cardholderName: data.cardholderName,
         billingZip: data.billingZip,
         cvv: data.cvv,
-      });
+      }, { timeoutMs: 30_000 });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
@@ -1001,7 +1001,7 @@ export default function Workstation() {
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
-        });
+        }, { timeoutMs: 30_000 });
         const newCard = await response.json();
         cardIdToUse = newCard.id;
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "cards"] });
