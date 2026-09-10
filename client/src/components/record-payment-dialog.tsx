@@ -226,12 +226,15 @@ export function RecordPaymentDialog({
           cardholderName: cardHolderName,
           billingZip: cardBillingZip,
           cvv: cardCvv,
+          // Card entry must not depend on the optional processor vault. Both
+          // Pay Now and future payments use the encrypted card-on-file record.
+          saveWithoutTokenization: true,
           idempotencyKey: cardRequestKey,
         }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
         const newCard = await newCardResponse.json() as { id: string };
         cardIdToUse = newCard.id;
-        // If the later arrangement request fails, a user retry reuses this
-        // already-vaulted card instead of posting the PAN a second time.
+        // If the later payment/arrangement request fails, a user retry reuses
+        // this already-saved card instead of posting the PAN a second time.
         setSelectedCardId(newCard.id);
         queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "cards"] });
       }

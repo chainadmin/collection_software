@@ -51,11 +51,21 @@ card-on-file transaction without CVV. Deleting a card permanently removes its
 encrypted PAN and metadata from the live database; backup retention remains an
 operator responsibility.
 
-Card saves also perform a no-charge processor vault operation. A successful
-save therefore retains both the AES-GCM-encrypted PAN and the reusable processor
-token. Payments prefer the processor token; they do not decrypt and submit the
-PAN when a valid token is available. CVV exists only in request memory for the
-duration of the vault call and is never persisted, returned, or logged.
+Do not add a CVV column, encrypted CVV field, log entry, cache value, or backup
+record. Card verification codes are sensitive authentication data and may not
+be retained after authorization, even when encrypted. Encryption changes how
+the value is protected; it does not make retaining it permissible. The CVV may
+exist only long enough to validate the incoming save request and perform an
+immediate processor operation. Future card-on-file payments must use the saved
+PAN without CVV or a processor-issued reusable token.
+
+Card saves may also perform a no-charge processor vault operation. A successful
+vault save retains both the AES-GCM-encrypted PAN and the reusable processor
+token. Workstation saves for pending payments can instead be marked
+`locally_stored` so a broken optional vault does not prevent the card from being
+saved; those records retain only the encrypted PAN and card metadata. Payments
+prefer the processor token when one is available. CVV exists only in request
+memory and is never persisted, returned, or logged.
 
 Authenticated Chain requests use one contract at
 `POST /api/v2/insert_payments_external`. Lowercase and camel-case aliases are

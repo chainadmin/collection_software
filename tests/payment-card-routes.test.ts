@@ -57,7 +57,9 @@ test("locally stored card save is idempotent and does not retry vaulting", async
     throw new CardVaultError("processor vault unavailable");
   });
   try {
-    const requestBody = { ...body, saveWithoutTokenization: true };
+    // Local encrypted storage is the route default; callers do not need to
+    // know about or opt out of processor vaulting.
+    const requestBody = { ...body };
     const first = await f.request(f.debtor.id, requestBody, "local-replay-key");
     assert.equal(first.status, 201);
     const saved: any = await first.json();
@@ -76,18 +78,19 @@ test("card vault HTTP route is tenant protected, idempotent, conflict safe, and 
     return { processorType: "usaepay", processorToken: "processor-secret", processorCustomerId: "customer-secret", vaultStatus: "vaulted" };
   });
   try {
-    assert.equal((await f.request(f.debtor.id, body, "unauth-card", false)).status, 401);
-    assert.equal((await f.request(f.foreign.id, body, "foreign-card")).status, 403);
-    const first = await f.request(f.debtor.id, body);
+    const tokenizedBody = { ...body, saveWithoutTokenization: false };
+    assert.equal((await f.request(f.debtor.id, tokenizedBody, "unauth-card", false)).status, 401);
+    assert.equal((await f.request(f.foreign.id, tokenizedBody, "foreign-card")).status, 403);
+    const first = await f.request(f.debtor.id, tokenizedBody);
     assert.equal(first.status, 201);
     const firstCard: any = await first.json();
-    const replay = await f.request(f.debtor.id, body);
+    const replay = await f.request(f.debtor.id, tokenizedBody);
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).id, firstCard.id);
     assert.equal(calls, 1);
-    const changed = await f.request(f.debtor.id, { ...body, cardNumber: "5555555555554444", cardType: "mastercard" });
+    const changed = await f.request(f.debtor.id, { ...tokenizedBody, cardNumber: "5555555555554444", cardType: "mastercard" });
     assert.equal(changed.status, 409);
-    const changedExpiry = await f.request(f.debtor.id, { ...body, expiryYear: "2031" });
+    const changedExpiry = await f.request(f.debtor.id, { ...tokenizedBody, expiryYear: "2031" });
     assert.equal(changedExpiry.status, 409);
     assert.equal(calls, 1);
     const serialized = JSON.stringify(firstCard);
@@ -109,7 +112,7 @@ test("vaulting reservation replay never calls processor", async () => {
       externalCredentialFingerprint: chainCredentialFingerprint("card-org", `ui-card:${key}`, "4242424242424242"),
       addedDate: "2025-01-01", isDefault: false,
     });
-    assert.equal((await f.request(f.debtor.id, body, key)).status, 409);
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, key)).status, 409);
     assert.equal(calls, 0);
   } finally { await f.close(); }
 });
@@ -123,7 +126,7 @@ test("vault failure preserves the prior usable default", async () => {
       processorToken: "old-token", merchantId: f.merchant.id, vaultStatus: "vaulted",
       addedDate: "2025-01-01", isDefault: true,
     });
-    assert.equal((await f.request(f.debtor.id, body, "failed-vault-key")).status, 422);
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "failed-vault-key")).status, 422);
     assert.equal((await f.storage.getPaymentCard(previous.id))?.isDefault, true);
     const failed = (await f.storage.getPaymentCards(f.debtor.id)).find(card => card.externalIdempotencyKey === "ui-card:failed-vault-key");
     assert.equal(failed?.isDefault, false);
@@ -139,8 +142,8 @@ test("a conclusively failed vault reservation can be retried with the same key",
     return { processorType: "usaepay", processorToken: "retry-token", processorCustomerId: null, vaultStatus: "vaulted" };
   });
   try {
-    assert.equal((await f.request(f.debtor.id, body, "retry-vault-key")).status, 422);
-    const retry = await f.request(f.debtor.id, body, "retry-vault-key");
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "retry-vault-key")).status, 422);
+    const retry = await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "retry-vault-key");
     assert.equal(retry.status, 201);
     assert.equal((await retry.json()).vaultStatus, "vaulted");
     assert.equal(calls, 2);
@@ -154,8 +157,8 @@ test("an uncertain vault reservation is held for manual review and is not retrie
     throw new CardVaultError("outcome uncertain", { uncertain: true });
   });
   try {
-    assert.equal((await f.request(f.debtor.id, body, "review-vault-key")).status, 422);
-    assert.equal((await f.request(f.debtor.id, body, "review-vault-key")).status, 409);
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "review-vault-key")).status, 422);
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "review-vault-key")).status, 409);
     assert.equal(calls, 1);
   } finally { await f.close(); }
 });
@@ -174,7 +177,7 @@ test("customer profile reuse is bound to both merchant and processor", async () 
       processorCustomerId: "old-customer-profile", vaultStatus: "vaulted",
       addedDate: "2025-01-01", isDefault: true,
     });
-    assert.equal((await f.request(f.debtor.id, body, "processor-change-key")).status, 201);
+    assert.equal((await f.request(f.debtor.id, { ...body, saveWithoutTokenization: false }, "processor-change-key")).status, 201);
     assert.equal(receivedCustomer, undefined);
   } finally { await f.close(); }
 });

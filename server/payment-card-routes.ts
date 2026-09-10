@@ -121,7 +121,10 @@ export function registerPaymentCardRoutes(
       // submit it as a card-on-file transaction when the payment becomes due.
       // CVV is never retained. This keeps future payments usable when a
       // processor's optional vault service is unavailable or incompatible.
-      if (req.body.saveWithoutTokenization === true) {
+      // Local encrypted storage is the default for this collector/admin UI
+      // endpoint. Processor vaulting is retained only as an explicit opt-in
+      // for integrations that intentionally send `false`.
+      if (req.body.saveWithoutTokenization !== false) {
         if (makeDefault) await Promise.all(existingCards.filter(card => card.isDefault).map(card => storage.updatePaymentCard(card.id, { isDefault: false })));
         const card = await storage.updatePaymentCard(reservation.id, {
           vaultStatus: "locally_stored",
