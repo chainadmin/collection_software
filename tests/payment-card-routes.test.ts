@@ -68,3 +68,25 @@ test("CVV is validated but never retained", async () => {
     assert.equal(presented.cvv, undefined);
   } finally { await f.close(); }
 });
+
+test("card encryption falls back to the production-required session secret", async () => {
+  const previousPaymentKey = process.env.PAYMENT_CARD_ENCRYPTION_KEY;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  delete process.env.PAYMENT_CARD_ENCRYPTION_KEY;
+  process.env.SESSION_SECRET = "stable-production-session-secret";
+  const f = await fixture();
+  delete process.env.PAYMENT_CARD_ENCRYPTION_KEY;
+  process.env.SESSION_SECRET = "stable-production-session-secret";
+  try {
+    const response = await f.request(f.debtor.id, body, "session-fallback-card");
+    assert.equal(response.status, 201);
+    const saved: any = await response.json();
+    assert.ok((await f.storage.getPaymentCard(saved.id))?.encryptedCardNumber);
+  } finally {
+    await f.close();
+    if (previousPaymentKey === undefined) delete process.env.PAYMENT_CARD_ENCRYPTION_KEY;
+    else process.env.PAYMENT_CARD_ENCRYPTION_KEY = previousPaymentKey;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+  }
+});

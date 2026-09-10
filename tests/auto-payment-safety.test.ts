@@ -71,6 +71,9 @@ function savedCardStorage(
       onUpdate(update);
       return { ...source, ...update };
     },
+    updateDebtor: async () => ({ id: "debtor-1", organizationId: "org-1" }),
+    createNote: async () => ({}),
+    getOrganization: async () => undefined,
   } as unknown as IStorage;
 }
 
@@ -180,6 +183,44 @@ test("USAePay saved-card duplicate response persists as needs_review", async () 
     assert.equal(result.ambiguous, true);
     assert.equal(persisted?.status, "needs_review");
     assert.equal(persisted?.providerTransactionId, "txn-duplicate");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("USAePay authentication errors are reported as conclusive declines", async () => {
+  const source = payment({ cardId: "card-1" });
+  let persisted: Partial<Payment> | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: "Invalid source key or pin" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
+  try {
+    const result = await processPayment(source, savedCardStorage(source, "usaepay", update => {
+      persisted = update;
+    }), "org-1");
+    assert.equal(result.success, false);
+    assert.equal(result.ambiguous, undefined);
+    assert.equal(persisted?.status, "declined");
+    assert.match(result.declineReason || "", /HTTP 401.*Invalid source key or pin/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("USAePay server errors remain quarantined as needs_review", async () => {
+  const source = payment({ cardId: "card-1" });
+  let persisted: Partial<Payment> | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("gateway unavailable", { status: 503 });
+  try {
+    const result = await processPayment(source, savedCardStorage(source, "usaepay", update => {
+      persisted = update;
+    }), "org-1");
+    assert.equal(result.ambiguous, true);
+    assert.equal(persisted?.status, "needs_review");
+    assert.match(result.declineReason || "", /HTTP 503/);
   } finally {
     globalThis.fetch = originalFetch;
   }

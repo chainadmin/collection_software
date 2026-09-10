@@ -1,9 +1,14 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 function encryptionKey(): Buffer {
-  const secret = process.env.PAYMENT_CARD_ENCRYPTION_KEY;
+  // Production already requires SESSION_SECRET at startup.  Reuse it as a
+  // stable encryption root when a deployment has not provisioned the more
+  // narrowly scoped key yet; otherwise card saves fail at request time with a
+  // generic 500 and arrangements cannot be created.  An explicit payment key
+  // remains preferred and takes precedence.
+  const secret = process.env.PAYMENT_CARD_ENCRYPTION_KEY || process.env.SESSION_SECRET;
   if (!secret) {
-    throw new Error("PAYMENT_CARD_ENCRYPTION_KEY must be configured to store card numbers");
+    throw new Error("PAYMENT_CARD_ENCRYPTION_KEY or SESSION_SECRET must be configured to store card numbers");
   }
   return createHash("sha256").update(secret, "utf8").digest();
 }
