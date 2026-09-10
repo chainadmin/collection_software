@@ -227,7 +227,7 @@ export function RecordPaymentDialog({
           billingZip: cardBillingZip,
           cvv: cardCvv,
           idempotencyKey: cardRequestKey,
-        }, { headers: { "Idempotency-Key": cardRequestKey } });
+        }, { headers: { "Idempotency-Key": cardRequestKey }, timeoutMs: 30_000 });
         const newCard = await newCardResponse.json() as { id: string };
         cardIdToUse = newCard.id;
         // If the later arrangement request fails, a user retry reuses this
