@@ -213,8 +213,18 @@ async function vaultUsaepay(merchant: Merchant, card: RawCardInput): Promise<Vau
       throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required", { uncertain: true });
     }
     if (!data) throw new CardVaultError("USAePay card vaulting outcome is uncertain; manual review is required", { uncertain: true });
-    const token = data.savedcard?.key || null;
-    if (data.result_code !== "A") throw new CardVaultError("USAePay card vaulting failed");
+    // USAePay deployments do not all serialize cc:save responses identically:
+    // newer REST responses expose savedcard.key and result_code, while older
+    // compatible gateways may return the saved-card key as a scalar and only
+    // include result="Approved". Treat either documented approval shape as a
+    // success, but still require the reusable credential before persisting the
+    // card as vaulted.
+    const token = typeof data.savedcard === "string" ? data.savedcard : data.savedcard?.key;
+    const approved = data.result_code === "A" || data.result === "Approved";
+    if (!approved) {
+      const detail = data.error || data.message || data.result;
+      throw new CardVaultError(detail ? `USAePay card vaulting failed: ${detail}` : "USAePay card vaulting failed");
+    }
     if (!token) throw new CardVaultError("USAePay card vaulting returned no reusable card key");
     return {
       processorType: "usaepay",

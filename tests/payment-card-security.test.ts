@@ -480,6 +480,23 @@ test("USAePay vault treats transport failures as ambiguous and non-approvals as 
   globalThis.fetch = originalFetch;
 });
 
+test("USAePay vault accepts compatible approved cc:save response shapes", async () => {
+  const originalFetch = globalThis.fetch;
+  const merchant = { processorType: "usaepay", usaepaySourceKey: "source", usaepayPin: "pin", testMode: true } as any;
+  const card = { pan: "4242424242424242", cvv: "123", expiryMonth: "12", expiryYear: "2030", cardholderName: "Jane Doe", billingZip: "12345" };
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({ result: "Approved", savedcard: "saved_card_legacy" }),
+  })) as typeof fetch;
+  try {
+    const vaulted = await vaultCard(merchant, { id: "debtor-1" } as any, card);
+    assert.equal(vaulted.processorToken, "saved_card_legacy");
+    assert.equal(vaulted.vaultStatus, "vaulted");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("concurrent two-date arrangement retry reuses one vault and becomes runner eligible", async () => {
   const store = new MemStorage();
   const items = normalizeChainPaymentRequest({
