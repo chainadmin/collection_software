@@ -92,7 +92,10 @@ async function usaepayHttpFailure(response: Response, paymentKind = "payment"): 
     // uncertain upstream failure when the response body cannot be read.
   }
   detail = detail.replace(/\s+/g, " ").trim().slice(0, 300);
-  const message = `USAePay rejected the ${paymentKind} request (HTTP ${response.status})${detail ? `: ${detail}` : ""}`;
+  const gatewayDetail = detail ? ` Gateway response: ${detail}` : "";
+  const message = response.status === 401
+    ? `USAePay rejected the ${paymentKind} request (HTTP 401). Test Mode off uses production: verify the REST API source key and PIN are production credentials and that the key is enabled for transaction API requests. Test Mode on requires sandbox credentials.${gatewayDetail}`
+    : `USAePay rejected the ${paymentKind} request (HTTP ${response.status})${detail ? `: ${detail}` : ""}`;
 
   // A 4xx response (other than conflict/rate limiting) proves USAePay rejected
   // the request before approval.  Server errors and throttling can occur after

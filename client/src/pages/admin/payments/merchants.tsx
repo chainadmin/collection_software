@@ -104,7 +104,7 @@ export default function Merchants() {
   const handleAddMerchant = () => {
     const hasCredentials =
       (processorType === "nmi" && nmiSecurityKey) ||
-      (processorType === "usaepay" && usaepaySourceKey) ||
+      (processorType === "usaepay" && usaepaySourceKey && usaepayPin) ||
       (processorType === "authorize_net" && authorizeNetApiLoginId && authorizeNetTransactionKey) ||
       (processorType === "stripe" && stripeSecretKey);
     if (!merchantName || !merchantIdInput || !hasCredentials) {
@@ -224,6 +224,9 @@ export default function Merchants() {
 
               {processorType === "usaepay" && (
                 <>
+                  <p className="text-xs text-muted-foreground">
+                    Use a REST API source key and its PIN. Sandbox credentials only work with Test Mode; production credentials require Test Mode to be off.
+                  </p>
                   <div className="space-y-2">
                     <Label>USAePay Source Key</Label>
                     <Input 
@@ -276,6 +279,11 @@ export default function Merchants() {
                 />
                 <Label>Test Mode (sandbox)</Label>
               </div>
+              {processorType === "usaepay" && (
+                <p className="text-xs text-muted-foreground">
+                  With Test Mode off, USAePay requires production credentials. A 401 “invalid transaction authorization information” error means USAePay rejected the production source key/PIN or that key is not enabled for transaction API requests.
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
