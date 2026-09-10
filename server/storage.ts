@@ -1392,6 +1392,7 @@ export class MemStorage implements IStorage {
         debtor.address,
         debtor.city,
         debtor.zipCode,
+        debtor.customFields,
       ].filter(Boolean).map(f => f!.toLowerCase().replace(/[^a-z0-9]/g, ''));
 
       if (searchableFields.some(f => f.includes(normalizedQuery))) {
