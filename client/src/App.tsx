@@ -172,13 +172,10 @@ function AppLayout() {
     location.startsWith("/app/workstation") ||
     location.startsWith("/app/collector/");
 
-  const isPermittedPaymentRunner =
-    location.startsWith("/app/payment-runner") && currentCollector?.canViewPaymentRunner === true;
-
   const isAdminRoute =
     location === "/app" ||
     location.startsWith("/app/debtors") ||
-    (location.startsWith("/app/payment-runner") && !isPermittedPaymentRunner) ||
+    location.startsWith("/app/payment-runner") ||
     location.startsWith("/app/portfolios") ||
     location.startsWith("/app/collectors") ||
     location.startsWith("/app/liquidation") ||

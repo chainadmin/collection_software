@@ -5,7 +5,6 @@ import {
   ClipboardList,
   XCircle,
   TrendingUp,
-  CreditCard,
   LogOut,
 } from "lucide-react";
 import {
@@ -60,9 +59,7 @@ interface CollectorSidebarProps {
 
 export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
   const [location] = useLocation();
-  const navItems = currentCollector?.canViewPaymentRunner
-    ? [...collectorNavItems, { title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard }]
-    : collectorNavItems;
+  const navItems = collectorNavItems;
 
   return (
     <Sidebar>
