@@ -68,7 +68,9 @@ export async function claimDeclinedPaymentForRerun(paymentId: string, organizati
             processing_started_at = NOW(),
             completed_at = NULL,
             provider_transaction_id = NULL
-      WHERE id = $1 AND organization_id = $2 AND status = 'declined'
+      WHERE id = $1 AND organization_id = $2 AND status = 'pending'
+        AND completed_at IS NOT NULL
+        AND notes LIKE 'DECLINED:%'
       RETURNING *`,
     [paymentId, organizationId],
   );

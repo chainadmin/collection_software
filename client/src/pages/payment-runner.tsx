@@ -735,7 +735,11 @@ export default function PaymentRunner() {
                       <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
                     </div>
-                    {renderPaymentActions(payment, false, false)}
+                    {renderPaymentActions(
+                      payment,
+                      Boolean(payment.completedAt) && String(payment.notes || "").startsWith("DECLINED:"),
+                      false,
+                    )}
                     <StatusBadge status={payment.status} size="sm" />
                   </div>
                 ))}
