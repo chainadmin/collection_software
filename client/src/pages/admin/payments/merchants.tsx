@@ -39,7 +39,6 @@ export default function Merchants() {
   const [authorizeNetApiLoginId, setAuthorizeNetApiLoginId] = useState("");
   const [authorizeNetTransactionKey, setAuthorizeNetTransactionKey] = useState("");
   const [stripeSecretKey, setStripeSecretKey] = useState("");
-  const [testMode, setTestMode] = useState(true);
 
   const { data: merchants = [], isLoading } = useQuery<Merchant[]>({
     queryKey: ["/api/merchants"],
@@ -98,7 +97,6 @@ export default function Merchants() {
     setAuthorizeNetApiLoginId("");
     setAuthorizeNetTransactionKey("");
     setStripeSecretKey("");
-    setTestMode(true);
   };
 
   const handleAddMerchant = () => {
@@ -123,7 +121,6 @@ export default function Merchants() {
       authorizeNetApiLoginId: processorType === "authorize_net" ? authorizeNetApiLoginId : null,
       authorizeNetTransactionKey: processorType === "authorize_net" ? authorizeNetTransactionKey : null,
       stripeSecretKey: processorType === "stripe" ? stripeSecretKey : null,
-      testMode,
     });
   };
 
@@ -225,7 +222,7 @@ export default function Merchants() {
               {processorType === "usaepay" && (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Use a REST API source key and its PIN. Sandbox credentials only work with Test Mode; production credentials require Test Mode to be off.
+                    Use a live REST API source key and PIN. Card payments are submitted to USAePay production as immediate <strong>cc:sale</strong> transactions.
                   </p>
                   <div className="space-y-2">
                     <Label>USAePay Source Key</Label>
@@ -271,17 +268,9 @@ export default function Merchants() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
-                <Switch 
-                  checked={testMode} 
-                  onCheckedChange={setTestMode}
-                  data-testid="switch-test-mode"
-                />
-                <Label>Test Mode (sandbox)</Label>
-              </div>
               {processorType === "usaepay" && (
                 <p className="text-xs text-muted-foreground">
-                  With Test Mode off, USAePay requires production credentials. A 401 “invalid transaction authorization information” error means USAePay rejected the production source key/PIN or that key is not enabled for transaction API requests.
+                  A 401 “invalid transaction authorization information” response means USAePay rejected the live credentials before creating the sale, so it will not appear in transaction history.
                 </p>
               )}
             </div>

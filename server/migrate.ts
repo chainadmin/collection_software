@@ -321,10 +321,14 @@ export async function runMigrations() {
         "nmi_password" text,
         "usaepay_source_key" text,
         "usaepay_pin" text,
-        "test_mode" boolean DEFAULT true,
+        "test_mode" boolean DEFAULT false,
         "created_date" text NOT NULL
       )
     `);
+    // Payment gateways are live-only. Normalize legacy merchant rows that may
+    // still carry the retired sandbox flag and prevent new rows defaulting to it.
+    await db.execute(sql`UPDATE "merchants" SET "test_mode" = false WHERE "test_mode" IS DISTINCT FROM false`);
+    await db.execute(sql`ALTER TABLE "merchants" ALTER COLUMN "test_mode" SET DEFAULT false`);
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "fee_schedules" (

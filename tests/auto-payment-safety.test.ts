@@ -188,22 +188,32 @@ test("USAePay saved-card duplicate response persists as needs_review", async () 
   }
 });
 
-test("USAePay authentication errors are reported as conclusive declines", async () => {
+test("USAePay authentication errors are reported as configuration errors before transaction creation", async () => {
   const source = payment({ cardId: "card-1" });
   let persisted: Partial<Payment> | undefined;
+  let requestedUrl = "";
+  let requestedBody: Record<string, unknown> = {};
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ error: "Invalid source key or pin" }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  });
+  globalThis.fetch = async (input, init) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ error: "Invalid source key or pin" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
   try {
     const result = await processPayment(source, savedCardStorage(source, "usaepay", update => {
       persisted = update;
     }), "org-1");
     assert.equal(result.success, false);
     assert.equal(result.ambiguous, undefined);
-    assert.equal(persisted?.status, "declined");
-    assert.match(result.declineReason || "", /HTTP 401.*Test Mode off uses production.*transaction API.*sandbox.*Invalid source key or pin/);
+    assert.equal(result.configurationError, true);
+    assert.equal(requestedUrl, "https://usaepay.com/api/v2/transactions");
+    assert.equal(requestedBody.command, "cc:sale");
+    assert.equal(persisted?.status, "pending");
+    assert.match(persisted?.notes || "", /^PROCESSING ERROR:/);
+    assert.match(result.declineReason || "", /authentication layer.*live.*before a sale was created.*HTTP 401.*transaction history.*production REST API.*transaction API.*Invalid source key or pin/);
   } finally {
     globalThis.fetch = originalFetch;
   }
