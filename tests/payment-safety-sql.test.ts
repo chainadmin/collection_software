@@ -6,6 +6,7 @@ import {
   claimPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
   markStaleProcessingPaymentsNeedsReview,
+  postPaymentAtomically,
 } from "../server/payment-safety";
 
 test("payment claims and recovery updates retain tenant and status guards", async () => {
@@ -43,5 +44,41 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
     assert.deepEqual(calls[3].params.slice(0, 2), [45, "org-1"]);
   } finally {
     (pool as any).query = originalQuery;
+  }
+});
+
+test("manual posting permits a pending payment and records the gateway bypass", async () => {
+  const originalConnect = pool.connect.bind(pool);
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+  const client = {
+    query: async (sql: string, params?: unknown[]) => {
+      calls.push({ sql, params });
+      if (/SELECT \* FROM payments/.test(sql)) {
+        return { rows: [{ id: "payment-1", debtor_id: "debtor-1", amount: 2500, status: "pending", processed_by: "collector-1" }] };
+      }
+      if (/SELECT \* FROM debtors/.test(sql)) {
+        return { rows: [{ id: "debtor-1", current_balance: 10000 }] };
+      }
+      if (/UPDATE payments SET status = 'posted'/.test(sql)) {
+        return { rows: [{ id: "payment-1", status: "posted" }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => undefined,
+  };
+  (pool as any).connect = async () => client;
+
+  try {
+    const result = await postPaymentAtomically("payment-1", "org-1", { allowPending: true });
+
+    assert.equal(result.alreadyPosted, false);
+    assert.ok(calls.some(({ sql, params }) =>
+      /INSERT INTO notes/.test(sql) && String(params?.[2]).includes("manually, without gateway processing")
+    ));
+    assert.ok(calls.some(({ sql, params }) =>
+      /UPDATE debtors/.test(sql) && params?.[0] === 7500
+    ));
+  } finally {
+    (pool as any).connect = originalConnect;
   }
 });

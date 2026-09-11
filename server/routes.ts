@@ -3734,7 +3734,7 @@ export async function registerRoutes(
     }
   });
 
-  // Post a single processed payment (admin/manager only)
+  // Post a processed payment, or explicitly bypass processing for a pending payment (admin/manager only).
   app.post("/api/payments/:id/post", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -3753,7 +3753,8 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      const result = await postPaymentAtomically(payment.id, orgId);
+      const manual = req.body?.manual === true;
+      const result = await postPaymentAtomically(payment.id, orgId, { allowPending: manual });
       const postedPayment = await storage.getPayment(payment.id);
       if (!postedPayment) return res.status(404).json({ error: "Payment not found" });
       res.json({ ...redactPayment(postedPayment), alreadyPosted: result.alreadyPosted });

@@ -53,6 +53,8 @@ export default function PaymentRunner() {
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
   const [reverseReason, setReverseReason] = useState("");
+  const [postDialogOpen, setPostDialogOpen] = useState(false);
+  const [paymentToPost, setPaymentToPost] = useState<PaymentWithDebtor | null>(null);
 
   const { data: pendingPayments, isLoading: pendingLoading, refetch } = useQuery<PaymentWithDebtor[]>({
     queryKey: ["/api/payments/pending"],
@@ -217,9 +219,10 @@ export default function PaymentRunner() {
   });
 
   const postPaymentMutation = useMutation({
-    mutationFn: async (paymentId: string) => {
+    mutationFn: async ({ paymentId, manual }: { paymentId: string; manual: boolean }) => {
       const res = await apiRequest("POST", `/api/payments/${paymentId}/post`, {
-        collectorId: currentCollector?.id
+        collectorId: currentCollector?.id,
+        manual,
       });
       return res.json();
     },
@@ -227,6 +230,8 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       toast({ title: "Payment Posted", description: "Payment has been posted successfully." });
+      setPostDialogOpen(false);
+      setPaymentToPost(null);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to post payment.", variant: "destructive" });
@@ -330,6 +335,11 @@ export default function PaymentRunner() {
     setReverseDialogOpen(true);
   };
 
+  const handleOpenPost = (payment: PaymentWithDebtor) => {
+    setPaymentToPost(payment);
+    setPostDialogOpen(true);
+  };
+
   const handleConfirmReverse = () => {
     if (selectedPayment) {
       reversePaymentMutation.mutate({ paymentId: selectedPayment.id, reason: reverseReason });
@@ -408,27 +418,51 @@ export default function PaymentRunner() {
           </Button>
         )}
         {!isDeclined && !isProcessed && !payment.completedAt && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleRunSingle(payment)}
-            disabled={isProcessing}
-            title="Run single payment"
-            data-testid={`button-run-single-${payment.id}`}
-          >
-            {isProcessing ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <PlayCircle className="h-4 w-4" />
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleRunSingle(payment)}
+              disabled={isProcessing}
+              title="Run single payment"
+              data-testid={`button-run-single-${payment.id}`}
+            >
+              {isProcessing ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <PlayCircle className="h-4 w-4" />
+              )}
+            </Button>
+            {canPostOrReverse && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleOpenPost(payment)}
+                  title="Post manually without processing"
+                  data-testid={`button-manual-post-${payment.id}`}
+                >
+                  <CheckSquare className="h-4 w-4 text-green-600" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleOpenReverse(payment)}
+                  title="Reverse manually"
+                  data-testid={`button-manual-reverse-${payment.id}`}
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+              </>
             )}
-          </Button>
+          </>
         )}
         {isProcessed && canPostOrReverse && (
           <>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => postPaymentMutation.mutate(payment.id)}
+              onClick={() => postPaymentMutation.mutate({ paymentId: payment.id, manual: false })}
               disabled={isPosting}
               title="Post payment"
               data-testid={`button-post-${payment.id}`}
@@ -962,6 +996,35 @@ export default function PaymentRunner() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={postDialogOpen} onOpenChange={setPostDialogOpen}>
+        <AlertDialogContent data-testid="dialog-manual-post">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Post Payment Manually?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This posts the payment directly to the account without charging it through the payment processor. Only continue if the payment was received outside the runner.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {paymentToPost && (
+            <div className="rounded-lg bg-muted p-3">
+              <p className="font-medium">{getDebtorName(paymentToPost.debtorId)}</p>
+              <p className="text-sm text-muted-foreground">
+                {formatCurrency(paymentToPost.amount)} - {formatDate(paymentToPost.paymentDate)}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-manual-post">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => paymentToPost && postPaymentMutation.mutate({ paymentId: paymentToPost.id, manual: true })}
+              disabled={!paymentToPost || postPaymentMutation.isPending}
+              data-testid="button-confirm-manual-post"
+            >
+              {postPaymentMutation.isPending ? "Posting..." : "Post Without Processing"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
