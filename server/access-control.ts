@@ -22,3 +22,25 @@ export function isActiveAdminOrManagerRecord(
     (live.role === "admin" || live.role === "manager")
   );
 }
+
+/** Allows payment operations only for active users explicitly trusted with them. */
+export function canRunPaymentsRecord(
+  sessionCollector: { id?: string } | undefined,
+  live: {
+    id?: string;
+    status?: string;
+    organizationId?: string;
+    role?: string;
+    canViewPaymentRunner?: boolean | null;
+  } | undefined,
+  orgId: string,
+): boolean {
+  return !!(
+    sessionCollector?.id &&
+    live &&
+    live.id === sessionCollector.id &&
+    live.status === "active" &&
+    live.organizationId === orgId &&
+    (live.role === "admin" || live.role === "manager" || live.canViewPaymentRunner === true)
+  );
+}

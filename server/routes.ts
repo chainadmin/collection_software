@@ -6,7 +6,7 @@ import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTi
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
 import bcrypt from "bcrypt";
 import { 
   processDebtorCardPayment,
@@ -178,6 +178,13 @@ async function isActiveAdminOrManager(req: any, orgId: string): Promise<boolean>
   if (!sessionCollector?.id) return false;
   const live = await storage.getCollector(sessionCollector.id);
   return isActiveAdminOrManagerRecord(sessionCollector, live, orgId);
+}
+
+async function canRunPayments(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return canRunPaymentsRecord(sessionCollector, live, orgId);
 }
 
 
@@ -3030,13 +3037,13 @@ export async function registerRoutes(
   app.post("/api/payment-runner/auto-trigger", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!await isActiveAdminOrManager(req, orgId)) {
-        return res.status(403).json({ error: "Active admin or manager access required" });
+      if (!await canRunPayments(req, orgId)) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
       }
       const collector = req.session.collector!;
       console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);
       // Manual trigger bypasses the org's autoRunnerEnabled toggle — the
-      // explicit click by an authorized admin/manager is the authorization.
+      // explicit click by an authorized payment runner is the authorization.
       const result = await runAutoPayments(orgId, { manualTrigger: true });
       if (result.alreadyRunning) {
         return res.status(409).json({ error: "The automatic payment runner is already running for this organization" });
@@ -3521,11 +3528,50 @@ export async function registerRoutes(
     }
   });
 
+  // Pending schedules remain editable until processing claims the row.
+  app.patch("/api/payments/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      if (!(await canRunPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
+      }
+      const payment = await storage.getPayment(req.params.id);
+      if (!payment || payment.organizationId !== orgId) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+      if (payment.status !== "pending" || payment.processingStartedAt) {
+        return res.status(409).json({ error: "Only unprocessed pending payments can be edited" });
+      }
+
+      const amount = Number(req.body.amount);
+      const paymentDate = String(req.body.paymentDate || "");
+      const paymentMethod = String(req.body.paymentMethod || "");
+      if (!Number.isInteger(amount) || amount <= 0) {
+        return res.status(400).json({ error: "Payment amount must be a positive number of cents" });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate) || Number.isNaN(Date.parse(`${paymentDate}T00:00:00Z`))) {
+        return res.status(400).json({ error: "Payment date must be a valid date" });
+      }
+      if (!["ach", "card", "check", "cash"].includes(paymentMethod)) {
+        return res.status(400).json({ error: "Invalid payment method" });
+      }
+
+      const updated = await storage.updatePayment(payment.id, { amount, paymentDate, paymentMethod });
+      if (!updated) return res.status(404).json({ error: "Payment not found" });
+      res.json(redactPayment(updated));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update payment" });
+    }
+  });
+
   // Process a single payment
   app.post("/api/payments/:id/process", async (req, res) => {
     let claimedContext: { paymentId: string; organizationId: string } | null = null;
     try {
       const orgId = getOrgId(req);
+      if (!(await canRunPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
+      }
       const payment = await storage.getPayment(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
@@ -3566,6 +3612,9 @@ export async function registerRoutes(
     let claimedContext: { paymentId: string; organizationId: string } | null = null;
     try {
       const orgId = getOrgId(req);
+      if (!(await canRunPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
+      }
       const payment = await storage.getPayment(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });

@@ -174,6 +174,10 @@ export default function Workstation() {
   const [refNotes, setRefNotes] = useState("");
   const [notesOpen, setNotesOpen] = useState(true);
   const [pendingPaymentsOpen, setPendingPaymentsOpen] = useState(true);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [editPaymentAmount, setEditPaymentAmount] = useState("");
+  const [editPaymentDate, setEditPaymentDate] = useState("");
+  const [editPaymentMethod, setEditPaymentMethod] = useState("card");
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
@@ -434,6 +438,35 @@ export default function Workstation() {
       toast({ title: "Payment recorded", description: "Payment has been added to the queue." });
     },
   });
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingPayment) throw new Error("No payment selected");
+      const amount = Math.round(Number(editPaymentAmount) * 100);
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid payment amount");
+      return apiRequest("PATCH", `/api/payments/${editingPayment.id}`, {
+        amount,
+        paymentDate: editPaymentDate,
+        paymentMethod: editPaymentMethod,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      setEditingPayment(null);
+      toast({ title: "Payment updated", description: "The pending payment schedule has been changed." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Unable to update payment", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const openPaymentEditor = (payment: Payment) => {
+    setEditingPayment(payment);
+    setEditPaymentAmount((payment.amount / 100).toFixed(2));
+    setEditPaymentDate(payment.paymentDate);
+    setEditPaymentMethod(payment.paymentMethod);
+  };
 
   const updateDebtorMutation = useMutation({
     mutationFn: async (data: { id: string; updates: Partial<Debtor> }) => {
@@ -1776,9 +1809,18 @@ export default function Workstation() {
                               </Badge>
                             ) : null}
                           </span>
-                          <ChevronRight
-                            className={`h-4 w-4 transition-transform ${pendingPaymentsOpen ? "rotate-90" : ""}`}
-                          />
+                          <span className="flex items-center gap-2">
+                            {currentCollector?.canViewPaymentRunner && (
+                              <Button variant="outline" size="sm" asChild onClick={(event) => event.stopPropagation()}>
+                                <Link href="/app/payment-runner" data-testid="button-open-payment-runner">
+                                  <DollarSign className="h-4 w-4 mr-1" /> Run payments
+                                </Link>
+                              </Button>
+                            )}
+                            <ChevronRight
+                              className={`h-4 w-4 transition-transform ${pendingPaymentsOpen ? "rotate-90" : ""}`}
+                            />
+                          </span>
                         </CardTitle>
                       </CardHeader>
                     </CollapsibleTrigger>
@@ -1804,9 +1846,22 @@ export default function Workstation() {
                                       {" "}• {payment.frequency === "one_time" ? "One-time" : payment.frequency}
                                     </p>
                                   </div>
-                                  <div className="text-right">
+                                  <div className="flex items-center gap-2">
+                                    {currentCollector?.canViewPaymentRunner && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => openPaymentEditor(payment)}
+                                        title="Edit pending payment"
+                                        data-testid={`button-edit-payment-${payment.id}`}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    <div className="text-right">
                                     <p className="text-sm">{formatDate(payment.paymentDate)}</p>
                                     <StatusBadge status={payment.status} size="sm" />
+                                    </div>
                                   </div>
                                 </div>
                               ))}
@@ -1821,6 +1876,45 @@ export default function Workstation() {
                     </CollapsibleContent>
                   </Card>
                 </Collapsible>
+
+                <Dialog open={!!editingPayment} onOpenChange={(open) => { if (!open) setEditingPayment(null); }}>
+                  <DialogContent data-testid="dialog-edit-pending-payment">
+                    <DialogHeader>
+                      <DialogTitle>Edit pending payment</DialogTitle>
+                      <DialogDescription>
+                        Change the amount, scheduled date, or payment method before this payment is processed.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="edit-payment-amount">Amount</label>
+                        <Input id="edit-payment-amount" type="number" min="0.01" step="0.01" value={editPaymentAmount} onChange={(e) => setEditPaymentAmount(e.target.value)} data-testid="input-edit-payment-amount" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium" htmlFor="edit-payment-date">Payment date</label>
+                        <Input id="edit-payment-date" type="date" value={editPaymentDate} onChange={(e) => setEditPaymentDate(e.target.value)} data-testid="input-edit-payment-date" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Payment method</label>
+                        <Select value={editPaymentMethod} onValueChange={setEditPaymentMethod}>
+                          <SelectTrigger data-testid="select-edit-payment-method"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="card">Credit/Debit Card</SelectItem>
+                            <SelectItem value="ach">ACH Transfer</SelectItem>
+                            <SelectItem value="check">Check</SelectItem>
+                            <SelectItem value="cash">Cash</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setEditingPayment(null)}>Cancel</Button>
+                      <Button onClick={() => updatePaymentMutation.mutate()} disabled={updatePaymentMutation.isPending || !editPaymentDate} data-testid="button-save-payment-changes">
+                        {updatePaymentMutation.isPending ? "Saving…" : "Save changes"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
 
                 {/* Custom Fields Section - editable custom data */}
                 {selectedDebtor && (() => {

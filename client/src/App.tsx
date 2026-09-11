@@ -144,7 +144,7 @@ function AppLayout() {
     return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, handleAccountChange);
   }, [trackAccount]);
   
-  const { data: collectors = [] } = useQuery<Collector[]>({
+  const { data: collectors = [], isLoading: collectorsLoading } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
 
@@ -157,7 +157,7 @@ function AppLayout() {
     retry: false,
   });
 
-  const currentCollector = collectors[0];
+  const currentCollector = collectors.find((collector) => collector.id === authUser?.id);
   const isCollectorRole = authUser?.role === "collector" || currentCollector?.role === "collector";
   const isCollectorAppMode = typeof window !== "undefined" && localStorage.getItem("appMode") === "collector";
 
@@ -172,10 +172,13 @@ function AppLayout() {
     location.startsWith("/app/workstation") ||
     location.startsWith("/app/collector/");
 
+  const isPermittedPaymentRunner =
+    location.startsWith("/app/payment-runner") && currentCollector?.canViewPaymentRunner === true;
+
   const isAdminRoute =
     location === "/app" ||
     location.startsWith("/app/debtors") ||
-    location.startsWith("/app/payment-runner") ||
+    (location.startsWith("/app/payment-runner") && !isPermittedPaymentRunner) ||
     location.startsWith("/app/portfolios") ||
     location.startsWith("/app/collectors") ||
     location.startsWith("/app/liquidation") ||
@@ -183,10 +186,11 @@ function AppLayout() {
     location.startsWith("/app/admin/");
 
   useEffect(() => {
+    if (collectorsLoading) return;
     if ((isCollectorRole || isCollectorAppMode) && isAdminRoute && !isCollectorRoute) {
       setLocation("/app/workstation");
     }
-  }, [isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, setLocation]);
+  }, [collectorsLoading, isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, setLocation]);
 
   const handleAccountSelect = (debtor: Debtor) => {
     trackAccount(debtor.id);
@@ -222,6 +226,7 @@ function AppLayout() {
               name: currentCollector.name,
               role: currentCollector.role,
               avatarInitials: currentCollector.avatarInitials,
+              canViewPaymentRunner: currentCollector.canViewPaymentRunner,
             } : null}
           />
         ) : (
