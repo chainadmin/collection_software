@@ -5,6 +5,7 @@ import {
   ClipboardList,
   XCircle,
   TrendingUp,
+  CreditCard,
   LogOut,
 } from "lucide-react";
 import {
@@ -54,11 +55,14 @@ const collectorNavItems = [
 ];
 
 interface CollectorSidebarProps {
-  currentCollector?: { name: string; role: string; avatarInitials: string | null } | null;
+  currentCollector?: { name: string; role: string; avatarInitials: string | null; canViewPaymentRunner?: boolean | null } | null;
 }
 
 export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
   const [location] = useLocation();
+  const navItems = currentCollector?.canViewPaymentRunner
+    ? [...collectorNavItems, { title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard }]
+    : collectorNavItems;
 
   return (
     <Sidebar>
@@ -78,7 +82,7 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {collectorNavItems.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild

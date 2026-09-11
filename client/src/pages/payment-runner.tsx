@@ -38,6 +38,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatDate, parseDisplayDate, cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
 
 interface PaymentWithDebtor extends Payment {
@@ -46,6 +47,7 @@ interface PaymentWithDebtor extends Payment {
 
 export default function PaymentRunner() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
@@ -122,8 +124,7 @@ export default function PaymentRunner() {
     queryKey: ["/api/collectors"],
   });
 
-  // Get current collector (admin/manager for payment operations)
-  const currentCollector = collectors?.find((c) => c.role === "admin" || c.role === "manager") || collectors?.[0];
+  const currentCollector = collectors?.find((collector) => collector.id === user?.id);
 
   const getDebtorName = (debtorId: string) => {
     const debtor = debtors?.find((d) => d.id === debtorId);
@@ -382,6 +383,7 @@ export default function PaymentRunner() {
   const totalPendingAmount = pendingPayments?.reduce((sum, p) => sum + p.amount, 0) || 0;
 
   const canPostOrReverse = currentCollector?.role === "admin" || currentCollector?.role === "manager";
+  const canRunPayments = canPostOrReverse || currentCollector?.canViewPaymentRunner === true;
 
   const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, isProcessed: boolean = false) => {
     const isProcessing = processingPaymentId === payment.id;
@@ -542,7 +544,6 @@ export default function PaymentRunner() {
               )}
             </div>
             {canPostOrReverse && (
-              <>
                 <Button
                   variant="outline"
                   size="sm"
@@ -555,6 +556,8 @@ export default function PaymentRunner() {
                   <Settings className="h-4 w-4 mr-2" />
                   Schedule
                 </Button>
+            )}
+            {canRunPayments && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -569,7 +572,6 @@ export default function PaymentRunner() {
                   )}
                   Run Now
                 </Button>
-              </>
             )}
           </div>
         </CardContent>
