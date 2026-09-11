@@ -5051,7 +5051,10 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
       const currentCollector = await storage.getCollector(collector.id);
-      const canManage = collector.role === "admin" || collector.role === "manager";
+      if (!currentCollector || currentCollector.status !== "active" || !validateOrgOwnership(currentCollector.organizationId, getOrgId(req))) {
+        return res.status(401).json({ error: "Collector authentication required" });
+      }
+      const canManage = currentCollector.role === "admin" || currentCollector.role === "manager";
       if (!canManage && !currentCollector?.canViewEmail) {
         return res.status(403).json({ error: "Messaging is not enabled for this collector" });
       }
@@ -5369,7 +5372,7 @@ export async function registerRoutes(
       }
       const orgId = getOrgId(req);
       const currentCollector = await storage.getCollector(sessionCollector.id);
-      if (!currentCollector || !validateOrgOwnership(currentCollector.organizationId, orgId)) {
+      if (!currentCollector || currentCollector.status !== "active" || !validateOrgOwnership(currentCollector.organizationId, orgId)) {
         return res.status(401).json({ error: "Collector authentication required" });
       }
       if (currentCollector.role !== "admin" && currentCollector.role !== "manager" && !currentCollector.canViewEmail) {
