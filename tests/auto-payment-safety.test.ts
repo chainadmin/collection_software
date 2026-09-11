@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Payment } from "../shared/schema";
+import type { Merchant, Payment, PaymentCard } from "../shared/schema";
 import type { IStorage } from "../server/storage";
-import { processPayment } from "../server/payment-processor";
+import { processPayment, selectActiveMerchant } from "../server/payment-processor";
 import {
   classifyAuthorizeNetDisposition,
   isPotentialDuplicateGatewayMessage,
@@ -76,6 +76,50 @@ function savedCardStorage(
     getOrganization: async () => undefined,
   } as unknown as IStorage;
 }
+
+test("locally stored cards follow the currently active merchant after configuration rotation", () => {
+  const oldMerchant = {
+    id: "merchant-old",
+    processorType: "nmi",
+    isActive: false,
+    nmiSecurityKey: "old-security-key",
+  } as Merchant;
+  const activeMerchant = {
+    id: "merchant-active",
+    processorType: "nmi",
+    isActive: true,
+    nmiSecurityKey: "active-security-key",
+  } as Merchant;
+  const localCard = {
+    merchantId: oldMerchant.id,
+    processorType: "nmi",
+    vaultStatus: "locally_stored",
+  } as PaymentCard;
+
+  assert.equal(selectActiveMerchant([oldMerchant, activeMerchant], localCard), activeMerchant);
+});
+
+test("vaulted cards remain bound to the active merchant that issued their token", () => {
+  const oldMerchant = {
+    id: "merchant-old",
+    processorType: "nmi",
+    isActive: false,
+    nmiSecurityKey: "old-security-key",
+  } as Merchant;
+  const activeMerchant = {
+    id: "merchant-active",
+    processorType: "nmi",
+    isActive: true,
+    nmiSecurityKey: "active-security-key",
+  } as Merchant;
+  const vaultedCard = {
+    merchantId: oldMerchant.id,
+    processorType: "nmi",
+    vaultStatus: "vaulted",
+  } as PaymentCard;
+
+  assert.equal(selectActiveMerchant([oldMerchant, activeMerchant], vaultedCard), undefined);
+});
 
 test("payment processing rejects invalid cent amounts before any account or gateway lookup", async () => {
   const source = payment({ amount: 0 });
