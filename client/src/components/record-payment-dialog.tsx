@@ -258,7 +258,7 @@ export function RecordPaymentDialog({
             rows: manageRows.map(row => ({ id: row.id, amount: Math.round(Number(row.amount) * 100), paymentDate: row.paymentDate })),
             ...(paymentMethod === "card" && cardIdToUse !== manageOriginalCardId ? { cardId: cardIdToUse } : {}),
           } : {}),
-        }, { headers: { "Idempotency-Key": manageMutationId } });
+        }, { headers: { "Idempotency-Key": manageMutationId }, timeoutMs: 30_000 });
         refreshPaymentViews();
         toast({
           title: manageAction === "cancel" ? "Schedule cancelled" : "Schedule updated",
@@ -275,7 +275,7 @@ export function RecordPaymentDialog({
           paymentMethod,
           cardId: cardIdToUse || null,
           rows,
-        }, { headers: { "Idempotency-Key": arrangementId } });
+        }, { headers: { "Idempotency-Key": arrangementId }, timeoutMs: 30_000 });
         refreshPaymentViews();
         toast({ title: "Payments scheduled", description: `${rows.length} pending payments were saved. No payment was taken today.` });
         resetForm();
@@ -316,7 +316,7 @@ export function RecordPaymentDialog({
           },
         } : {}),
         idempotencyKey: singleSubmissionId,
-      }, { headers: { "Idempotency-Key": singleSubmissionId } });
+      }, { headers: { "Idempotency-Key": singleSubmissionId }, timeoutMs: 30_000 });
       const processedPayment = await paymentResponse.json() as { status?: string; declineReason?: string | null };
 
       refreshPaymentViews();
