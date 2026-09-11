@@ -311,7 +311,7 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
                 </FormControl>
                 <div className="flex items-center gap-2 pb-0">
                   <CreditCard className="h-4 w-4 text-muted-foreground" />
-                  <FormLabel className="font-normal">Payment Runner</FormLabel>
+                  <FormLabel className="font-normal">Run Scheduled Payments</FormLabel>
                 </div>
               </FormItem>
             )}

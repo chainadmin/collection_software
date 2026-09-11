@@ -3020,6 +3020,9 @@ export async function registerRoutes(
   app.get("/api/payment-runner/auto-status", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Admin or manager access required" });
+      }
       const org = await storage.getOrganization(orgId);
       const status = getAutoRunnerStatus(orgId);
       res.json({
@@ -3037,8 +3040,8 @@ export async function registerRoutes(
   app.post("/api/payment-runner/auto-trigger", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!await canRunPayments(req, orgId)) {
-        return res.status(403).json({ error: "Payment Runner permission required" });
+      if (!await isActiveAdminOrManager(req, orgId)) {
+        return res.status(403).json({ error: "Admin or manager access required" });
       }
       const collector = req.session.collector!;
       console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);

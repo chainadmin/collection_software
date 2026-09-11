@@ -178,6 +178,7 @@ export default function Workstation() {
   const [editPaymentAmount, setEditPaymentAmount] = useState("");
   const [editPaymentDate, setEditPaymentDate] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState("card");
+  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [showCardDialog, setShowCardDialog] = useState(false);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
@@ -245,6 +246,8 @@ export default function Workstation() {
   });
 
   const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : null;
+  const canManagePayments = currentCollector?.role === "admin" || currentCollector?.role === "manager";
+  const canRunScheduledPayments = canManagePayments || currentCollector?.canViewPaymentRunner === true;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
 
@@ -459,6 +462,32 @@ export default function Workstation() {
     onError: (error: Error) => {
       toast({ title: "Unable to update payment", description: error.message, variant: "destructive" });
     },
+  });
+
+  const runPaymentMutation = useMutation({
+    mutationFn: async (paymentId: string) => {
+      setProcessingPaymentId(paymentId);
+      const response = await apiRequest("POST", `/api/payments/${paymentId}/process`);
+      return response.json();
+    },
+    onSuccess: (payment: Payment & { declineReason?: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      if (payment.status === "processed") {
+        toast({ title: "Payment processed", description: "The payment was successful." });
+      } else {
+        toast({
+          title: "Payment declined",
+          description: payment.declineReason || "The payment could not be processed.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Unable to run payment", description: error.message, variant: "destructive" });
+    },
+    onSettled: () => setProcessingPaymentId(null),
   });
 
   const openPaymentEditor = (payment: Payment) => {
@@ -1810,13 +1839,6 @@ export default function Workstation() {
                             ) : null}
                           </span>
                           <span className="flex items-center gap-2">
-                            {currentCollector?.canViewPaymentRunner && (
-                              <Button variant="outline" size="sm" asChild onClick={(event) => event.stopPropagation()}>
-                                <Link href="/app/payment-runner" data-testid="button-open-payment-runner">
-                                  <DollarSign className="h-4 w-4 mr-1" /> Run payments
-                                </Link>
-                              </Button>
-                            )}
                             <ChevronRight
                               className={`h-4 w-4 transition-transform ${pendingPaymentsOpen ? "rotate-90" : ""}`}
                             />
@@ -1847,7 +1869,7 @@ export default function Workstation() {
                                     </p>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    {currentCollector?.canViewPaymentRunner && (
+                                    {canManagePayments && (
                                       <Button
                                         variant="ghost"
                                         size="icon"
@@ -1856,6 +1878,18 @@ export default function Workstation() {
                                         data-testid={`button-edit-payment-${payment.id}`}
                                       >
                                         <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    {canRunScheduledPayments && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => runPaymentMutation.mutate(payment.id)}
+                                        disabled={processingPaymentId !== null}
+                                        data-testid={`button-run-payment-${payment.id}`}
+                                      >
+                                        <DollarSign className="mr-1 h-4 w-4" />
+                                        {processingPaymentId === payment.id ? "Running…" : "Run"}
                                       </Button>
                                     )}
                                     <div className="text-right">
