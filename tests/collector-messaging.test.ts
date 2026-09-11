@@ -78,7 +78,7 @@ test("DMP sends SMS through Chain only for collectors with messaging permission"
 
     globalThis.fetch = async (input, init) => {
       const url = String(input);
-      if (url === "https://chain.test/api/campaigns/send") {
+      if (url === "https://chain.test/api/v2/send_text") {
         deliveries.push({ url, init });
         return new Response(JSON.stringify({ success: true }), {
           status: 200, headers: { "content-type": "application/json" },
@@ -96,10 +96,9 @@ test("DMP sends SMS through Chain only for collectors with messaging permission"
     assert.equal(deliveries[0].init?.method, "POST");
     assert.equal((deliveries[0].init?.headers as Record<string, string>).Authorization, "Bearer secret-chain-key");
     const chainPayload = JSON.parse(String(deliveries[0].init?.body));
-    assert.equal(chainPayload.campaignType, "sms");
-    assert.equal(chainPayload.accounts[0].contactType, "phone");
-    assert.equal(chainPayload.accounts[0].contactValue, phone.value);
-    assert.equal(chainPayload.accounts[0].renderedBody, "Hello Ada, your balance is $75.00.");
+    assert.equal(chainPayload.fileNumber, debtor.fileNumber);
+    assert.equal(chainPayload.phoneNumber, phone.value);
+    assert.equal(chainPayload.message, "Hello Ada, your balance is $75.00.");
 
     const logs = await memory.getCampaignLogs(organization.id);
     assert.equal(logs.length, 1);

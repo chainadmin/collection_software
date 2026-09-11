@@ -30,6 +30,7 @@ import {
   sendOrgNotificationEmail,
   sendSignupWelcomeEmail,
 } from "./email";
+import { sendChainMessage } from "./chain-messaging";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
@@ -5437,43 +5438,29 @@ export async function registerRoutes(
         })),
       };
 
-      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${integration.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!externalResponse.ok) {
-        const errorText = await externalResponse.text();
-        await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
-        return res.status(502).json({ error: "External campaign send failed", details: errorText });
-      }
-
-      // A 2xx response only means Chain accepted and processed the request -
-      // it does not mean anything was actually delivered. Chain reports how
-      // many of the contacts it actually sent/failed/skipped; read that
-      // instead of treating any 2xx as a full success, or a template
-      // mismatch, opt-outs, or a blocked number all look identical to a
-      // fully successful send.
-      let totalSent = items.length;
-      let totalFailed = 0;
-      try {
-        const externalResult = await externalResponse.json() as { totalSent?: number; totalFailed?: number; totalSkipped?: number };
-        if (typeof externalResult.totalSent === "number") totalSent = externalResult.totalSent;
-        if (typeof externalResult.totalFailed === "number") totalFailed = externalResult.totalFailed;
-      } catch {
-        // Chain's response body did not include delivery counts - fall back
-        // to treating the 2xx as a full success rather than failing the
-        // whole request over an unparseable (but still successful) response.
-      }
+      // Chain's External API sends one account per request. Calling its real
+      // channel endpoints (rather than the internal /campaigns/send UI route)
+      // both delivers the message and gives each log item an honest result.
+      const results = await Promise.all(payload.accounts.map((account, index) =>
+        sendChainMessage(integration, {
+          fileNumber: account.fileNumber,
+          contactValue: account.contactValue,
+          channel: campaignChannel,
+          subject: account.renderedSubject,
+          body: account.renderedBody,
+          externalId: items[index].id,
+        })));
+      const totalSent = results.filter((result) => result.success).length;
+      const totalFailed = results.length - totalSent;
 
       const status = totalSent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
       const errorMessage = status === "sent" ? null : `Chain reported ${totalSent} sent, ${totalFailed} failed of ${items.length} contacts`;
       await storage.updateCampaignLog(campaignLog.id, { status, errorMessage });
-      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: status === "failed" ? "failed" : "sent" })));
+      await Promise.all(items.map((item, index) => storage.updateCampaignLogItem(item.id, {
+        status: results[index].success ? "sent" : "failed",
+        externalId: results[index].externalId || null,
+        responseText: results[index].error || null,
+      })));
 
       res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
     } catch (error) {
@@ -5611,23 +5598,23 @@ export async function registerRoutes(
         }],
       };
 
-      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${integration.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+      const chainResult = await sendChainMessage(integration, {
+        fileNumber: item.fileNumber,
+        contactValue: item.contactValue,
+        channel,
+        subject: payload.accounts[0].renderedSubject,
+        body: payload.accounts[0].renderedBody,
+        externalId: item.id,
       });
-      if (!externalResponse.ok) {
-        const errorText = await externalResponse.text();
+      if (!chainResult.success) {
+        const errorText = chainResult.error || "External send failed";
         await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
         await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
         return res.status(502).json({ error: "External message send failed", details: errorText });
       }
 
       await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
-      await storage.updateCampaignLogItem(item.id, { status: "sent" });
+      await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });
