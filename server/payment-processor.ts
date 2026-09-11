@@ -1,4 +1,4 @@
-import type { Payment, Merchant } from "@shared/schema";
+import type { Payment, Merchant, PaymentCard } from "@shared/schema";
 import type { IStorage } from "./storage";
 import {
   processDebtorCardPayment,
@@ -120,6 +120,36 @@ function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
          (m.processorType === "usaepay" && m.usaepaySourceKey && m.usaepayPin) ||
         (m.processorType === "stripe" && m.stripeSecretKey))
   );
+}
+
+export function selectActiveMerchant(
+  merchants: Merchant[],
+  card?: PaymentCard,
+  oneTimeCard = false,
+): Merchant | undefined {
+  const eligibleMerchants = oneTimeCard
+    ? merchants.filter(merchant => merchant.processorType === "usaepay")
+    : merchants;
+  const organizationMerchant = getActiveMerchant(eligibleMerchants);
+
+  // Only gateway-vaulted credentials are bound to the merchant that issued
+  // their token. Locally encrypted cards contain no merchant-specific token,
+  // so they must follow the organization's currently active merchant after a
+  // gateway configuration is replaced or rotated.
+  if (!card || card.vaultStatus !== "vaulted") return organizationMerchant;
+
+  if (card.merchantId) {
+    return eligibleMerchants.find(merchant =>
+      merchant.id === card.merchantId && merchant.isActive && getActiveMerchant([merchant]),
+    );
+  }
+  if (card.processorType) {
+    const matching = eligibleMerchants.filter(merchant =>
+      merchant.isActive && merchant.processorType === card.processorType && getActiveMerchant([merchant]),
+    );
+    return matching.length === 1 ? matching[0] : undefined;
+  }
+  return undefined;
 }
 
 async function processStripeToken(
@@ -645,26 +675,10 @@ export async function processPayment(
   }
 
   const merchants = await storage.getMerchants(orgId);
-  let activeMerchant = getActiveMerchant(merchants);
-  if (oneTimeCard) {
-    activeMerchant = getActiveMerchant(merchants.filter(merchant => merchant.processorType === "usaepay"));
-  }
-  // A reusable token belongs to the merchant that issued it. Legacy rows predate this
-  // binding and are usable only when their processor has one unambiguous,
-  // configured active merchant.
-  if (payment.paymentMethod === "card" && payment.cardId) {
-    const card = await storage.getPaymentCard(payment.cardId);
-    if (card?.merchantId) {
-      activeMerchant = merchants.find(merchant => merchant.id === card.merchantId && merchant.isActive);
-    } else if (card?.processorType) {
-      const matching = merchants.filter(merchant =>
-        merchant.isActive && merchant.processorType === card.processorType &&
-        getActiveMerchant([merchant]),
-      );
-      activeMerchant = matching.length === 1 ? matching[0] : undefined;
-    }
-  }
-
+  const savedCard = payment.paymentMethod === "card" && payment.cardId
+    ? await storage.getPaymentCard(payment.cardId)
+    : undefined;
+  const activeMerchant = selectActiveMerchant(merchants, savedCard, !!oneTimeCard);
   let result: ProcessPaymentResult;
 
   if (!activeMerchant) {
@@ -707,7 +721,7 @@ export async function processPayment(
       cardData = oneTimeCard;
       gatewayPaymentToken = null;
     } else if (payment.paymentMethod === "card" && payment.cardId) {
-      const card = await storage.getPaymentCard(payment.cardId);
+      const card = savedCard;
       if (card && card.organizationId === orgId && card.debtorId === payment.debtorId &&
           card.vaultStatus === "locally_stored" && card.encryptedCardNumber) {
         cardData = {
