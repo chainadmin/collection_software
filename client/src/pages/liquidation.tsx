@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp,
@@ -9,7 +9,6 @@ import {
   Calendar,
   BarChart3,
   PieChart,
-  ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +24,9 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, calculateLiquidationRate } from "@/lib/utils";
-import type { Portfolio, LiquidationSnapshot } from "@shared/schema";
+import type { Portfolio, Payment, Debtor } from "@shared/schema";
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function Liquidation() {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>("all");
@@ -37,21 +38,107 @@ export default function Liquidation() {
     queryKey: ["/api/portfolios"],
   });
 
-  const { data: snapshots, isLoading: snapshotsLoading } = useQuery<LiquidationSnapshot[]>({
-    queryKey: ["/api/liquidation/snapshots"],
+  const { data: payments, isLoading: paymentsLoading } = useQuery<Payment[]>({
+    queryKey: ["/api/payments"],
   });
 
-  const totalFaceValue = portfolios?.reduce((sum, p) => sum + p.totalFaceValue, 0) || 0;
-  const totalPurchased = portfolios?.reduce((sum, p) => sum + p.purchasePrice, 0) || 0;
-  const totalCollected = snapshots?.reduce((sum, s) => sum + s.totalCollected, 0) || 0;
+  const { data: debtors, isLoading: debtorsLoading } = useQuery<Debtor[]>({
+    queryKey: ["/api/debtors"],
+  });
+
+  const isLoading = portfoliosLoading || paymentsLoading || debtorsLoading;
+
+  // Real collections, computed from posted payments joined through their debtor's
+  // portfolio — the liquidation snapshot table has no writer, so it can never
+  // reflect actual activity.
+  const postedPayments = useMemo(
+    () => (payments || []).filter((p) => p.status === "posted"),
+    [payments]
+  );
+
+  const debtorPortfolioMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of debtors || []) map.set(d.id, d.portfolioId);
+    return map;
+  }, [debtors]);
+
+  const collectedByPortfolio = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const payment of postedPayments) {
+      const portfolioId = debtorPortfolioMap.get(payment.debtorId);
+      if (!portfolioId) continue;
+      totals.set(portfolioId, (totals.get(portfolioId) || 0) + payment.amount);
+    }
+    return totals;
+  }, [postedPayments, debtorPortfolioMap]);
+
+  const portfolioPerformance = useMemo(() => {
+    return (portfolios || []).map((p) => {
+      const collected = collectedByPortfolio.get(p.id) || 0;
+      const liquidationRate = calculateLiquidationRate(collected, p.totalFaceValue);
+      const profit = collected - p.purchasePrice;
+      const roi = p.purchasePrice > 0 ? (profit / p.purchasePrice) * 100 : 0;
+
+      return { ...p, collected, liquidationRate, profit, roi };
+    });
+  }, [portfolios, collectedByPortfolio]);
+
+  const visiblePortfolios = useMemo(() => {
+    if (selectedPortfolioId === "all") return portfolioPerformance;
+    return portfolioPerformance.filter((p) => p.id === selectedPortfolioId);
+  }, [portfolioPerformance, selectedPortfolioId]);
+
+  const totalFaceValue = visiblePortfolios.reduce((sum, p) => sum + p.totalFaceValue, 0);
+  const totalPurchased = visiblePortfolios.reduce((sum, p) => sum + p.purchasePrice, 0);
+  const totalCollected = visiblePortfolios.reduce((sum, p) => sum + p.collected, 0);
+  const totalAccounts = visiblePortfolios.reduce((sum, p) => sum + p.totalAccounts, 0);
   const overallLiquidationRate = calculateLiquidationRate(totalCollected, totalFaceValue);
   const roi = totalPurchased > 0 ? ((totalCollected - totalPurchased) / totalPurchased) * 100 : 0;
+
+  const relevantDebtorIds = useMemo(() => {
+    if (selectedPortfolioId === "all") return null;
+    return new Set((debtors || []).filter((d) => d.portfolioId === selectedPortfolioId).map((d) => d.id));
+  }, [debtors, selectedPortfolioId]);
+
+  // Last 6 months of posted collections, scoped to the selected portfolio.
+  const monthlyTrend = useMemo(() => {
+    const currentDate = new Date();
+    const result = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const collected = postedPayments
+        .filter((p) => {
+          if (!p.paymentDate?.startsWith(monthKey)) return false;
+          if (relevantDebtorIds && !relevantDebtorIds.has(p.debtorId)) return false;
+          return true;
+        })
+        .reduce((sum, p) => sum + p.amount, 0);
+      result.push({
+        label: `${MONTH_LABELS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`,
+        collected,
+      });
+    }
+    return result;
+  }, [postedPayments, relevantDebtorIds]);
+
+  const highestMonthlyCollection = Math.max(...monthlyTrend.map((m) => m.collected), 1);
+
+  // Real month-over-month change, replacing what used to be a hardcoded trend value.
+  const collectionsTrend = useMemo(() => {
+    if (monthlyTrend.length < 2) return undefined;
+    const current = monthlyTrend[monthlyTrend.length - 1].collected;
+    const previous = monthlyTrend[monthlyTrend.length - 2].collected;
+    if (previous === 0) return undefined;
+    const change = ((current - previous) / previous) * 100;
+    return { value: Math.round(Math.abs(change) * 10) / 10, isPositive: change >= 0 };
+  }, [monthlyTrend]);
 
   const calculatorResult = (() => {
     const faceValue = parseFloat(calculatorFaceValue) * 100 || 0;
     const purchasePrice = parseFloat(calculatorPurchasePrice) * 100 || 0;
     const collected = parseFloat(calculatorCollected) * 100 || 0;
-    
+
     const liquidationRate = calculateLiquidationRate(collected, faceValue);
     const profit = collected - purchasePrice;
     const roiPercent = purchasePrice > 0 ? (profit / purchasePrice) * 100 : 0;
@@ -66,22 +153,6 @@ export default function Liquidation() {
       breakEvenRate,
     };
   })();
-
-  const portfolioPerformance = portfolios?.map((p) => {
-    const portfolioSnapshots = snapshots?.filter((s) => s.portfolioId === p.id) || [];
-    const collected = portfolioSnapshots.reduce((sum, s) => sum + s.totalCollected, 0);
-    const liquidationRate = calculateLiquidationRate(collected, p.totalFaceValue);
-    const profit = collected - p.purchasePrice;
-    const roi = p.purchasePrice > 0 ? (profit / p.purchasePrice) * 100 : 0;
-
-    return {
-      ...p,
-      collected,
-      liquidationRate,
-      profit,
-      roi,
-    };
-  }) || [];
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -123,7 +194,7 @@ export default function Liquidation() {
           title="Total Collected"
           value={formatCurrencyCompact(totalCollected)}
           icon={TrendingUp}
-          trend={{ value: 8.5, isPositive: true }}
+          trend={collectionsTrend}
         />
         <StatCard
           title="Liquidation Rate"
@@ -134,7 +205,7 @@ export default function Liquidation() {
           title="Overall ROI"
           value={`${roi.toFixed(1)}%`}
           icon={roi >= 0 ? TrendingUp : TrendingDown}
-          trend={{ value: Math.abs(roi), isPositive: roi >= 0 }}
+          trend={{ value: Math.abs(Math.round(roi * 10) / 10), isPositive: roi >= 0 }}
         />
       </div>
 
@@ -145,11 +216,11 @@ export default function Liquidation() {
             <CardDescription>Liquidation rates and ROI by portfolio</CardDescription>
           </CardHeader>
           <CardContent>
-            {portfoliosLoading ? (
+            {isLoading ? (
               <Skeleton className="h-64 w-full" />
-            ) : portfolioPerformance.length > 0 ? (
+            ) : visiblePortfolios.length > 0 ? (
               <div className="space-y-4">
-                {portfolioPerformance.map((portfolio) => (
+                {visiblePortfolios.map((portfolio) => (
                   <div
                     key={portfolio.id}
                     className="p-4 rounded-md border"
@@ -293,30 +364,26 @@ export default function Liquidation() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Monthly Collection Trend</CardTitle>
+            <CardDescription>Posted payments over the last 6 months</CardDescription>
           </CardHeader>
           <CardContent>
-            {snapshotsLoading ? (
+            {isLoading ? (
               <Skeleton className="h-48 w-full" />
-            ) : snapshots && snapshots.length > 0 ? (
+            ) : monthlyTrend.some((m) => m.collected > 0) ? (
               <div className="space-y-3">
-                {snapshots.slice(0, 6).map((snapshot, index) => (
-                  <div key={snapshot.id} className="flex items-center gap-4">
-                    <div className="w-20 text-xs text-muted-foreground">
-                      {new Date(snapshot.snapshotDate).toLocaleDateString("en-US", {
-                        month: "short",
-                        year: "2-digit",
-                      })}
-                    </div>
+                {monthlyTrend.map((month) => (
+                  <div key={month.label} className="flex items-center gap-4">
+                    <div className="w-20 text-xs text-muted-foreground">{month.label}</div>
                     <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary/80 rounded-full transition-all"
                         style={{
-                          width: `${Math.min((snapshot.liquidationRate / 100) * 5, 100)}%`,
+                          width: `${Math.max((month.collected / highestMonthlyCollection) * 100, month.collected > 0 ? 4 : 0)}%`,
                         }}
                       />
                     </div>
                     <div className="w-24 text-right text-sm font-mono">
-                      {formatCurrencyCompact(snapshot.totalCollected)}
+                      {formatCurrencyCompact(month.collected)}
                     </div>
                   </div>
                 ))}
@@ -347,7 +414,7 @@ export default function Liquidation() {
                   </div>
                 </div>
                 <p className="text-lg font-semibold font-mono">
-                  {formatCurrency(totalCollected / Math.max(portfolios?.reduce((sum, p) => sum + p.totalAccounts, 0) || 1, 1))}
+                  {formatCurrency(totalCollected / Math.max(totalAccounts, 1))}
                 </p>
               </div>
               <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
@@ -361,7 +428,7 @@ export default function Liquidation() {
                   </div>
                 </div>
                 <p className="text-lg font-semibold font-mono">
-                  {Math.round((totalPurchased / (totalCollected / 365)) || 0)}
+                  {totalCollected > 0 ? Math.round((totalPurchased / (totalCollected / 365)) || 0) : 0}
                 </p>
               </div>
               <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
