@@ -1,7 +1,11 @@
 import { pool } from "./db";
 
-/** Atomically post a processed payment while locking both payment and debtor. */
-export async function postPaymentAtomically(paymentId: string, organizationId: string) {
+/** Atomically post a payment while locking both payment and debtor. */
+export async function postPaymentAtomically(
+  paymentId: string,
+  organizationId: string,
+  options: { allowPending?: boolean } = {},
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -15,8 +19,12 @@ export async function postPaymentAtomically(paymentId: string, organizationId: s
       await client.query("COMMIT");
       return { payment, alreadyPosted: true };
     }
-    if (payment.status !== "processed") {
-      throw Object.assign(new Error("Only processed payments can be posted"), { statusCode: 400 });
+    const canPost = payment.status === "processed" || (options.allowPending && payment.status === "pending");
+    if (!canPost) {
+      throw Object.assign(
+        new Error(options.allowPending ? "Only pending or processed payments can be posted" : "Only processed payments can be posted"),
+        { statusCode: 400 },
+      );
     }
     const debtorResult = await client.query(
       `SELECT * FROM debtors WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
@@ -36,7 +44,12 @@ export async function postPaymentAtomically(paymentId: string, organizationId: s
     await client.query(
       `INSERT INTO notes (id, debtor_id, collector_id, content, note_type, created_date, organization_id)
        VALUES (gen_random_uuid(), $1, $2, $3, 'payment', CURRENT_DATE::text, $4)`,
-      [payment.debtor_id, payment.processed_by || "system", `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully.`, organizationId],
+      [
+        payment.debtor_id,
+        payment.processed_by || "system",
+        `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully${payment.status === "pending" ? " (manually, without gateway processing)" : ""}.`,
+        organizationId,
+      ],
     );
     await client.query("COMMIT");
     return { payment: posted.rows[0], alreadyPosted: false };
