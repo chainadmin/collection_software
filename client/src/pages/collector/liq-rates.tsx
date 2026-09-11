@@ -2,11 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Target, DollarSign, Percent } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Collector, Portfolio } from "@shared/schema";
 
 export default function LiqRates() {
+  const { user: authUser } = useAuth();
+
   const { data: payments = [] } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/recent"],
+    queryKey: ["/api/payments"],
   });
 
   const { data: debtors = [] } = useQuery<Debtor[]>({
@@ -21,14 +24,16 @@ export default function LiqRates() {
     queryKey: ["/api/portfolios"],
   });
 
-  const currentCollector = collectors[1];
+  const currentCollector = collectors.find((c) => c.id === authUser?.id);
 
   const myDebtors = debtors.filter(
     (d) => d.assignedCollectorId === currentCollector?.id
   );
 
+  // "Posted" is this app's definition of actually-collected money; a payment
+  // that only reached "processed" hasn't been posted to the ledger yet.
   const myPayments = payments.filter(
-    (p) => p.status === "processed" && p.processedBy === currentCollector?.id
+    (p) => p.status === "posted" && p.processedBy === currentCollector?.id
   );
 
   const totalOriginalBalance = myDebtors.reduce(

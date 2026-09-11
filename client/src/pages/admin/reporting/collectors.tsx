@@ -4,10 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet, Loader2 } from "lucide-react";
+import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet, Loader2, X, Gauge } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
 import type { Collector } from "@shared/schema";
+
+interface CollectorMonthlyBreakdown {
+  month: string;
+  label: string;
+  posted: number;
+  pending: number;
+}
 
 interface CollectorPerformance {
   id: string;
@@ -23,6 +30,10 @@ interface CollectorPerformance {
   nextMonthPending: number;
   currentMonthGoal: number;
   goalProgress: number;
+  monthlyBreakdown: CollectorMonthlyBreakdown[];
+  assignedAccounts: number;
+  assignedOriginalBalance: number;
+  liquidationRate: number;
 }
 
 export default function CollectorReporting() {
@@ -69,6 +80,10 @@ export default function CollectorReporting() {
       newMoney: perf?.newMoney || 0,
       currentPending: perf?.currentPending || 0,
       goalProgress: perf?.goalProgress || 0,
+      liquidationRate: perf?.liquidationRate || 0,
+      assignedAccounts: perf?.assignedAccounts || 0,
+      assignedOriginalBalance: perf?.assignedOriginalBalance || 0,
+      monthlyBreakdown: perf?.monthlyBreakdown || [],
       hourlyWage,
       wageCost,
       profit,
@@ -83,6 +98,10 @@ export default function CollectorReporting() {
   const totalProfit = (totalCollections / 100) - totalWageCost;
   const overallROI = totalWageCost > 0 ? ((totalCollections / 100) / totalWageCost) : 0;
 
+  const selectedCollectorDetail = selectedCollector
+    ? collectorMetrics.find((c) => c.id === selectedCollector) || null
+    : null;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -91,6 +110,17 @@ export default function CollectorReporting() {
           <p className="text-muted-foreground">Individual and team performance metrics with profitability analysis</p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={selectedCollector || "all"} onValueChange={(v) => setSelectedCollector(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-[180px]" data-testid="select-collector">
+              <SelectValue placeholder="All Collectors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Collectors</SelectItem>
+              {collectors.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={dateRange} onValueChange={setDateRange}>
             <SelectTrigger className="w-[150px]" data-testid="select-date-range">
               <SelectValue />
@@ -179,10 +209,102 @@ export default function CollectorReporting() {
         </Card>
       </div>
 
+      {selectedCollectorDetail && (
+        <Card data-testid="card-collector-detail">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarFallback>{selectedCollectorDetail.avatarInitials}</AvatarFallback>
+              </Avatar>
+              <div>
+                <CardTitle className="text-lg">{selectedCollectorDetail.name}</CardTitle>
+                <CardDescription>
+                  {selectedCollectorDetail.assignedAccounts.toLocaleString()} assigned account{selectedCollectorDetail.assignedAccounts === 1 ? "" : "s"} · Pending and posted collections by month
+                </CardDescription>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedCollector("")} data-testid="button-clear-collector">
+              <X className="h-4 w-4 mr-1" />
+              Clear
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Gauge className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Liquidation Rate</p>
+                  <p className="text-lg font-semibold font-mono">{selectedCollectorDetail.liquidationRate.toFixed(2)}%</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-green-500/10 text-green-600">
+                  <DollarSign className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Posted (all-time)</p>
+                  <p className="text-lg font-semibold font-mono">{formatCurrency(selectedCollectorDetail.collections)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-500/10 text-yellow-600">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Pending (all-time)</p>
+                  <p className="text-lg font-semibold font-mono">{formatCurrency(selectedCollectorDetail.currentPending)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {selectedCollectorDetail.monthlyBreakdown.every((m) => m.posted === 0 && m.pending === 0) ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No posted or pending payments in this window</p>
+              ) : (
+                selectedCollectorDetail.monthlyBreakdown.map((m) => {
+                  const monthMax = Math.max(
+                    ...selectedCollectorDetail.monthlyBreakdown.map((mm) => mm.posted + mm.pending),
+                    1
+                  );
+                  return (
+                    <div key={m.month} className="flex items-center gap-4" data-testid={`collector-month-${m.month}`}>
+                      <div className="w-16 text-xs text-muted-foreground">{m.label}</div>
+                      <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden flex">
+                        <div
+                          className="h-full bg-primary"
+                          style={{ width: `${(m.posted / monthMax) * 100}%` }}
+                          title={`Posted: ${formatCurrency(m.posted)}`}
+                        />
+                        <div
+                          className="h-full bg-yellow-400/70"
+                          style={{ width: `${(m.pending / monthMax) * 100}%` }}
+                          title={`Pending: ${formatCurrency(m.pending)}`}
+                        />
+                      </div>
+                      <div className="w-44 text-right text-xs font-mono">
+                        <span className="text-primary">{formatCurrency(m.posted)}</span>
+                        {" / "}
+                        <span className="text-yellow-600 dark:text-yellow-400">{formatCurrency(m.pending)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-primary inline-block" /> Posted</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-400/70 inline-block" /> Pending</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Collector Performance & Profitability</CardTitle>
-          <CardDescription>Detailed metrics and cost analysis for each collector</CardDescription>
+          <CardDescription>Detailed metrics and cost analysis for each collector. Click a row to see monthly pending/posted detail.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -197,6 +319,7 @@ export default function CollectorReporting() {
                   <th className="text-right py-3 px-4 font-medium">ROI</th>
                   <th className="text-right py-3 px-4 font-medium">New Money</th>
                   <th className="text-right py-3 px-4 font-medium">Pending</th>
+                  <th className="text-right py-3 px-4 font-medium">Liquidation Rate</th>
                   <th className="text-right py-3 px-4 font-medium">Goal Progress</th>
                 </tr>
               </thead>
@@ -204,7 +327,12 @@ export default function CollectorReporting() {
                 {collectorMetrics.map((collector) => {
                   const goalProgress = collector.goal ? (collector.collections / collector.goal) * 100 : 0;
                   return (
-                    <tr key={collector.id} className="border-b hover:bg-muted/50" data-testid={`row-collector-${collector.id}`}>
+                    <tr
+                      key={collector.id}
+                      className={`border-b hover:bg-muted/50 cursor-pointer ${selectedCollector === collector.id ? "bg-muted/50" : ""}`}
+                      onClick={() => setSelectedCollector(selectedCollector === collector.id ? "" : collector.id)}
+                      data-testid={`row-collector-${collector.id}`}
+                    >
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
@@ -233,10 +361,13 @@ export default function CollectorReporting() {
                       </td>
                       <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.newMoney)}</td>
                       <td className="text-right py-3 px-4 font-mono text-muted-foreground">{formatCurrency(collector.currentPending)}</td>
+                      <td className="text-right py-3 px-4 font-mono" data-testid={`text-liquidation-rate-${collector.id}`}>
+                        {collector.liquidationRate.toFixed(2)}%
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2 justify-end">
                           <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                            <div 
+                            <div
                               className={`h-full rounded-full ${goalProgress >= 100 ? "bg-green-500" : "bg-primary"}`}
                               style={{ width: `${Math.min(goalProgress, 100)}%` }}
                             />

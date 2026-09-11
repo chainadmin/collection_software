@@ -3,13 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { XCircle, AlertTriangle, CreditCard } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Collector } from "@shared/schema";
 
 export default function Declines() {
   const today = new Date().toISOString().split("T")[0];
+  const { user: authUser } = useAuth();
 
   const { data: payments = [] } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/recent"],
+    queryKey: ["/api/payments"],
   });
 
   const { data: debtors = [] } = useQuery<Debtor[]>({
@@ -20,17 +22,17 @@ export default function Declines() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = collectors[1];
+  const currentCollector = collectors.find((c) => c.id === authUser?.id);
 
   const myDeclines = payments.filter(
     (p) =>
-      p.status === "failed" &&
+      (p.status === "failed" || p.status === "declined") &&
       p.paymentDate === today &&
       p.processedBy === currentCollector?.id
   );
 
   const allTodayDeclines = payments.filter(
-    (p) => p.status === "failed" && p.paymentDate === today
+    (p) => (p.status === "failed" || p.status === "declined") && p.paymentDate === today
   );
 
   const formatCurrency = (cents: number) => {
