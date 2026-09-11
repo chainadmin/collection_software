@@ -114,7 +114,10 @@ export default function DebtorDetail() {
     queryKey: ["/api/collectors"],
   });
 
-  const currentCollector = collectors?.find((c) => c.id === user?.id) || collectors?.find((c) => c.role === "collector") || collectors?.[0];
+  // Messaging permissions must always come from the signed-in collector. Do not
+  // fall back to another team member, since that could incorrectly enable the
+  // workspace controls using somebody else's permission record.
+  const currentCollector = collectors?.find((c) => c.id === user?.id);
   const isCollectorReady = !collectorsLoading && currentCollector;
 
 
