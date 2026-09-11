@@ -46,7 +46,7 @@ export default function Remittance() {
   }, [portfolios, selectedClientId]);
 
   const completedPayments = useMemo(() => {
-    return payments.filter((p) => p.status === "completed" || p.status === "processed");
+    return payments.filter((p) => p.status === "posted");
   }, [payments]);
 
   const filteredPayments = useMemo(() => {

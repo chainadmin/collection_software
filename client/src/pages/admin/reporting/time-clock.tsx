@@ -10,6 +10,15 @@ import { Clock, Download, Calendar, Play, Square, Coffee, Users, Inbox } from "l
 import { formatDate } from "@/lib/utils";
 import type { Collector, TimeClockEntry } from "@shared/schema";
 
+function entryHours(entry: TimeClockEntry, includeActive = false): number {
+  if (entry.totalMinutes != null && entry.clockOut) return Math.max(0, entry.totalMinutes) / 60;
+  if (!entry.clockIn || (!entry.clockOut && !includeActive)) return 0;
+  const start = Date.parse(entry.clockIn);
+  const end = entry.clockOut ? Date.parse(entry.clockOut) : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return (end - start) / 3_600_000;
+}
+
 export default function TimeClock() {
   const [dateRange, setDateRange] = useState("this_week");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -35,39 +44,30 @@ export default function TimeClock() {
   const collectorTimeData = useMemo(() => {
     const today = selectedDate;
     const weekStart = new Date(selectedDate);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
     const weekStartStr = weekStart.toISOString().split("T")[0];
+    const weekEnd = new Date(weekStart);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    const weekEndStr = weekEnd.toISOString().split("T")[0];
 
     return collectors.map((c) => {
       const collectorEntries = timeEntries.filter((e) => e.collectorId === c.id);
       const todayEntries = collectorEntries.filter((e) => getDateFromClockIn(e.clockIn) === today);
       const weekEntries = collectorEntries.filter((e) => {
         const entryDate = getDateFromClockIn(e.clockIn);
-        return entryDate && entryDate >= weekStartStr;
+        return entryDate && entryDate >= weekStartStr && entryDate < weekEndStr;
       });
 
       // Check if currently clocked in (entry with no clockOut)
       const activeEntry = todayEntries.find((e) => !e.clockOut);
 
       // Calculate total hours today
-      const hoursToday = todayEntries.reduce((total, entry) => {
-        if (!entry.clockIn) return total;
-        const clockIn = new Date(entry.clockIn);
-        const clockOut = entry.clockOut
-          ? new Date(entry.clockOut)
-          : new Date();
-        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
-        return total + Math.max(0, diff);
-      }, 0);
+      const isToday = selectedDate === new Date().toISOString().slice(0, 10);
+      const hoursToday = todayEntries.reduce((total, entry) => total + entryHours(entry, isToday), 0);
 
       // Calculate total hours this week
-      const hoursThisWeek = weekEntries.reduce((total, entry) => {
-        if (!entry.clockIn || !entry.clockOut) return total;
-        const clockIn = new Date(entry.clockIn);
-        const clockOut = new Date(entry.clockOut);
-        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
-        return total + Math.max(0, diff);
-      }, 0);
+      const hoursThisWeek = weekEntries.reduce((total, entry) =>
+        total + entryHours(entry, isToday && getDateFromClockIn(entry.clockIn) === selectedDate), 0);
 
       return {
         collector: c,
@@ -83,7 +83,7 @@ export default function TimeClock() {
   // Calculate weekly report from actual entries
   const weeklyReport = useMemo(() => {
     const weekStart = new Date(selectedDate);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
     const days = [];
 
     for (let i = 0; i < 7; i++) {
@@ -94,13 +94,8 @@ export default function TimeClock() {
       const dayNum = date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
 
       const dayEntries = timeEntries.filter((e) => getDateFromClockIn(e.clockIn) === dateStr);
-      const hours = dayEntries.reduce((total, entry) => {
-        if (!entry.clockIn || !entry.clockOut) return total;
-        const clockIn = new Date(entry.clockIn);
-        const clockOut = new Date(entry.clockOut);
-        const diff = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
-        return total + Math.max(0, diff);
-      }, 0);
+      const isToday = dateStr === new Date().toISOString().slice(0, 10);
+      const hours = dayEntries.reduce((total, entry) => total + entryHours(entry, isToday), 0);
 
       days.push({
         date: `${dayName} ${dayNum}`,
@@ -116,6 +111,7 @@ export default function TimeClock() {
   const onBreakCount = collectorTimeData.filter((d) => d.status === "break").length;
   const totalHoursToday = collectorTimeData.reduce((sum, d) => sum + d.totalToday, 0);
   const totalHoursWeek = collectorTimeData.reduce((sum, d) => sum + d.totalWeek, 0);
+  const weeklyOvertime = weeklyReport.reduce((sum, day) => sum + day.overtime, 0);
 
   const isLoading = collectorsLoading || entriesLoading;
 
@@ -286,8 +282,8 @@ export default function TimeClock() {
                 <div className="flex items-center justify-between font-medium">
                   <span>Week Total</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono">41.0 hrs</span>
-                    <Badge variant="outline">1.5 OT</Badge>
+                    <span className="font-mono">{totalHoursWeek.toFixed(1)} hrs</span>
+                    {weeklyOvertime > 0 && <Badge variant="outline">{weeklyOvertime.toFixed(1)} OT</Badge>}
                   </div>
                 </div>
               </div>

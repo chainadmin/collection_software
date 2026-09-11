@@ -124,6 +124,7 @@ import {
   type IpWhitelist,
   type InsertIpWhitelist,
 } from "@shared/schema";
+import { calculateDashboardStats } from "@shared/dashboard-metrics";
 import type { IStorage, PaymentArrangementInput, PaymentArrangementMutationInput } from "./storage";
 import { randomUUID } from "crypto";
 import { ipMatchesAny } from "./ip-address";
@@ -956,42 +957,7 @@ export class DatabaseStorage implements IStorage {
       ? await db.select().from(portfolios).where(eq(portfolios.organizationId, organizationId))
       : await db.select().from(portfolios);
 
-    const today = new Date().toISOString().split('T')[0];
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-
-    const completedPayments = allPayments.filter(p => p.status === 'processed' || p.status === 'posted' || p.status === 'completed');
-    const todayPayments = completedPayments.filter(p => p.paymentDate === today);
-    const monthPayments = completedPayments.filter(p => p.paymentDate && p.paymentDate >= monthStart);
-
-    const collectionsToday = todayPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const collectionsThisMonth = monthPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const activeAccounts = allDebtors.filter(d => d.status === 'open' || d.status === 'active').length;
-    const accountsInPayment = allDebtors.filter(d => d.status === 'in_payment').length;
-
-    const totalOriginalBalance = allDebtors.reduce((sum, d) => sum + (d.originalBalance || 0), 0);
-    const totalCollected = completedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const recoveryRate = totalOriginalBalance > 0 ? (totalCollected / totalOriginalBalance) * 100 : 0;
-    const avgCollectionAmount = completedPayments.length > 0 ? totalCollected / completedPayments.length : 0;
-    const totalPortfolioValue = allPortfolios.reduce((sum, p) => sum + (p.totalFaceValue || 0), 0);
-    const reversedPayments = allPayments.filter(p => p.status === 'reversed').length;
-    const reversedAccounts = allDebtors.filter(d => d.status === 'nsf').length;
-    const declinedPayments = allPayments.filter(p => p.status === 'declined' || p.status === 'failed').length;
-    const attemptedPayments = allPayments.filter(p => ['processed', 'posted', 'completed', 'declined', 'failed', 'reversed'].includes(p.status)).length;
-    const declineRate = attemptedPayments > 0 ? ((declinedPayments + reversedPayments) / attemptedPayments) * 100 : 0;
-
-    return {
-      collectionsToday,
-      collectionsThisMonth,
-      activeAccounts,
-      accountsInPayment,
-      recoveryRate,
-      avgCollectionAmount,
-      totalPortfolioValue,
-      totalCollected,
-      reversedAccounts,
-      reversedPayments,
-      declineRate,
-    };
+    return calculateDashboardStats(allDebtors, allPayments, allPortfolios, dateRange);
   }
 
   // Merchants

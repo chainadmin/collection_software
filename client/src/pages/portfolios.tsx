@@ -62,7 +62,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
+import type { Portfolio, Collector, Client } from "@shared/schema";
 import { parseImportFile, autoMapColumns, systemFields } from "@/lib/csv-import";
 
 type ImportResults = {
@@ -145,10 +145,6 @@ export default function Portfolios() {
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
-  });
-
-  const { data: feeSchedules } = useQuery<FeeSchedule[]>({
-    queryKey: ["/api/fee-schedules"],
   });
 
   const editForm = useForm<EditPortfolioForm>({
@@ -430,7 +426,7 @@ export default function Portfolios() {
       data: {
         name: data.name,
         clientId: data.clientId || null,
-        feeScheduleId: data.feeScheduleId || null,
+        feeScheduleId: null,
         creditorName: data.creditorName || null,
         debtType: data.debtType || null,
         status: data.status,
@@ -971,36 +967,6 @@ export default function Portfolios() {
                               {client.name}
                             </SelectItem>
                           ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editForm.control}
-                  name="feeScheduleId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Fee Schedule</FormLabel>
-                      <Select
-                        onValueChange={(val) => field.onChange(val === "none" ? null : val)}
-                        value={field.value || "none"}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-edit-fee-schedule">
-                            <SelectValue placeholder="Select fee schedule" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">No Fee Schedule</SelectItem>
-                          {feeSchedules
-                            ?.filter((f) => f.isActive)
-                            .map((fee) => (
-                              <SelectItem key={fee.id} value={fee.id}>
-                                {fee.name} ({(fee.feePercentage || 0) / 100}%)
-                              </SelectItem>
-                            ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />

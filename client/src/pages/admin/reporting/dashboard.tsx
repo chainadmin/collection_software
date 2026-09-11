@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight, XCircle, AlertTriangle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
-import type { Payment, Debtor } from "@shared/schema";
+import type { Payment, Debtor, Portfolio, Collector } from "@shared/schema";
 
 interface DashboardStats {
   collectionsToday: number;
@@ -17,6 +17,10 @@ interface DashboardStats {
   avgCollectionAmount: number;
   totalPortfolioValue: number;
   totalCollected: number;
+  pendingPaymentCount: number;
+  pendingPaymentAmount: number;
+  postedPaymentCount: number;
+  postedPaymentAmount: number;
 }
 
 export default function CompanyDashboard() {
@@ -51,11 +55,11 @@ export default function CompanyDashboard() {
     return debtor ? `${debtor.firstName} ${debtor.lastName}` : "Unknown";
   };
 
-  const { data: collectors = [] } = useQuery<any[]>({
+  const { data: collectors = [] } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
 
-  const { data: portfolios = [] } = useQuery<any[]>({
+  const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
   });
 
@@ -67,44 +71,53 @@ export default function CompanyDashboard() {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const monthPayments = payments.filter(p => 
-        p.status === "completed" && 
+      const monthPayments = payments.filter(p =>
+        p.status === "posted" &&
         p.paymentDate?.startsWith(monthKey)
       );
       const totalCollections = monthPayments.reduce((sum, p) => sum + p.amount, 0);
       last6Months.push({
         month: months[d.getMonth()],
         collections: totalCollections,
-        target: 200000, // Default target
+        target: 1,
       });
     }
-    return last6Months;
+    const highestMonthlyTotal = Math.max(...last6Months.map((month) => month.collections), 1);
+    return last6Months.map((month) => ({ ...month, target: highestMonthlyTotal }));
   })();
 
-  // Calculate top collectors from real data
+  const postedPayments = payments.filter((payment) => payment.status === "posted");
+
+  // Attribute collections to the collector that actually processed the payment.
   const topCollectors = collectors
-    .filter(c => c.status === "active")
-    .map(c => {
-      const collectorPayments = payments.filter(p => p.status === "completed");
-      const totalCollections = collectorPayments.reduce((sum, p) => sum + p.amount, 0) / Math.max(collectors.length, 1);
+    .filter((collector) => collector.status === "active")
+    .map((collector) => {
+      const collectorPayments = postedPayments.filter((payment) => payment.processedBy === collector.id);
+      const collections = collectorPayments.reduce((sum, payment) => sum + payment.amount, 0);
       return {
-        name: c.name,
-        collections: totalCollections,
-        accounts: Math.floor(debtors.length / Math.max(collectors.length, 1)),
-        rate: 0.25,
+        name: collector.name,
+        collections,
+        accounts: new Set(collectorPayments.map((payment) => payment.debtorId)).size,
+        rate: stats?.totalCollected ? collections / stats.totalCollected : 0,
       };
     })
+    .filter((collector) => collector.collections > 0)
+    .sort((a, b) => b.collections - a.collections)
     .slice(0, 5);
 
-  // Calculate portfolio performance from real data
+  // Join payments through their debtor so each portfolio reports its own real totals.
   const portfolioPerformance = portfolios
-    .filter(p => p.status === "active")
-    .map(p => ({
-      name: p.name,
-      collected: 0,
-      target: p.totalFaceValue,
-      rate: p.totalFaceValue > 0 ? 0 : 0,
-    }))
+    .filter((portfolio) => portfolio.status === "active")
+    .map((portfolio) => {
+      const portfolioDebtors = debtors.filter((debtor) => debtor.portfolioId === portfolio.id);
+      const debtorIds = new Set(portfolioDebtors.map((debtor) => debtor.id));
+      const collected = postedPayments
+        .filter((payment) => debtorIds.has(payment.debtorId))
+        .reduce((sum, payment) => sum + payment.amount, 0);
+      const accountValue = portfolioDebtors.reduce((sum, debtor) => sum + debtor.originalBalance, 0);
+      const target = accountValue || portfolio.totalFaceValue;
+      return { name: portfolio.name, collected, target, rate: target > 0 ? collected / target : 0 };
+    })
     .slice(0, 5);
 
   return (
@@ -128,7 +141,7 @@ export default function CompanyDashboard() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -156,6 +169,22 @@ export default function CompanyDashboard() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground mt-2">Active accounts</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Pending Payments</p>
+            <p className="text-2xl font-bold">{formatCurrency(stats?.pendingPaymentAmount || 0)}</p>
+            <p className="text-sm text-muted-foreground mt-2">{stats?.pendingPaymentCount || 0} not yet run</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Posted Payments</p>
+            <p className="text-2xl font-bold">{formatCurrency(stats?.postedPaymentAmount || 0)}</p>
+            <p className="text-sm text-muted-foreground mt-2">{stats?.postedPaymentCount || 0} this period</p>
           </CardContent>
         </Card>
 
@@ -194,7 +223,7 @@ export default function CompanyDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Monthly Collections</CardTitle>
-            <CardDescription>Collection performance vs targets</CardDescription>
+            <CardDescription>Posted payment history relative to the highest month</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -213,7 +242,7 @@ export default function CompanyDashboard() {
                       </div>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className={`h-full rounded-full ${isAboveTarget ? "bg-green-500" : "bg-primary"}`}
                         style={{ width: `${Math.min(percentage, 100)}%` }}
                       />
@@ -273,7 +302,7 @@ export default function CompanyDashboard() {
                     </div>
                   </div>
                   <div className="h-3 bg-muted rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-primary rounded-full"
                       style={{ width: `${portfolio.rate * 100}%` }}
                     />
