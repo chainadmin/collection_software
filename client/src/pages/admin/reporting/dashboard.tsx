@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight, XCircle, AlertTriangle } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, isCollectiblePaymentStatus } from "@/lib/utils";
 import { useState } from "react";
 import type { Payment, Debtor, Portfolio, Collector } from "@shared/schema";
 
@@ -110,13 +110,18 @@ export default function CompanyDashboard() {
     .sort((a, b) => b.collections - a.collections)
     .slice(0, 5);
 
+  // Portfolio Performance's collection rate factors in all money that
+  // hasn't fallen through -- posted (settled), pending (promised), and any
+  // other in-flight status -- not just what's already posted.
+  const collectiblePayments = payments.filter((payment) => isCollectiblePaymentStatus(payment.status));
+
   // Join payments through their debtor so each portfolio reports its own real totals.
   const portfolioPerformance = portfolios
     .filter((portfolio) => portfolio.status === "active")
     .map((portfolio) => {
       const portfolioDebtors = debtors.filter((debtor) => debtor.portfolioId === portfolio.id);
       const debtorIds = new Set(portfolioDebtors.map((debtor) => debtor.id));
-      const collected = postedPayments
+      const collected = collectiblePayments
         .filter((payment) => debtorIds.has(payment.debtorId))
         .reduce((sum, payment) => sum + payment.amount, 0);
       const accountValue = portfolioDebtors.reduce((sum, debtor) => sum + debtor.originalBalance, 0);

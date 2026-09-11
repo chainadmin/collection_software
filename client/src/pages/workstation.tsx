@@ -881,7 +881,7 @@ export default function Workstation() {
     );
   };
 
-  const handleCallOutcome = (outcome: CallOutcome) => {
+  const handleCallOutcome = (outcome: CallOutcome, phone?: string) => {
     if (!selectedDebtorId || !currentCollector) return;
 
     const today = new Date().toISOString().split("T")[0];
@@ -915,6 +915,13 @@ export default function Workstation() {
         noteType = "promise";
         nextFollowUp = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
         break;
+    }
+
+    // Record which number the outcome applies to, not just the disposition --
+    // a debtor with multiple phone numbers on file otherwise leaves the note
+    // ambiguous about which one was actually dialed.
+    if (phone) {
+      noteContent += ` (${phone})`;
     }
 
     addNoteMutation.mutate({
@@ -1221,9 +1228,15 @@ export default function Workstation() {
               )}
               {localStorage.getItem("appMode") !== "collector" && (
                 <Link to="/app">
-                  <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
-                    <LayoutDashboard className="h-4 w-4 mr-1" />
-                    Back to Admin
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    title="Back to Admin"
+                    data-testid="button-back-to-dashboard"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 mr-1" />
+                    Admin
                   </Button>
                 </Link>
               )}
@@ -2404,7 +2417,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("connected");
+                  handleCallOutcome("connected", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-connected"
@@ -2415,7 +2428,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("no_answer");
+                  handleCallOutcome("no_answer", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-no-answer"
@@ -2426,7 +2439,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("voicemail");
+                  handleCallOutcome("voicemail", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-voicemail"
@@ -2437,7 +2450,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("busy");
+                  handleCallOutcome("busy", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-busy"
@@ -2448,7 +2461,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("wrong_number");
+                  handleCallOutcome("wrong_number", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-wrong-number"
@@ -2459,7 +2472,7 @@ export default function Workstation() {
               <Button
                 variant="default"
                 onClick={() => {
-                  handleCallOutcome("promise");
+                  handleCallOutcome("promise", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-promise"
