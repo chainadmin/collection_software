@@ -1940,12 +1940,12 @@ export async function registerRoutes(
         
         // Start of month baseline (posted + pending combined)
         const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
         const somTotal = somPosted + somPending;
         
         // Current totals (posted + pending combined)
         const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = allTimePayments.filter(p => p.status === 'posted' || p.status === 'processed').reduce((sum, p) => sum + p.amount, 0);
+        const currentPosted = allTimePayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
         const currentTotal = currentPosted + currentPending;
         
         // Declined and reversed (payments removed from pending/posted)

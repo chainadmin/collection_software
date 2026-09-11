@@ -433,6 +433,10 @@ export interface DashboardStats {
   avgCollectionAmount: number;
   totalPortfolioValue: number;
   totalCollected: number;
+  pendingPaymentCount: number;
+  pendingPaymentAmount: number;
+  postedPaymentCount: number;
+  postedPaymentAmount: number;
   reversedAccounts: number;
   reversedPayments: number;
   declineRate: number;

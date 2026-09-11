@@ -41,7 +41,6 @@ import Remittance from "@/pages/admin/payments/remittance";
 import CompanyDashboard from "@/pages/admin/reporting/dashboard";
 import CollectorReporting from "@/pages/admin/reporting/collectors";
 import TimeClock from "@/pages/admin/reporting/time-clock";
-import FeeSchedules from "@/pages/admin/settings/fees";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import EmailSettings from "@/pages/admin/email/settings";
 import EmailTemplates from "@/pages/admin/email/templates";
@@ -93,7 +92,6 @@ function AppRouter() {
       <Route path="/app/admin/reporting/dashboard" component={CompanyDashboard} />
       <Route path="/app/admin/reporting/collectors" component={CollectorReporting} />
       <Route path="/app/admin/reporting/time-clock" component={TimeClock} />
-      <Route path="/app/admin/settings/fees" component={FeeSchedules} />
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
       <Route path="/app/admin/email/settings" component={EmailSettings} />
       <Route path="/app/admin/email/templates" component={EmailTemplates} />

@@ -81,6 +81,7 @@ import {
   type IpWhitelist,
   type InsertIpWhitelist,
 } from "@shared/schema";
+import { calculateDashboardStats } from "@shared/dashboard-metrics";
 import { randomUUID, createHash } from "crypto";
 import { ipMatchesAny } from "./ip-address";
 
@@ -2094,84 +2095,7 @@ export class MemStorage implements IStorage {
     const payments = Array.from(this.payments.values()).filter((p) => !organizationId || p.organizationId === organizationId);
     const portfolios = Array.from(this.portfolios.values()).filter((p) => !organizationId || p.organizationId === organizationId);
 
-    const now = new Date();
-    const today = now.toISOString().split("T")[0];
-    
-    // Calculate date range based on selection
-    let startDate: string;
-    let endDate: string = today;
-    
-    switch (dateRange) {
-      case "today":
-        startDate = today;
-        break;
-      case "this_week": {
-        const dayOfWeek = now.getDay();
-        const monday = new Date(now);
-        monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-        startDate = monday.toISOString().split("T")[0];
-        break;
-      }
-      case "this_quarter": {
-        const quarter = Math.floor(now.getMonth() / 3);
-        const quarterStart = new Date(now.getFullYear(), quarter * 3, 1);
-        startDate = quarterStart.toISOString().split("T")[0];
-        break;
-      }
-      case "this_year": {
-        startDate = `${now.getFullYear()}-01-01`;
-        break;
-      }
-      case "this_month":
-      default: {
-        startDate = now.toISOString().slice(0, 7) + "-01";
-        break;
-      }
-    }
-
-    const completedPayments = payments.filter((p) => p.status === "completed" || p.status === "processed" || p.status === "posted");
-    
-    // Filter by date range
-    const rangePayments = completedPayments.filter((p) => p.paymentDate >= startDate && p.paymentDate <= endDate);
-    
-    const collectionsToday = completedPayments
-      .filter((p) => p.paymentDate === today)
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    const collectionsThisMonth = rangePayments.reduce((sum, p) => sum + p.amount, 0);
-
-    const activeAccounts = debtors.filter((d) => d.status === "open" || d.status === "in_payment").length;
-    const accountsInPayment = debtors.filter((d) => d.status === "in_payment").length;
-
-    const totalPortfolioValue = portfolios.reduce((sum, p) => sum + p.totalFaceValue, 0);
-    const totalCollected = rangePayments.reduce((sum, p) => sum + p.amount, 0);
-
-    const recoveryRate = totalPortfolioValue > 0
-      ? Math.round((totalCollected / totalPortfolioValue) * 10000) / 100
-      : 0;
-
-    const avgCollectionAmount = rangePayments.length > 0
-      ? Math.round(rangePayments.reduce((sum, p) => sum + p.amount, 0) / rangePayments.length)
-      : 0;
-    const reversedPayments = payments.filter((p) => p.status === "reversed").length;
-    const reversedAccounts = debtors.filter((d) => d.status === "nsf").length;
-    const declinedPayments = payments.filter((p) => p.status === "declined" || p.status === "failed").length;
-    const attemptedPayments = payments.filter((p) => ["processed", "posted", "completed", "declined", "failed", "reversed"].includes(p.status)).length;
-    const declineRate = attemptedPayments > 0 ? Math.round(((declinedPayments + reversedPayments) / attemptedPayments) * 10000) / 100 : 0;
-
-    return {
-      collectionsToday,
-      collectionsThisMonth,
-      activeAccounts,
-      accountsInPayment,
-      recoveryRate,
-      avgCollectionAmount,
-      totalPortfolioValue,
-      totalCollected,
-      reversedAccounts,
-      reversedPayments,
-      declineRate,
-    };
+    return calculateDashboardStats(debtors, payments, portfolios, dateRange);
   }
 
   // Merchants
