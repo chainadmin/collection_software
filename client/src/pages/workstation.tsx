@@ -31,6 +31,7 @@ import {
   Trash2,
   Check,
   X,
+  Loader2,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { formatCardNumber } from "@/lib/bin-lookup";
@@ -53,6 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -96,6 +98,7 @@ import type {
   TimeClockEntry,
   DebtorReference,
   AccountStatus,
+  EmailTemplate,
 } from "@shared/schema";
 
 type CollectorPaymentCard = PaymentCard & { cardNumber?: string };
@@ -195,7 +198,14 @@ export default function Workstation() {
   const [clickedPhone, setClickedPhone] = useState("");
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
   const [calculatorMonths, setCalculatorMonths] = useState("12");
-  
+
+  // Send text/email message state
+  const [messageDialog, setMessageDialog] = useState<{ contactType: "phone" | "email"; contactValue: string } | null>(null);
+  const [messageMode, setMessageMode] = useState<"template" | "custom">("template");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [customSubject, setCustomSubject] = useState("");
+  const [customBody, setCustomBody] = useState("");
+
   // Inline editing state
   const [showEditAddressDialog, setShowEditAddressDialog] = useState(false);
   const [showEditEmailDialog, setShowEditEmailDialog] = useState(false);
@@ -250,6 +260,14 @@ export default function Workstation() {
   const canRunScheduledPayments = canManagePayments || currentCollector?.canViewPaymentRunner === true;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
+
+  // Messaging permissions must always come from the signed-in collector.
+  const messagingEnabled = !!currentCollector?.canViewEmail || currentCollector?.role === "admin" || currentCollector?.role === "manager";
+
+  const { data: messageTemplates = [] } = useQuery<EmailTemplate[]>({
+    queryKey: ["/api/email-templates"],
+    enabled: messagingEnabled,
+  });
 
   useEffect(() => {
     if (selectedDebtorId) announceAccountChange(selectedDebtorId);
@@ -583,6 +601,55 @@ export default function Workstation() {
       toast({ title: "Contact removed", description: "The contact was removed from this account." });
     },
     onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
+  });
+
+  const availableMessageTemplates = messageTemplates.filter((t) =>
+    t.isActive !== false && (messageDialog?.contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
+  );
+
+  const openMessageDialog = (contactType: "phone" | "email", contactValue: string) => {
+    const channelTemplates = messageTemplates.filter((t) =>
+      t.isActive !== false && (contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
+    );
+    setMessageMode(channelTemplates.length > 0 ? "template" : "custom");
+    setSelectedTemplateId("");
+    setCustomSubject("");
+    setCustomBody("");
+    setMessageDialog({ contactType, contactValue });
+  };
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async () => {
+      if (!messageDialog || !selectedDebtorId) throw new Error("No recipient selected.");
+      if (messageMode === "template") {
+        if (!selectedTemplateId) throw new Error("Choose a template first.");
+        return apiRequest("POST", "/api/collector/messages/send", {
+          debtorId: selectedDebtorId,
+          templateId: selectedTemplateId,
+          contactValue: messageDialog.contactValue,
+          contactType: messageDialog.contactType,
+        });
+      }
+      if (!customBody.trim()) throw new Error("Write a message first.");
+      return apiRequest("POST", "/api/collector/messages/send", {
+        debtorId: selectedDebtorId,
+        contactValue: messageDialog.contactValue,
+        contactType: messageDialog.contactType,
+        subject: customSubject,
+        body: customBody,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-logs"] });
+      setMessageDialog(null);
+      setSelectedTemplateId("");
+      setCustomSubject("");
+      setCustomBody("");
+      toast({ title: "Message sent", description: "The message was sent through your Chain delivery system." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Send failed", description: e?.message || "Failed to send message.", variant: "destructive" });
+    },
   });
 
   const addEmploymentMutation = useMutation({
@@ -1510,6 +1577,25 @@ export default function Workstation() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
+                              {messagingEnabled && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openMessageDialog(contact.type as "phone" | "email", contact.value);
+                                  }}
+                                  aria-label={contact.type === "phone" ? `Text ${contact.value}` : `Email ${contact.value}`}
+                                  data-testid={`button-message-contact-${contact.id}`}
+                                >
+                                  {contact.type === "phone" ? (
+                                    <MessageSquare className="h-3 w-3" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -2386,6 +2472,120 @@ export default function Workstation() {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowCallOutcomeDialog(false)}>
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!messageDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMessageDialog(null);
+            setSelectedTemplateId("");
+            setCustomSubject("");
+            setCustomBody("");
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-send-message">
+          <DialogHeader>
+            <DialogTitle>Send {messageDialog?.contactType === "email" ? "Email" : "Text Message"}</DialogTitle>
+            <DialogDescription>
+              {messageMode === "template"
+                ? "Choose an admin-created template. It's populated only with this account's information."
+                : "Write your own message. This account's information is available."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Recipient</Label>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{messageDialog?.contactType === "email" ? "Email" : "Text"}</Badge>
+                <span className="text-sm font-mono">{messageDialog?.contactValue}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={messageMode === "template" ? "default" : "outline"}
+                onClick={() => setMessageMode("template")}
+                data-testid="button-mode-template"
+              >
+                Use a Template
+              </Button>
+              <Button
+                size="sm"
+                variant={messageMode === "custom" ? "default" : "outline"}
+                onClick={() => setMessageMode("custom")}
+                data-testid="button-mode-custom"
+              >
+                Write My Own
+              </Button>
+            </div>
+
+            {messageMode === "template" ? (
+              <div className="space-y-2">
+                <Label>Template</Label>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger data-testid="select-message-template">
+                    <SelectValue placeholder="Choose a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableMessageTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableMessageTemplates.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No active templates are available for this channel.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {messageDialog?.contactType === "email" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-message-subject">Subject</Label>
+                    <Input
+                      id="custom-message-subject"
+                      value={customSubject}
+                      onChange={(e) => setCustomSubject(e.target.value)}
+                      placeholder="Subject"
+                      data-testid="input-custom-message-subject"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="custom-message-body">Message</Label>
+                  <Textarea
+                    id="custom-message-body"
+                    value={customBody}
+                    onChange={(e) => setCustomBody(e.target.value)}
+                    placeholder={messageDialog?.contactType === "email" ? "Write your email..." : "Write your text message..."}
+                    rows={5}
+                    data-testid="input-custom-message-body"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMessageDialog(null)}>Cancel</Button>
+            <Button
+              onClick={() => sendMessageMutation.mutate()}
+              disabled={
+                sendMessageMutation.isPending ||
+                (messageMode === "template"
+                  ? !selectedTemplateId || availableMessageTemplates.length === 0
+                  : !customBody.trim() || (messageDialog?.contactType === "email" && !customSubject.trim()))
+              }
+              data-testid="button-send-message"
+            >
+              {sendMessageMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send
             </Button>
           </DialogFooter>
         </DialogContent>
