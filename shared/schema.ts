@@ -490,7 +490,8 @@ export const merchants = pgTable("merchants", {
   // Tenant gateway secret used for debtor card payments (separate from platform SaaS billing)
   stripeSecretKey: text("stripe_secret_key"),
   // General settings
-  testMode: boolean("test_mode").default(true),
+  // Legacy compatibility column. Payment gateways are production-only.
+  testMode: boolean("test_mode").default(false),
   createdDate: text("created_date").notNull(),
 });
 

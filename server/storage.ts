@@ -2209,7 +2209,7 @@ export class MemStorage implements IStorage {
       usaepaySourceKey: merchant.usaepaySourceKey ?? null,
       usaepayPin: merchant.usaepayPin ?? null,
       stripeSecretKey: merchant.stripeSecretKey ?? null,
-      testMode: merchant.testMode ?? true,
+      testMode: false,
       createdDate: merchant.createdDate,
     };
     this.merchants.set(id, newMerchant);

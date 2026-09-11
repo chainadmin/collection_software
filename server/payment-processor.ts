@@ -19,6 +19,7 @@ export interface ProcessPaymentResult {
   transactionId: string | null;
   declineReason: string | null;
   ambiguous?: boolean;
+  configurationError?: boolean;
 }
 
 export function gatewayReferences(payment: Pick<Payment, "id" | "idempotencyKey">) {
@@ -66,13 +67,11 @@ async function createNextRecurringOccurrence(payment: Payment, storage: IStorage
 
 interface NmiCredentials {
   securityKey: string;
-  testMode: boolean;
 }
 
 interface UsaepayCredentials {
   sourceKey: string;
   pin: string;
-  testMode: boolean;
 }
 
 async function usaepayHttpFailure(response: Response, paymentKind = "payment"): Promise<ProcessPaymentResult> {
@@ -94,8 +93,12 @@ async function usaepayHttpFailure(response: Response, paymentKind = "payment"): 
   detail = detail.replace(/\s+/g, " ").trim().slice(0, 300);
   const gatewayDetail = detail ? ` Gateway response: ${detail}` : "";
   const message = response.status === 401
-    ? `USAePay rejected the ${paymentKind} request (HTTP 401). Test Mode off uses production: verify the REST API source key and PIN are production credentials and that the key is enabled for transaction API requests. Test Mode on requires sandbox credentials.${gatewayDetail}`
+    ? `USAePay's HTTP authentication layer rejected the live ${paymentKind} request before a sale was created (HTTP 401), so it will not appear in USAePay transaction history. Verify the production REST API source key and PIN and confirm that the key is enabled for transaction API requests.${gatewayDetail}`
     : `USAePay rejected the ${paymentKind} request (HTTP ${response.status})${detail ? `: ${detail}` : ""}`;
+
+  if (response.status === 401) {
+    return { success: false, transactionId: null, declineReason: message, configurationError: true };
+  }
 
   // A 4xx response (other than conflict/rate limiting) proves USAePay rejected
   // the request before approval.  Server errors and throttling can occur after
@@ -163,9 +166,7 @@ async function processNmiCard(
   invoiceNumber?: string
 ): Promise<ProcessPaymentResult> {
   try {
-    const baseUrl = creds.testMode
-      ? "https://secure.nmi.com/api/transact.php"
-      : "https://secure.nmi.com/api/transact.php";
+    const baseUrl = "https://secure.nmi.com/api/transact.php";
 
     const params = new URLSearchParams({
       security_key: creds.securityKey,
@@ -269,9 +270,7 @@ async function processUsaepayCard(
   invoiceNumber?: string
 ): Promise<ProcessPaymentResult> {
   try {
-    const baseUrl = creds.testMode
-      ? "https://sandbox.usaepay.com/api/v2/transactions"
-      : "https://usaepay.com/api/v2/transactions";
+    const baseUrl = "https://usaepay.com/api/v2/transactions";
 
     const body: any = {
       command: "cc:sale",
@@ -329,9 +328,7 @@ async function processUsaepayAch(
   invoiceNumber?: string
 ): Promise<ProcessPaymentResult> {
   try {
-    const baseUrl = creds.testMode
-      ? "https://sandbox.usaepay.com/api/v2/transactions"
-      : "https://usaepay.com/api/v2/transactions";
+    const baseUrl = "https://usaepay.com/api/v2/transactions";
 
     const body: any = {
       command: "check:sale",
@@ -409,7 +406,6 @@ async function processViaGateway(
     const creds: MerchantCredentials = {
       apiLoginId: merchant.authorizeNetApiLoginId!,
       transactionKey: merchant.authorizeNetTransactionKey!,
-      testMode: merchant.testMode ?? true,
     };
     if (paymentMethod === "card" && paymentToken) {
       if (!customerToken) {
@@ -462,7 +458,6 @@ async function processViaGateway(
   if (merchant.processorType === "nmi") {
     const creds: NmiCredentials = {
       securityKey: merchant.nmiSecurityKey!,
-      testMode: merchant.testMode ?? true,
     };
     if (paymentMethod === "card" && paymentToken) {
       try {
@@ -523,11 +518,10 @@ async function processViaGateway(
     const creds: UsaepayCredentials = {
       sourceKey: merchant.usaepaySourceKey!,
       pin: merchant.usaepayPin || "",
-      testMode: merchant.testMode ?? true,
     };
     if (paymentMethod === "card" && paymentToken) {
       try {
-        const baseUrl = creds.testMode ? "https://sandbox.usaepay.com/api/v2/transactions" : "https://usaepay.com/api/v2/transactions";
+        const baseUrl = "https://usaepay.com/api/v2/transactions";
         const response = await fetch(baseUrl, {
           method: "POST",
           headers: {
@@ -845,20 +839,22 @@ export async function processPayment(
       ? result.transactionId
         ? `${payment.notes || ""} [TXN: ${result.transactionId}]`.trim()
         : payment.notes
-      : result.ambiguous
-        ? `NEEDS REVIEW: ${result.declineReason}`
-        : `DECLINED: ${result.declineReason}`,
+      : result.configurationError
+        ? `PROCESSING ERROR: ${result.declineReason}`
+        : result.ambiguous
+          ? `NEEDS REVIEW: ${result.declineReason}`
+          : `DECLINED: ${result.declineReason}`,
   });
 
   if (result.success) {
     await createNextRecurringOccurrence(payment, storage);
   }
 
-  if (debtor && !result.ambiguous) {
+  if (debtor && !result.ambiguous && !result.configurationError) {
     if (result.success) await storage.updateDebtor(payment.debtorId, { status: "processed" });
   }
 
-  if (!result.success && !result.ambiguous && debtor) {
+  if (!result.success && !result.ambiguous && !result.configurationError && debtor) {
     await storage.createNote({
       debtorId: payment.debtorId,
       collectorId: payment.processedBy || "system",
@@ -869,7 +865,7 @@ export async function processPayment(
     });
   }
 
-  if (!result.ambiguous) {
+  if (!result.ambiguous && !result.configurationError) {
     await sendPaymentOutcomeAutomation(storage, orgId, debtor, {
       payment,
       success: result.success,

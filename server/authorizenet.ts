@@ -257,7 +257,6 @@ export function getSubscriptionPrices() {
 export interface MerchantCredentials {
   apiLoginId: string;
   transactionKey: string;
-  testMode?: boolean;
 }
 
 export interface DebtorPaymentData {
@@ -324,8 +323,7 @@ export async function processDebtorTokenPayment(
     createRequest.setTransactionRequest(transactionRequest);
 
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
-    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === "production";
-    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+    ctrl.setEnvironment(Constants.endpoint.production);
     const complete = () => {
       try {
         const response = new APIContracts.CreateTransactionResponse(ctrl.getResponse());
@@ -419,9 +417,8 @@ export async function processDebtorCardPayment(
 
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
     
-    // Use sandbox for test mode, production otherwise
-    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
-    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+    // Debtor payment gateways are live-only.
+    ctrl.setEnvironment(Constants.endpoint.production);
 
     const complete = () => {
       try {
@@ -515,8 +512,7 @@ export async function processDebtorAchPayment(
 
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
     
-    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
-    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+    ctrl.setEnvironment(Constants.endpoint.production);
 
     const complete = () => {
       try {
@@ -587,8 +583,7 @@ export async function voidDebtorTransaction(
 
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
     
-    const useProduction = !merchantCredentials.testMode && process.env.NODE_ENV === 'production';
-    ctrl.setEnvironment(useProduction ? Constants.endpoint.production : Constants.endpoint.sandbox);
+    ctrl.setEnvironment(Constants.endpoint.production);
 
     ctrl.execute(() => {
       const apiResponse = ctrl.getResponse();

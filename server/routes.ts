@@ -3133,6 +3133,9 @@ export async function registerRoutes(
       }
       const merchant = await storage.createMerchant({
         ...body,
+        // Debtor payment processing is live-only. Ignore stale or malicious
+        // clients that still submit the retired testMode setting.
+        testMode: false,
         organizationId: orgId,
         createdDate: new Date().toISOString().split("T")[0],
       });
@@ -3632,7 +3635,6 @@ export async function registerRoutes(
               {
                 apiLoginId: activeMerchant.authorizeNetApiLoginId!,
                 transactionKey: activeMerchant.authorizeNetTransactionKey!,
-                testMode: activeMerchant.testMode ?? true,
               },
               txnMatch[1]
             );
