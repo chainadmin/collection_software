@@ -1927,24 +1927,28 @@ export async function registerRoutes(
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
 
-        // Payments before start of current month (start of month baseline)
-        const beforeMonthPayments = collectorPayments.filter(p => {
-          if (!p.paymentDate) return false;
-          const paymentDate = p.paymentDate.split('T')[0];
-          return paymentDate < currentMonthStart;
-        });
-
-        // Start of month baseline (posted + pending combined)
-        const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
+        // Start-of-month baseline: money that was already on the books
+        // before this month began. Posted payments are keyed off paymentDate
+        // (the day they actually settled, which can't be in the future).
+        // Pending payments are keyed off createdAt (when the arrangement was
+        // booked), not paymentDate (when it's due) -- a payment arrangement
+        // is secured money the moment it's booked, whether it's due today or
+        // three months from now, so a far-future-dated arrangement counts as
+        // "new" only in the month it was actually booked. Keying the
+        // baseline off paymentDate instead would let a future-dated
+        // arrangement booked in a prior month keep re-appearing as "new
+        // money" every month until its due date finally arrives.
+        const somPosted = collectorPayments
+          .filter(p => p.status === 'posted' && p.paymentDate && p.paymentDate.split('T')[0] < currentMonthStart)
+          .reduce((sum, p) => sum + p.amount, 0);
+        const somPending = collectorPayments
+          .filter(p => p.status === 'pending' && p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart)
+          .reduce((sum, p) => sum + p.amount, 0);
         const somTotal = somPosted + somPending;
 
-        // Current totals (posted + pending combined). Pending is counted
-        // regardless of its scheduled paymentDate -- a payment arrangement is
-        // secured money the moment it's booked, whether it's due today or
-        // three months from now, so a future-dated arrangement (e.g. an
-        // October payment booked in September) still counts here instead of
-        // silently disappearing until its due date arrives.
+        // Current totals (posted + pending combined) -- the collector's full
+        // active book right now, regardless of when any individual payment
+        // is dated.
         const currentPending = collectorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
         const currentPosted = collectorPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
         const currentTotal = currentPosted + currentPending;
@@ -1953,7 +1957,9 @@ export async function registerRoutes(
         const totalDeclined = collectorPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
         const totalReversed = collectorPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
 
-        // New money = difference between current total and start of month total
+        // New money = difference between current total and start of month
+        // total -- i.e. the money booked since this month began (and still
+        // active), scoped to this month exactly once.
         const newMoney = currentTotal - somTotal;
 
         // Pending specifically scheduled to run next calendar month, keyed off
