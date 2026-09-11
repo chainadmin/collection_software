@@ -457,7 +457,7 @@ export default function Workstation() {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       setEditingPayment(null);
-      toast({ title: "Payment updated", description: "The pending payment schedule has been changed." });
+      toast({ title: "Payment updated", description: "The payment details have been changed." });
     },
     onError: (error: Error) => {
       toast({ title: "Unable to update payment", description: error.message, variant: "destructive" });
@@ -1831,10 +1831,10 @@ export default function Workstation() {
                         <CardTitle className="text-sm font-medium flex items-center justify-between gap-2">
                           <span className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
-                            Pending Payments
-                            {debtorPayments?.filter((p) => p.status === "pending").length ? (
+                            Editable Payments
+                            {debtorPayments?.filter((p) => p.status !== "posted").length ? (
                               <Badge variant="secondary" className="ml-1">
-                                {debtorPayments.filter((p) => p.status === "pending").length}
+                                {debtorPayments.filter((p) => p.status !== "posted").length}
                               </Badge>
                             ) : null}
                           </span>
@@ -1848,10 +1848,10 @@ export default function Workstation() {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <CardContent>
-                        {debtorPayments?.filter((p) => p.status === "pending").length ? (
+                        {debtorPayments?.filter((p) => p.status !== "posted").length ? (
                           <div className="space-y-2">
                             {debtorPayments
-                              .filter((p) => p.status === "pending")
+                              .filter((p) => p.status !== "posted")
                               .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
                               .map((payment) => (
                                 <div
@@ -1874,7 +1874,7 @@ export default function Workstation() {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => openPaymentEditor(payment)}
-                                        title="Edit pending payment"
+                                        title="Edit payment"
                                         data-testid={`button-edit-payment-${payment.id}`}
                                       >
                                         <Pencil className="h-4 w-4" />
@@ -1900,11 +1900,11 @@ export default function Workstation() {
                                 </div>
                               ))}
                             <p className="text-xs text-muted-foreground mt-2">
-                              Total: {formatCurrency(debtorPayments.filter((p) => p.status === "pending").reduce((sum, p) => sum + p.amount, 0))}
+                              Total: {formatCurrency(debtorPayments.filter((p) => p.status !== "posted").reduce((sum, p) => sum + p.amount, 0))}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-sm text-muted-foreground">No pending payments scheduled</p>
+                          <p className="text-sm text-muted-foreground">No editable payments</p>
                         )}
                       </CardContent>
                     </CollapsibleContent>
@@ -1914,9 +1914,9 @@ export default function Workstation() {
                 <Dialog open={!!editingPayment} onOpenChange={(open) => { if (!open) setEditingPayment(null); }}>
                   <DialogContent data-testid="dialog-edit-pending-payment">
                     <DialogHeader>
-                      <DialogTitle>Edit pending payment</DialogTitle>
+                      <DialogTitle>Edit payment</DialogTitle>
                       <DialogDescription>
-                        Change the amount, scheduled date, or payment method before this payment is processed.
+                        Change the amount, date, or method for any payment that has not been posted.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">

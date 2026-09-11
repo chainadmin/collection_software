@@ -48,7 +48,7 @@ import {
 } from "@shared/schema";
 import { and, desc, eq } from "drizzle-orm";
 import {
-  claimDeclinedPaymentForRerun,
+  claimPaymentForManualRerun,
   claimPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
   postPaymentAtomically,
@@ -60,7 +60,7 @@ import {
   previewReturn,
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
-import { isDeclinedPendingPayment, isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
+import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -3531,7 +3531,8 @@ export async function registerRoutes(
     }
   });
 
-  // Pending schedules remain editable until processing claims the row.
+  // Every local payment except a posted ledger entry remains editable. This
+  // supports reconciliation when an external/manual payment did not sync.
   app.patch("/api/payments/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
@@ -3542,8 +3543,8 @@ export async function registerRoutes(
       if (!payment || payment.organizationId !== orgId) {
         return res.status(404).json({ error: "Payment not found" });
       }
-      if (payment.status !== "pending" || payment.processingStartedAt) {
-        return res.status(409).json({ error: "Only unprocessed pending payments can be edited" });
+      if (payment.status === "posted") {
+        return res.status(409).json({ error: "Posted payments cannot be edited" });
       }
 
       const amount = Number(req.body.amount);
@@ -3626,12 +3627,12 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      if (!isDeclinedPendingPayment(payment)) {
-        return res.status(409).json({ error: "Only declined payments can be re-run" });
+      if (payment.status === "posted") {
+        return res.status(409).json({ error: "Posted payments cannot be re-run" });
       }
-      const claimed = await claimDeclinedPaymentForRerun(payment.id, orgId);
+      const claimed = await claimPaymentForManualRerun(payment.id, orgId);
       if (!claimed) {
-        return res.status(409).json({ error: "Payment is already being processed or is no longer declined" });
+        return res.status(409).json({ error: "Payment is already being processed or has been posted" });
       }
       claimedContext = { paymentId: payment.id, organizationId: orgId };
       const claimedPayment = await storage.getPayment(payment.id);
@@ -3734,7 +3735,7 @@ export async function registerRoutes(
     }
   });
 
-  // Post a processed payment, or explicitly bypass processing for a pending payment (admin/manager only).
+  // Post any non-posted local payment for manual/external reconciliation.
   app.post("/api/payments/:id/post", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -3753,8 +3754,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      const manual = req.body?.manual === true;
-      const result = await postPaymentAtomically(payment.id, orgId, { allowPending: manual });
+      const result = await postPaymentAtomically(payment.id, orgId, { allowPending: true });
       const postedPayment = await storage.getPayment(payment.id);
       if (!postedPayment) return res.status(404).json({ error: "Payment not found" });
       res.json({ ...redactPayment(postedPayment), alreadyPosted: result.alreadyPosted });
