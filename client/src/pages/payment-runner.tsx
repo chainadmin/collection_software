@@ -375,6 +375,9 @@ export default function PaymentRunner() {
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
+  const reviewPayments = allPayments?.filter((p) =>
+    ["reversed", "needs_review", "failed", "declined", "cancelled"].includes(p.status)
+  ) || [];
   
   const processedTotal = processedPayments.reduce((sum, p) => sum + p.amount, 0);
   const declinedTotal = declinedPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -395,13 +398,15 @@ export default function PaymentRunner() {
   const canPostOrReverse = currentCollector?.role === "admin" || currentCollector?.role === "manager";
   const canRunPayments = canPostOrReverse || currentCollector?.canViewPaymentRunner === true;
 
-  const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, isProcessed: boolean = false) => {
+  const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, _isProcessed: boolean = false) => {
     const isProcessing = processingPaymentId === payment.id;
     const isPosting = postPaymentMutation.isPending;
+    const canInitialRun = payment.status === "pending" && !payment.completedAt && !isDeclined;
+    const canRerun = payment.status !== "posted" && payment.status !== "processing" && !canInitialRun;
     
     return (
       <div className="flex items-center gap-1">
-        {isDeclined && (
+        {canRerun && (
           <Button
             variant="ghost"
             size="icon"
@@ -417,8 +422,7 @@ export default function PaymentRunner() {
             )}
           </Button>
         )}
-        {!isDeclined && !isProcessed && !payment.completedAt && (
-          <>
+        {canInitialRun && (
             <Button
               variant="ghost"
               size="icon"
@@ -433,38 +437,15 @@ export default function PaymentRunner() {
                 <PlayCircle className="h-4 w-4" />
               )}
             </Button>
-            {canPostOrReverse && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleOpenPost(payment)}
-                  title="Post manually without processing"
-                  data-testid={`button-manual-post-${payment.id}`}
-                >
-                  <CheckSquare className="h-4 w-4 text-green-600" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleOpenReverse(payment)}
-                  title="Reverse manually"
-                  data-testid={`button-manual-reverse-${payment.id}`}
-                >
-                  <Undo2 className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-          </>
         )}
-        {isProcessed && canPostOrReverse && (
+        {payment.status !== "posted" && canPostOrReverse && (
           <>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => postPaymentMutation.mutate({ paymentId: payment.id, manual: false })}
+              onClick={() => handleOpenPost(payment)}
               disabled={isPosting}
-              title="Post payment"
+              title="Post manually"
               data-testid={`button-post-${payment.id}`}
             >
               {isPosting ? (
@@ -477,7 +458,7 @@ export default function PaymentRunner() {
               variant="ghost"
               size="icon"
               onClick={() => handleOpenReverse(payment)}
-              title="Reverse payment"
+              title="Reverse manually"
               data-testid={`button-reverse-${payment.id}`}
             >
               <Undo2 className="h-4 w-4" />
@@ -948,6 +929,38 @@ export default function PaymentRunner() {
                     <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
                   </div>
                   {renderPaymentActions(payment, false, true)}
+                  <StatusBadge status={payment.status} size="sm" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {reviewPayments.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-amber-500" />
+              Previously Run / Reconciliation Payments
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              These payments can be run again, posted from an external or manual receipt, or reversed.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {reviewPayments.map((payment) => (
+                <div key={payment.id} className="flex items-center gap-3 p-3 rounded-md border" data-testid={`review-payment-${payment.id}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{getDebtorName(payment.debtorId)}</p>
+                    <p className="text-xs text-muted-foreground">{payment.notes || "Manual reconciliation available"}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
+                  </div>
+                  {renderPaymentActions(payment)}
                   <StatusBadge status={payment.status} size="sm" />
                 </div>
               ))}

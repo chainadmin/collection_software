@@ -3,6 +3,7 @@ import test from "node:test";
 import { pool } from "../server/db";
 import {
   claimDeclinedPaymentForRerun,
+  claimPaymentForManualRerun,
   claimPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
   markStaleProcessingPaymentsNeedsReview,
@@ -21,6 +22,7 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
   try {
     await claimPaymentForProcessing("payment-1", "org-1", "2026-09-08");
     await claimDeclinedPaymentForRerun("payment-2", "org-1");
+    await claimPaymentForManualRerun("payment-3", "org-1");
     await markPaymentNeedsReviewIfProcessing("payment-1", "org-1");
     const staleCount = await markStaleProcessingPaymentsNeedsReview("org-1", 45);
 
@@ -35,26 +37,29 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
     assert.match(calls[1].sql, /notes LIKE 'DECLINED:%'/);
     assert.deepEqual(calls[1].params, ["payment-2", "org-1"]);
 
-    assert.match(calls[2].sql, /status = 'processing'/);
-    assert.match(calls[2].sql, /organization_id = \$2/);
-    assert.deepEqual(calls[2].params.slice(0, 2), ["payment-1", "org-1"]);
+    assert.match(calls[2].sql, /status NOT IN \('posted', 'processing'\)/);
+    assert.deepEqual(calls[2].params, ["payment-3", "org-1"]);
 
-    assert.match(calls[3].sql, /processing_started_at < NOW\(\) - make_interval/);
-    assert.match(calls[3].sql, /\(\$2::text IS NULL OR organization_id = \$2\)/);
-    assert.deepEqual(calls[3].params.slice(0, 2), [45, "org-1"]);
+    assert.match(calls[3].sql, /status = 'processing'/);
+    assert.match(calls[3].sql, /organization_id = \$2/);
+    assert.deepEqual(calls[3].params.slice(0, 2), ["payment-1", "org-1"]);
+
+    assert.match(calls[4].sql, /processing_started_at < NOW\(\) - make_interval/);
+    assert.match(calls[4].sql, /\(\$2::text IS NULL OR organization_id = \$2\)/);
+    assert.deepEqual(calls[4].params.slice(0, 2), [45, "org-1"]);
   } finally {
     (pool as any).query = originalQuery;
   }
 });
 
-test("manual posting permits a pending payment and records the gateway bypass", async () => {
+test("manual posting permits any non-posted payment and records the gateway bypass", async () => {
   const originalConnect = pool.connect.bind(pool);
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const client = {
     query: async (sql: string, params?: unknown[]) => {
       calls.push({ sql, params });
       if (/SELECT \* FROM payments/.test(sql)) {
-        return { rows: [{ id: "payment-1", debtor_id: "debtor-1", amount: 2500, status: "pending", processed_by: "collector-1" }] };
+        return { rows: [{ id: "payment-1", debtor_id: "debtor-1", amount: 2500, status: "reversed", processed_by: "collector-1" }] };
       }
       if (/SELECT \* FROM debtors/.test(sql)) {
         return { rows: [{ id: "debtor-1", current_balance: 10000 }] };
@@ -73,7 +78,7 @@ test("manual posting permits a pending payment and records the gateway bypass", 
 
     assert.equal(result.alreadyPosted, false);
     assert.ok(calls.some(({ sql, params }) =>
-      /INSERT INTO notes/.test(sql) && String(params?.[2]).includes("manually, without gateway processing")
+      /INSERT INTO notes/.test(sql) && String(params?.[2]).includes("manually reconciled without gateway processing")
     ));
     assert.ok(calls.some(({ sql, params }) =>
       /UPDATE debtors/.test(sql) && params?.[0] === 7500

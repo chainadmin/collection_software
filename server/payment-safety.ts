@@ -4,7 +4,7 @@ import { pool } from "./db";
 export async function postPaymentAtomically(
   paymentId: string,
   organizationId: string,
-  options: { allowPending?: boolean } = {},
+  _options: { allowPending?: boolean } = {},
 ) {
   const client = await pool.connect();
   try {
@@ -19,13 +19,11 @@ export async function postPaymentAtomically(
       await client.query("COMMIT");
       return { payment, alreadyPosted: true };
     }
-    const canPost = payment.status === "processed" || (options.allowPending && payment.status === "pending");
-    if (!canPost) {
-      throw Object.assign(
-        new Error(options.allowPending ? "Only pending or processed payments can be posted" : "Only processed payments can be posted"),
-        { statusCode: 400 },
-      );
-    }
+    // Manual reconciliation is intentionally status-agnostic. A charge may
+    // have been completed through the legacy terminal or customer portal even
+    // when its local row says declined, reversed, or needs review. The row
+    // lock and posted check above still guarantee that the balance is applied
+    // only once.
     const debtorResult = await client.query(
       `SELECT * FROM debtors WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
       [payment.debtor_id, organizationId],
@@ -47,7 +45,7 @@ export async function postPaymentAtomically(
       [
         payment.debtor_id,
         payment.processed_by || "system",
-        `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully${payment.status === "pending" ? " (manually, without gateway processing)" : ""}.`,
+        `Payment of $${(payment.amount / 100).toFixed(2)} POSTED successfully${payment.status !== "processed" ? " (manually reconciled without gateway processing)" : ""}.`,
         organizationId,
       ],
     );
@@ -84,6 +82,22 @@ export async function claimDeclinedPaymentForRerun(paymentId: string, organizati
       WHERE id = $1 AND organization_id = $2 AND status = 'pending'
         AND completed_at IS NOT NULL
         AND notes LIKE 'DECLINED:%'
+      RETURNING *`,
+    [paymentId, organizationId],
+  );
+  return result.rows[0];
+}
+
+/** Claims any completed/failed local attempt for an explicit operator rerun. */
+export async function claimPaymentForManualRerun(paymentId: string, organizationId: string) {
+  const result = await pool.query(
+    `UPDATE payments
+        SET status = 'processing',
+            processing_started_at = NOW(),
+            completed_at = NULL,
+            provider_transaction_id = NULL
+      WHERE id = $1 AND organization_id = $2
+        AND status NOT IN ('posted', 'processing')
       RETURNING *`,
     [paymentId, organizationId],
   );
