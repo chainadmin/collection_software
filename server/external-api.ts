@@ -888,6 +888,12 @@ export function registerExternalApiRoutes(app: Express) {
           reversalTransactionId: null,
           reversalStatus: p.status === "reversed" ? "reversed" : null,
           notes: p.notes,
+          // A collector-created payment arrangement (see
+          // /api/debtors/:id/payment-arrangements) shares one arrangementId
+          // across its rows. Exposing it lets an external caller group a
+          // multi-payment plan back together instead of seeing loose rows.
+          arrangementId: p.arrangementId,
+          arrangementIndex: p.arrangementIndex,
         })),
       });
     } catch (error) {
