@@ -35,7 +35,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/status-badge";
 import { StatCard } from "@/components/stat-card";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, parseDisplayDate, cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
@@ -338,7 +338,7 @@ export default function PaymentRunner() {
   const filteredPayments = selectedDate
     ? pendingPayments?.filter((p) => {
         if (!p.paymentDate) return false;
-        const paymentDateStr = format(new Date(p.paymentDate), "yyyy-MM-dd");
+        const paymentDateStr = format(parseDisplayDate(p.paymentDate), "yyyy-MM-dd");
         const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
         return paymentDateStr === selectedDateStr;
       }) || []
@@ -346,14 +346,14 @@ export default function PaymentRunner() {
 
   const todayPayments = pendingPayments?.filter((p) => {
     if (!p.paymentDate) return false;
-    const paymentDateStr = format(new Date(p.paymentDate), "yyyy-MM-dd");
+    const paymentDateStr = format(parseDisplayDate(p.paymentDate), "yyyy-MM-dd");
     const todayStr = format(new Date(), "yyyy-MM-dd");
     return paymentDateStr === todayStr;
   }) || [];
 
   const pastDuePayments = pendingPayments?.filter((p) => {
     if (!p.paymentDate) return false;
-    return new Date(p.paymentDate) < new Date(format(new Date(), "yyyy-MM-dd"));
+    return format(parseDisplayDate(p.paymentDate), "yyyy-MM-dd") < format(new Date(), "yyyy-MM-dd");
   }) || [];
 
   const today = format(new Date(), "yyyy-MM-dd");

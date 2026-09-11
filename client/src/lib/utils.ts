@@ -35,8 +35,22 @@ export function formatPhone(phone: string): string {
   return phone;
 }
 
+export function parseDisplayDate(dateString: string): Date {
+  // A date-only value represents a calendar day, not midnight UTC. Parsing
+  // YYYY-MM-DD with the Date constructor shifts that day backward for users
+  // west of UTC (for example, 2026-09-11 displays as September 10 in Eastern
+  // time). Preserve date-only values in the viewer's local calendar while
+  // continuing to treat timestamps as actual instants.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    const [year, month, day] = dateString.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  return new Date(dateString);
+}
+
 export function formatDate(dateString: string): string {
-  const date = new Date(dateString);
+  const date = parseDisplayDate(dateString);
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
