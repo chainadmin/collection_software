@@ -44,6 +44,7 @@ import TimeClock from "@/pages/admin/reporting/time-clock";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import EmailSettings from "@/pages/admin/email/settings";
 import EmailTemplates from "@/pages/admin/email/templates";
+import EmailManage from "@/pages/admin/email/manage";
 import Campaigns from "@/pages/admin/campaigns";
 import Clients from "@/pages/admin/clients";
 import Integrations from "@/pages/admin/integrations";
@@ -95,6 +96,7 @@ function AppRouter() {
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
       <Route path="/app/admin/email/settings" component={EmailSettings} />
       <Route path="/app/admin/email/templates" component={EmailTemplates} />
+      <Route path="/app/admin/email/manage" component={EmailManage} />
       <Route path="/app/admin/campaigns" component={Campaigns} />
       <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />

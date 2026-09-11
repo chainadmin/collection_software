@@ -5434,29 +5434,59 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Messaging is not enabled for this collector" });
       }
 
-      const { debtorId, templateId, contactValue, contactType, integrationId } = req.body as {
+      const { debtorId, templateId, contactValue, contactType, integrationId, subject, body } = req.body as {
         debtorId: string;
-        templateId: string;
+        templateId?: string;
         contactValue: string;
         contactType: "phone" | "email";
         integrationId?: string;
+        subject?: string;
+        body?: string;
       };
-      if (!debtorId || !templateId || !contactValue || !contactType) {
-        return res.status(400).json({ error: "debtorId, templateId, contactValue, and contactType are required" });
+      if (!debtorId || !contactValue || !contactType) {
+        return res.status(400).json({ error: "debtorId, contactValue, and contactType are required" });
+      }
+      if (!templateId && !(body && body.trim())) {
+        return res.status(400).json({ error: "Provide a templateId or a message body" });
       }
 
       const debtor = await storage.getDebtor(debtorId);
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Account not found" });
       }
-      const template = await storage.getEmailTemplate(templateId);
-      if (!template || !template.isActive || !validateOrgOwnership(template.organizationId, orgId)) {
-        return res.status(404).json({ error: "Template not found" });
+
+      // Either send an admin-created template, or a one-off message the
+      // collector composed themselves. Both funnel into the same Chain payload shape.
+      let channel: "email" | "sms";
+      let messageName: string;
+      let rawSubject: string;
+      let rawBody: string;
+      let usedTemplateId: string | null = null;
+
+      if (templateId) {
+        const template = await storage.getEmailTemplate(templateId);
+        if (!template || !template.isActive || !validateOrgOwnership(template.organizationId, orgId)) {
+          return res.status(404).json({ error: "Template not found" });
+        }
+        const expectedContactType = template.templateType === "email" ? "email" : "phone";
+        if (contactType !== expectedContactType) {
+          return res.status(400).json({ error: `This template requires a ${expectedContactType} contact` });
+        }
+        channel = template.templateType === "email" ? "email" : "sms";
+        messageName = `${template.name} - ${debtor.fileNumber || debtor.accountNumber}`;
+        rawSubject = template.subject ?? "";
+        rawBody = template.body;
+        usedTemplateId = template.id;
+      } else {
+        channel = contactType === "email" ? "email" : "sms";
+        if (channel === "email" && !(subject && subject.trim())) {
+          return res.status(400).json({ error: "An email requires a subject" });
+        }
+        messageName = `Message to ${debtor.fileNumber || debtor.accountNumber}`;
+        rawSubject = subject ?? "";
+        rawBody = body!;
       }
-      const expectedContactType = template.templateType === "email" ? "email" : "phone";
-      if (contactType !== expectedContactType) {
-        return res.status(400).json({ error: `This template requires a ${expectedContactType} contact` });
-      }
+
       const contacts = await storage.getDebtorContacts(debtor.id);
       const allowedValues = new Set([
         debtor.email,
@@ -5474,11 +5504,10 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No active Chain provider configured" });
       }
 
-      const channel = template.templateType === "email" ? "email" : "sms";
       const campaignLog = await storage.createCampaignLog({
         organizationId: orgId,
         integrationId: integration.id,
-        campaignName: `${template.name} - ${debtor.fileNumber || debtor.accountNumber}`,
+        campaignName: messageName,
         campaignType: channel,
         totalAccounts: 1,
         status: "pending",
@@ -5504,18 +5533,18 @@ export async function registerRoutes(
         campaignName: campaignLog.campaignName,
         campaignType: channel,
         template: {
-          id: template.id,
-          name: template.name,
-          type: template.templateType,
-          subject: template.subject ?? "",
-          body: template.body,
+          id: usedTemplateId || "custom",
+          name: usedTemplateId ? messageName : "Custom message",
+          type: channel,
+          subject: rawSubject,
+          body: rawBody,
         },
         accounts: [{
           fileNumber: item.fileNumber,
           contactValue: item.contactValue,
           contactType: item.contactType,
-          renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
-          renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+          renderedSubject: isEmail ? await renderTemplateForDebtor(rawSubject, debtor, true) : "",
+          renderedBody: await renderTemplateForDebtor(rawBody, debtor, isEmail),
         }],
       };
 
