@@ -2,14 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { DollarSign, TrendingUp, Users, CheckCircle } from "lucide-react";
+import { DollarSign, TrendingUp, Users, CheckCircle, Clock } from "lucide-react";
 import type { Payment, Debtor, Collector } from "@shared/schema";
 
 export default function Whiteboard() {
   const today = new Date().toISOString().split("T")[0];
 
+  // The full org payment set, not the capped/date-sorted "recent" endpoint --
+  // that endpoint returns only the latest 10 rows ordered by paymentDate desc,
+  // so a handful of future-dated pending arrangements can push today's actual
+  // activity off the list entirely.
   const { data: payments = [] } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/recent"],
+    queryKey: ["/api/payments"],
   });
 
   const { data: collectors = [] } = useQuery<Collector[]>({
@@ -20,26 +24,30 @@ export default function Whiteboard() {
     queryKey: ["/api/debtors"],
   });
 
-  const todayPayments = payments.filter(
-    (p) => p.paymentDate === today && p.status === "processed"
-  );
+  // "posted" is real, settled money; "pending" is scheduled/promised for today
+  // but not yet run. Both matter to the whiteboard -- not just posted.
+  const postedToday = payments.filter((p) => p.paymentDate === today && p.status === "posted");
+  const pendingToday = payments.filter((p) => p.paymentDate === today && p.status === "pending");
+  const todayPayments = [...postedToday, ...pendingToday];
 
-  const totalCollectedToday = todayPayments.reduce((sum, p) => sum + p.amount, 0);
-  const transactionCount = todayPayments.length;
+  const totalCollectedToday = postedToday.reduce((sum, p) => sum + p.amount, 0);
+  const totalPendingToday = pendingToday.reduce((sum, p) => sum + p.amount, 0);
+  const transactionCount = postedToday.length;
 
   const collectorStats = collectors.map((collector) => {
-    const collectorPayments = todayPayments.filter(
-      (p) => p.processedBy === collector.id
-    );
-    const total = collectorPayments.reduce((sum, p) => sum + p.amount, 0);
+    const posted = postedToday.filter((p) => p.processedBy === collector.id);
+    const pending = pendingToday.filter((p) => p.processedBy === collector.id);
+    const postedTotal = posted.reduce((sum, p) => sum + p.amount, 0);
+    const pendingTotal = pending.reduce((sum, p) => sum + p.amount, 0);
     return {
       id: collector.id,
       name: collector.name,
       initials: collector.avatarInitials || collector.name.split(" ").map(n => n[0]).join(""),
-      collected: total,
-      transactions: collectorPayments.length,
+      collected: postedTotal,
+      pending: pendingTotal,
+      transactions: posted.length + pending.length,
     };
-  }).sort((a, b) => b.collected - a.collected);
+  }).sort((a, b) => (b.collected + b.pending) - (a.collected + a.pending));
 
   const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -62,7 +70,7 @@ export default function Whiteboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Collected</CardTitle>
@@ -72,7 +80,20 @@ export default function Whiteboard() {
             <p className="text-2xl font-bold font-mono" data-testid="text-total-collected">
               {formatCurrency(totalCollectedToday)}
             </p>
-            <p className="text-xs text-muted-foreground">Today</p>
+            <p className="text-xs text-muted-foreground">Posted today</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Today</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold font-mono" data-testid="text-total-pending">
+              {formatCurrency(totalPendingToday)}
+            </p>
+            <p className="text-xs text-muted-foreground">Scheduled, not yet posted</p>
           </CardContent>
         </Card>
 
@@ -85,7 +106,7 @@ export default function Whiteboard() {
             <p className="text-2xl font-bold" data-testid="text-transaction-count">
               {transactionCount}
             </p>
-            <p className="text-xs text-muted-foreground">Payments processed</p>
+            <p className="text-xs text-muted-foreground">Payments posted</p>
           </CardContent>
         </Card>
 
@@ -100,7 +121,7 @@ export default function Whiteboard() {
                 ? formatCurrency(totalCollectedToday / transactionCount)
                 : "$0.00"}
             </p>
-            <p className="text-xs text-muted-foreground">Per transaction</p>
+            <p className="text-xs text-muted-foreground">Per posted transaction</p>
           </CardContent>
         </Card>
 
@@ -111,9 +132,9 @@ export default function Whiteboard() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {collectorStats.filter((c) => c.collected > 0).length}
+              {collectorStats.filter((c) => c.collected > 0 || c.pending > 0).length}
             </p>
-            <p className="text-xs text-muted-foreground">With collections today</p>
+            <p className="text-xs text-muted-foreground">With activity today</p>
           </CardContent>
         </Card>
       </div>
@@ -150,9 +171,16 @@ export default function Whiteboard() {
                         </p>
                       </div>
                     </div>
-                    <p className="font-mono font-bold">
-                      {formatCurrency(collector.collected)}
-                    </p>
+                    <div className="text-right">
+                      <p className="font-mono font-bold">
+                        {formatCurrency(collector.collected)}
+                      </p>
+                      {collector.pending > 0 && (
+                        <p className="font-mono text-xs text-yellow-600 dark:text-yellow-400">
+                          +{formatCurrency(collector.pending)} pending
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -169,18 +197,21 @@ export default function Whiteboard() {
               <div className="space-y-3">
                 {todayPayments.length === 0 ? (
                   <p className="text-center text-muted-foreground py-4">
-                    No payments processed today
+                    No payments today
                   </p>
                 ) : (
                   todayPayments.map((payment) => (
                     <div
                       key={payment.id}
-                      className="flex items-center justify-between p-3 rounded-md border"
+                      className={`flex items-center justify-between p-3 rounded-md border ${payment.status === "pending" ? "border-yellow-500/30 bg-yellow-500/5" : ""}`}
                       data-testid={`payment-${payment.id}`}
                     >
                       <div>
                         <p className="font-medium">{getDebtorName(payment.debtorId)}</p>
                         <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={payment.status === "pending" ? "secondary" : "outline"} className="text-xs">
+                            {payment.status === "pending" ? "PENDING" : "POSTED"}
+                          </Badge>
                           <Badge variant="outline" className="text-xs">
                             {payment.paymentMethod.toUpperCase()}
                           </Badge>
@@ -191,7 +222,7 @@ export default function Whiteboard() {
                           )}
                         </div>
                       </div>
-                      <p className="font-mono font-bold text-green-600 dark:text-green-400">
+                      <p className={`font-mono font-bold ${payment.status === "pending" ? "text-yellow-600 dark:text-yellow-400" : "text-green-600 dark:text-green-400"}`}>
                         +{formatCurrency(payment.amount)}
                       </p>
                     </div>

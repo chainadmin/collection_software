@@ -1899,65 +1899,92 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allCollectors = await storage.getCollectors();
       const allPayments = await storage.getPayments();
-      
+      const allDebtors = await storage.getDebtors();
+
       // Filter by organization
       const collectors = allCollectors.filter(c => c.organizationId === orgId);
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
-      
-      // Get current month and next month date ranges
+      const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+
       const now = new Date();
-      const today = now.toISOString().split('T')[0];
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
       const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split('T')[0];
       const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().split('T')[0];
-      
+
+      // Trailing + upcoming month window for the per-collector monthly breakdown
+      // (used by the Collector Reporting drill-down).
+      const MONTHS_BACK = 5;
+      const MONTHS_FORWARD = 3;
+      const monthWindow = Array.from({ length: MONTHS_BACK + MONTHS_FORWARD + 1 }, (_, idx) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - MONTHS_BACK + idx, 1);
+        return {
+          key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+          label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
+        };
+      });
+
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
-        
+
         // Payments before start of current month (start of month baseline)
         const beforeMonthPayments = collectorPayments.filter(p => {
           if (!p.paymentDate) return false;
           const paymentDate = p.paymentDate.split('T')[0];
           return paymentDate < currentMonthStart;
         });
-        
-        // All payments up to today (current totals)
-        const allTimePayments = collectorPayments.filter(p => {
-          if (!p.paymentDate) return false;
-          const paymentDate = p.paymentDate.split('T')[0];
-          return paymentDate <= today;
-        });
-        
-        // Next month scheduled payments from post dates
-        const nextMonthPending = orgPayments.filter(p => {
-          if (p.nextPaymentDate && p.processedBy === collector.id) {
-            const nextDate = p.nextPaymentDate.split('T')[0];
-            return nextDate >= nextMonthStart && nextDate <= nextMonthEnd;
-          }
-          return false;
-        });
-        
+
         // Start of month baseline (posted + pending combined)
         const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
         const somPosted = beforeMonthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
         const somTotal = somPosted + somPending;
-        
-        // Current totals (posted + pending combined)
-        const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = allTimePayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
+
+        // Current totals (posted + pending combined). Pending is counted
+        // regardless of its scheduled paymentDate -- a payment arrangement is
+        // secured money the moment it's booked, whether it's due today or
+        // three months from now, so a future-dated arrangement (e.g. an
+        // October payment booked in September) still counts here instead of
+        // silently disappearing until its due date arrives.
+        const currentPending = collectorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+        const currentPosted = collectorPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
         const currentTotal = currentPosted + currentPending;
-        
+
         // Declined and reversed (payments removed from pending/posted)
-        const totalDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const totalReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
-        
+        const totalDeclined = collectorPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const totalReversed = collectorPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+
         // New money = difference between current total and start of month total
         const newMoney = currentTotal - somTotal;
-        
-        // Next month pending total
-        const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + p.amount, 0);
-        
+
+        // Pending specifically scheduled to run next calendar month, keyed off
+        // the payment's own paymentDate -- not nextPaymentDate, which is only
+        // populated on recurring payments' bookkeeping pointer and is null on
+        // an ordinary one-time or arrangement pending payment.
+        const nextMonthPendingTotal = collectorPayments
+          .filter(p => p.status === 'pending' && p.paymentDate)
+          .filter(p => {
+            const d = p.paymentDate!.split('T')[0];
+            return d >= nextMonthStart && d <= nextMonthEnd;
+          })
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        // Posted vs. pending, broken out by month, for the collector drill-down.
+        const monthlyBreakdown = monthWindow.map(({ key, label }) => {
+          const monthPayments = collectorPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(key));
+          return {
+            month: key,
+            label,
+            posted: monthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0),
+            pending: monthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
+          };
+        });
+
+        // Liquidation rate: this collector's all-time posted collections
+        // against the original balance of the accounts assigned to them.
+        const assignedDebtors = orgDebtors.filter(d => d.assignedCollectorId === collector.id);
+        const assignedOriginalBalance = assignedDebtors.reduce((sum, d) => sum + (d.originalBalance || 0), 0);
+        const liquidationRate = assignedOriginalBalance > 0 ? (currentPosted / assignedOriginalBalance) * 100 : 0;
+
         return {
           id: collector.id,
           name: collector.name,
@@ -1978,9 +2005,15 @@ export async function registerRoutes(
           // Goals
           currentMonthGoal: collector.goal || 0,
           goalProgress: collector.goal ? Math.round((newMoney / collector.goal) * 100) : 0,
+          // Per-month posted/pending history for drill-down views
+          monthlyBreakdown,
+          // Personal liquidation rate
+          assignedAccounts: assignedDebtors.length,
+          assignedOriginalBalance,
+          liquidationRate,
         };
       });
-      
+
       res.json(performanceData);
     } catch (error) {
       console.error("Failed to fetch collector performance:", error);
