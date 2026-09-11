@@ -2,7 +2,7 @@
   "name": "Debt Manager Pro",
   "short_name": "DebtManager",
   "description": "Professional debt collection management software",
-  "id": "dmp-admin",
+  "id": "/dmp-admin",
   "start_url": "/login",
   "scope": "/",
   "display": "standalone",
@@ -56,7 +56,7 @@
   "categories": ["business", "finance", "productivity"],
   "screenshots": [],
   "related_applications": [
-    { "platform": "webapp", "url": "/manifest.json", "id": "dmp-admin" }
+    { "platform": "webapp", "url": "/manifest.json", "id": "/dmp-admin" }
   ],
   "prefer_related_applications": false
 }

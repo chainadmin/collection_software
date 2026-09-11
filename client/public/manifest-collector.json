@@ -2,7 +2,7 @@
   "name": "DMP Collector",
   "short_name": "DMP Collector",
   "description": "Debt Manager Pro - Collector Workstation",
-  "id": "dmp-collector",
+  "id": "/dmp-collector",
   "start_url": "/collector-login",
   "scope": "/",
   "display": "standalone",
@@ -56,7 +56,7 @@
   "categories": ["business", "finance", "productivity"],
   "screenshots": [],
   "related_applications": [
-    { "platform": "webapp", "url": "/manifest-collector.json", "id": "dmp-collector" }
+    { "platform": "webapp", "url": "/manifest-collector.json", "id": "/dmp-collector" }
   ],
   "prefer_related_applications": false
 }
