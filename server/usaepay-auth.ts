@@ -10,8 +10,11 @@ export function usaepayAuthorization(
   // normalization was added do not keep generating invalid signatures.
   const normalizedSourceKey = sourceKey.trim();
   const normalizedPin = pin.trim();
-  // The PIN is a signing secret, not the Basic-auth password. USAePay expects
-  // sourceKey:seed:sha256(sourceKey + seed + pin), encoded as the Basic value.
+  // The PIN is a signing secret, not the Basic-auth password. USAePay's apihash
+  // is "s2/<seed>/<sha256 hex of sourceKey+seed+pin>" -- the "s2/" tag identifies
+  // the hash algorithm and is required, not optional. The Basic value is then
+  // sourceKey:apihash (two colon-joined fields, not three) base64-encoded.
   const hash = createHash("sha256").update(`${normalizedSourceKey}${seed}${normalizedPin}`, "utf8").digest("hex");
-  return `Basic ${Buffer.from(`${normalizedSourceKey}:${seed}:${hash}`, "utf8").toString("base64")}`;
+  const apiHash = `s2/${seed}/${hash}`;
+  return `Basic ${Buffer.from(`${normalizedSourceKey}:${apiHash}`, "utf8").toString("base64")}`;
 }
