@@ -5409,10 +5409,30 @@ export async function registerRoutes(
         return res.status(502).json({ error: "External campaign send failed", details: errorText });
       }
 
-      await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
-      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: "sent" })));
+      // A 2xx response only means Chain accepted and processed the request -
+      // it does not mean anything was actually delivered. Chain reports how
+      // many of the contacts it actually sent/failed/skipped; read that
+      // instead of treating any 2xx as a full success, or a template
+      // mismatch, opt-outs, or a blocked number all look identical to a
+      // fully successful send.
+      let totalSent = items.length;
+      let totalFailed = 0;
+      try {
+        const externalResult = await externalResponse.json() as { totalSent?: number; totalFailed?: number; totalSkipped?: number };
+        if (typeof externalResult.totalSent === "number") totalSent = externalResult.totalSent;
+        if (typeof externalResult.totalFailed === "number") totalFailed = externalResult.totalFailed;
+      } catch {
+        // Chain's response body did not include delivery counts - fall back
+        // to treating the 2xx as a full success rather than failing the
+        // whole request over an unparseable (but still successful) response.
+      }
 
-      res.json({ success: true, campaignLogId: campaignLog.id });
+      const status = totalSent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
+      const errorMessage = status === "sent" ? null : `Chain reported ${totalSent} sent, ${totalFailed} failed of ${items.length} contacts`;
+      await storage.updateCampaignLog(campaignLog.id, { status, errorMessage });
+      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: status === "failed" ? "failed" : "sent" })));
+
+      res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
     }
