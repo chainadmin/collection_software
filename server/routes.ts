@@ -31,6 +31,7 @@ import {
   sendSignupWelcomeEmail,
 } from "./email";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
+import { getCompanyLogoUrl, getPaymentMessageAutomationSettings } from "./payment-message-automation";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
 import { db } from "./db";
@@ -224,7 +225,7 @@ function buildPaymentArrangementTable(payments: Array<{ paymentDate: string; amo
   return `<table style="border-collapse:collapse;"><thead><tr><th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Payment Date</th><th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-async function renderTemplateForDebtor(templateText: string, debtor: any, html: boolean): Promise<string> {
+async function renderTemplateForDebtor(templateText: string, debtor: any, html: boolean, organization?: any): Promise<string> {
   const contacts = await storage.getDebtorContacts(debtor.id);
   const payments = await storage.getPaymentsForDebtor(debtor.id);
   const primaryPhone = contacts.find((c) => c.type === "phone" && c.isPrimary)?.value || contacts.find((c) => c.type === "phone")?.value || "";
@@ -262,6 +263,14 @@ async function renderTemplateForDebtor(templateText: string, debtor: any, html: 
     balanceCents: String(debtor.currentBalance ?? 0),
     dueDate: debtor.nextFollowUpDate ? formatMessageDate(debtor.nextFollowUpDate) : "",
     dueDateIso: debtor.nextFollowUpDate || "",
+    agencyName: organization?.name || "",
+    agencyEmail: organization?.email || "",
+    agencyPhone: organization?.phone || "",
+    COMPANY_LOGO: organization
+      ? (html
+        ? `<img src="${getCompanyLogoUrl(organization, getPaymentMessageAutomationSettings(organization))}" alt="${String(organization.name || "Company").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#039;" })[character]!)} logo" style="max-width:240px;height:auto;" />`
+        : organization.name || "")
+      : "",
     "todays date": formatMessageDate(new Date().toISOString()),
     "Payment arrangement on file": buildPaymentArrangementTable(payments, html),
   };
@@ -5282,6 +5291,7 @@ export async function registerRoutes(
       // Channel is driven by the template, not the provider — one Chain provider can
       // send both email and text campaigns.
       const campaignChannel = template.templateType === "email" ? "email" : "sms";
+      const organization = await storage.getOrganization(orgId);
 
       const debtors = await Promise.all(accounts.map((a) => storage.getDebtor(a.debtorId)));
       if (debtors.some((d) => !d || d.organizationId !== orgId)) {
@@ -5333,8 +5343,8 @@ export async function registerRoutes(
             fileNumber: item.fileNumber,
             contactValue: item.contactValue,
             contactType: item.contactType,
-            renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
-            renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+            renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true, organization) : "",
+            renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail, organization),
           };
         })),
       };
@@ -5360,6 +5370,58 @@ export async function registerRoutes(
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
+    }
+  });
+
+  app.post("/api/email-templates/:id/test", async (req: any, res) => {
+    try {
+      const collector = req.session?.collector;
+      if (!collector || (collector.role !== "admin" && collector.role !== "manager")) {
+        return res.status(403).json({ error: "Only admins and managers can send template tests" });
+      }
+      const orgId = getOrgId(req);
+      const template = await storage.getEmailTemplate(req.params.id);
+      if (!template || !validateOrgOwnership(template.organizationId, orgId)) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      const { integrationId, recipient } = req.body as { integrationId?: string; recipient?: string };
+      const destination = recipient?.trim() || "";
+      const isEmail = template.templateType === "email";
+      if (!destination || (isEmail ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination) : destination.replace(/\D/g, "").length < 10)) {
+        return res.status(400).json({ error: `Enter a valid ${isEmail ? "email address" : "phone number"}` });
+      }
+      const integrations = await storage.getCampaignIntegrations(orgId);
+      const integration = integrations.find((entry) => entry.id === integrationId && entry.isActive);
+      if (!integration) return res.status(400).json({ error: "Select an active Chain provider" });
+
+      const organization = await storage.getOrganization(orgId);
+      const sampleDebtor = {
+        id: "template-test", firstName: "Jordan", lastName: "Miller", email: isEmail ? destination : "jordan.miller@example.com",
+        accountNumber: "TEST-1001", fileNumber: "TEST-1001", address: "123 Main St", city: "Austin", state: "TX", zipCode: "78701",
+        originalCreditor: "First National Bank", currentBalance: 123456, nextFollowUpDate: "2026-07-15", customFields: null,
+      };
+      const renderedSubject = isEmail ? await renderTemplateForDebtor(template.subject || "", sampleDebtor, true, organization) : "";
+      const renderedBody = await renderTemplateForDebtor(template.body, sampleDebtor, isEmail, organization);
+      const payload = {
+        organizationId: orgId,
+        campaignName: `[TEST] ${template.name}`,
+        campaignType: isEmail ? "email" : "sms",
+        test: true,
+        template: { id: template.id, name: template.name, type: template.templateType, subject: template.subject || "", body: template.body },
+        accounts: [{ fileNumber: "TEST-1001", contactValue: destination, contactType: isEmail ? "email" : "phone", renderedSubject, renderedBody }],
+      };
+      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${integration.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!externalResponse.ok) {
+        const details = await externalResponse.text();
+        return res.status(502).json({ error: "Chain rejected the test message", details });
+      }
+      res.json({ success: true, channel: payload.campaignType, recipient: destination, renderedSubject, renderedBody });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || "Failed to send template test" });
     }
   });
 
@@ -5420,6 +5482,7 @@ export async function registerRoutes(
       }
 
       const channel = template.templateType === "email" ? "email" : "sms";
+      const organization = await storage.getOrganization(orgId);
       const campaignLog = await storage.createCampaignLog({
         organizationId: orgId,
         integrationId: integration.id,
@@ -5459,8 +5522,8 @@ export async function registerRoutes(
           fileNumber: item.fileNumber,
           contactValue: item.contactValue,
           contactType: item.contactType,
-          renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
-          renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+          renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true, organization) : "",
+          renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail, organization),
         }],
       };
 

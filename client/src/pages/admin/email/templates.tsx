@@ -157,6 +157,9 @@ export default function EmailTemplates() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const [previewTemplate, setPreviewTemplate] = useState<EmailTemplate | null>(null);
+  const [testTemplate, setTestTemplate] = useState<EmailTemplate | null>(null);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testIntegrationId, setTestIntegrationId] = useState("");
   const [deleteTemplate, setDeleteTemplate] = useState<EmailTemplate | null>(null);
 
   const [sendTemplate, setSendTemplate] = useState<EmailTemplate | null>(null);
@@ -302,6 +305,34 @@ export default function EmailTemplates() {
     const match = integrations.find((i) => i.isActive);
     setSendIntegrationId(match?.id || "");
   };
+
+  const openTest = (template: EmailTemplate) => {
+    setTestTemplate(template);
+    setTestRecipient("");
+    setTestIntegrationId(integrations.find((integration) => integration.isActive)?.id || "");
+  };
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      if (!testTemplate) throw new Error("No template selected");
+      return apiRequest("POST", `/api/email-templates/${testTemplate.id}/test`, {
+        integrationId: testIntegrationId,
+        recipient: testRecipient,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: `${testTemplate?.templateType === "email" ? "Email" : "Text"} test sent`,
+        description: `Chain accepted the test message for ${testRecipient}.`,
+      });
+      setTestTemplate(null);
+    },
+    onError: (error: any) => toast({
+      title: "Test failed",
+      description: error?.message || "Chain did not accept the test message.",
+      variant: "destructive",
+    }),
+  });
 
   const toggleDebtor = (id: string) => {
     setSelectedDebtorIds((prev) => {
@@ -545,6 +576,10 @@ export default function EmailTemplates() {
                     Send
                   </Button>
                   <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => openTest(template)} data-testid={`button-test-${template.id}`}>
+                      {template.templateType === "email" ? <Mail className="h-3 w-3 mr-1" /> : <MessageSquare className="h-3 w-3 mr-1" />}
+                      Test
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => setPreviewTemplate(template)} data-testid={`button-preview-${template.id}`}>
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -593,6 +628,61 @@ export default function EmailTemplates() {
               {renderWithSampleValues(previewTemplate?.body || "", customVarNames)}
             </pre>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test delivery dialog */}
+      <Dialog open={!!testTemplate} onOpenChange={(open) => !open && setTestTemplate(null)}>
+        <DialogContent className="max-w-xl" data-testid="dialog-test-template">
+          <DialogHeader>
+            <DialogTitle>Test {testTemplate?.templateType === "email" ? "email" : "text message"}</DialogTitle>
+            <DialogDescription>
+              Review the sample below, then send one real test through Chain to confirm delivery.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
+              {testTemplate?.templateType === "email" && (
+                <p className="text-sm"><span className="font-medium">Subject:</span> {renderWithSampleValues(testTemplate.subject || "", customVarNames)}</p>
+              )}
+              <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+                {renderWithSampleValues(testTemplate?.body || "", customVarNames)}
+              </pre>
+              <p className="text-xs text-muted-foreground">The company logo variable uses your uploaded company logo in delivered emails.</p>
+            </div>
+            {activeIntegrations.length === 0 ? (
+              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-700 dark:text-yellow-400">
+                No active Chain provider is configured. Add one under Connect Chain first.
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Chain Provider</Label>
+                  <Select value={testIntegrationId} onValueChange={setTestIntegrationId}>
+                    <SelectTrigger data-testid="select-test-integration"><SelectValue placeholder="Choose provider" /></SelectTrigger>
+                    <SelectContent>{activeIntegrations.map((integration) => <SelectItem key={integration.id} value={integration.id}>{integration.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{testTemplate?.templateType === "email" ? "Test Email Address" : "Test Phone Number"}</Label>
+                  <Input
+                    type={testTemplate?.templateType === "email" ? "email" : "tel"}
+                    value={testRecipient}
+                    onChange={(event) => setTestRecipient(event.target.value)}
+                    placeholder={testTemplate?.templateType === "email" ? "admin@company.com" : "(555) 123-4567"}
+                    data-testid="input-test-recipient"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTestTemplate(null)}>Cancel</Button>
+            <Button disabled={!testRecipient.trim() || !testIntegrationId || testMutation.isPending} onClick={() => testMutation.mutate()} data-testid="button-send-test">
+              {testMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send Test Through Chain
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
