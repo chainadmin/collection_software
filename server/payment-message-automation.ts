@@ -329,6 +329,32 @@ async function sendGeneratedPaymentMessage(
     return;
   }
 
+  // A 2xx only means Chain accepted and processed the request - it does not
+  // mean the single contact here actually received it (a blocked number, an
+  // opted-out consumer, or a provider failure on Chain's side all still
+  // return 2xx). Read totalSent to tell the two apart.
+  let delivered = true;
+  try {
+    const externalResult = await externalResponse.json() as { totalSent?: number; totalFailed?: number };
+    if (typeof externalResult.totalSent === "number") delivered = externalResult.totalSent > 0;
+  } catch {
+    // Response body didn't include delivery counts - fall back to the 2xx.
+  }
+
+  if (!delivered) {
+    await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: "Chain accepted the request but did not deliver it" });
+    await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: "Chain accepted the request but did not deliver it" });
+    await storage.createNote({
+      organizationId: org.id,
+      debtorId: debtor.id,
+      collectorId: payment.processedBy || "system",
+      content: `Automatic ${context.success ? "receipt" : "decline"} ${channel} was not delivered by Chain (blocked, opted out, or failed).`,
+      noteType: "payment_message",
+      createdDate: new Date().toISOString().split("T")[0],
+    });
+    return;
+  }
+
   await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
   await storage.updateCampaignLogItem(item.id, { status: "sent" });
   await storage.createNote({
