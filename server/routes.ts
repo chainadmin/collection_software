@@ -60,7 +60,7 @@ import {
   previewReturn,
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
-import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
+import { isDeclinedPendingPayment, isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -3571,7 +3571,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      if (payment.status !== "declined") {
+      if (!isDeclinedPendingPayment(payment)) {
         return res.status(409).json({ error: "Only declined payments can be re-run" });
       }
       const claimed = await claimDeclinedPaymentForRerun(payment.id, orgId);

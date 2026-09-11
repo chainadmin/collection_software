@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { pool } from "../server/db";
 import {
+  claimDeclinedPaymentForRerun,
   claimPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
   markStaleProcessingPaymentsNeedsReview,
@@ -18,6 +19,7 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
 
   try {
     await claimPaymentForProcessing("payment-1", "org-1", "2026-09-08");
+    await claimDeclinedPaymentForRerun("payment-2", "org-1");
     await markPaymentNeedsReviewIfProcessing("payment-1", "org-1");
     const staleCount = await markStaleProcessingPaymentsNeedsReview("org-1", 45);
 
@@ -27,13 +29,18 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
     assert.match(calls[0].sql, /payment_date <= \$3/);
     assert.deepEqual(calls[0].params, ["payment-1", "org-1", "2026-09-08"]);
 
-    assert.match(calls[1].sql, /status = 'processing'/);
-    assert.match(calls[1].sql, /organization_id = \$2/);
-    assert.deepEqual(calls[1].params.slice(0, 2), ["payment-1", "org-1"]);
+    assert.match(calls[1].sql, /status = 'pending'/);
+    assert.match(calls[1].sql, /completed_at IS NOT NULL/);
+    assert.match(calls[1].sql, /notes LIKE 'DECLINED:%'/);
+    assert.deepEqual(calls[1].params, ["payment-2", "org-1"]);
 
-    assert.match(calls[2].sql, /processing_started_at < NOW\(\) - make_interval/);
-    assert.match(calls[2].sql, /\(\$2::text IS NULL OR organization_id = \$2\)/);
-    assert.deepEqual(calls[2].params.slice(0, 2), [45, "org-1"]);
+    assert.match(calls[2].sql, /status = 'processing'/);
+    assert.match(calls[2].sql, /organization_id = \$2/);
+    assert.deepEqual(calls[2].params.slice(0, 2), ["payment-1", "org-1"]);
+
+    assert.match(calls[3].sql, /processing_started_at < NOW\(\) - make_interval/);
+    assert.match(calls[3].sql, /\(\$2::text IS NULL OR organization_id = \$2\)/);
+    assert.deepEqual(calls[3].params.slice(0, 2), [45, "org-1"]);
   } finally {
     (pool as any).query = originalQuery;
   }
