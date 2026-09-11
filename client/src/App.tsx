@@ -279,6 +279,21 @@ function AppContent() {
   const [location] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
 
+  // Remember which of our two separately installable PWAs owns this window.
+  // sessionStorage is isolated to the app window and, unlike localStorage,
+  // does not let launching one app overwrite the identity of the other.
+  useState(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia?.("(display-mode: standalone)").matches ||
+      sessionStorage.getItem("dmp_standalone_mode")
+    ) return null;
+
+    const mode = location.startsWith("/collector-") ? "collector" : "admin";
+    sessionStorage.setItem("dmp_standalone_mode", mode);
+    return mode;
+  });
+
   // Keep the active web app manifest aligned with the page being viewed so
   // installing from a collector page installs the collector PWA and
   // installing from anywhere else installs the admin PWA.
@@ -378,9 +393,10 @@ function App() {
       window.dispatchEvent(new Event("pwa-install-available"));
     };
     const installedHandler = () => {
+      const mode = (window as any).__pwaInstallPromptMode as "admin" | "collector" | null;
       (window as any).__pwaInstallPrompt = null;
       (window as any).__pwaInstallPromptMode = null;
-      window.dispatchEvent(new Event("pwa-installed"));
+      window.dispatchEvent(new CustomEvent("pwa-installed", { detail: { mode } }));
     };
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", installedHandler);

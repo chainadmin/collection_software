@@ -39,6 +39,19 @@ function isStandalone(): boolean {
   return Boolean(mediaStandalone || iosStandalone);
 }
 
+function isThisAppStandalone(mode?: PwaMode): boolean {
+  if (!isStandalone()) return false;
+  if (!mode || typeof window === "undefined") return true;
+
+  // Both PWAs live on the same origin, so display-mode alone only tells us
+  // that *an* app owns this window. AppContent records the identity from the
+  // app's distinct launch URL in sessionStorage. This prevents the admin app
+  // from making the Collector install control say it is already installed (or
+  // vice versa), which otherwise blocks installing both on one computer.
+  const standaloneMode = window.sessionStorage.getItem("dmp_standalone_mode");
+  return standaloneMode ? standaloneMode === mode : mode === "admin";
+}
+
 function isIosDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
@@ -69,14 +82,16 @@ export function usePwaInstall(mode?: PwaMode) {
     getStoredPrompt,
   );
   const [promptMode, setPromptMode] = useState<PwaMode | null>(getStoredPromptMode);
-  const [installed, setInstalled] = useState<boolean>(isStandalone);
+  const [installed, setInstalled] = useState<boolean>(() => isThisAppStandalone(mode));
 
   useEffect(() => {
     const syncPrompt = () => {
       setPromptEvent(getStoredPrompt());
       setPromptMode(getStoredPromptMode());
     };
-    const markInstalled = () => {
+    const markInstalled = (event: Event) => {
+      const installedMode = (event as CustomEvent<{ mode?: PwaMode }>).detail?.mode;
+      if (mode && installedMode && installedMode !== mode) return;
       setInstalled(true);
       clearStoredPrompt();
       setPromptEvent(null);
@@ -89,14 +104,14 @@ export function usePwaInstall(mode?: PwaMode) {
 
     // Re-check on mount in case the event fired before we subscribed.
     syncPrompt();
-    if (isStandalone()) setInstalled(true);
+    if (isThisAppStandalone(mode)) setInstalled(true);
 
     return () => {
       window.removeEventListener("pwa-install-available", syncPrompt);
       window.removeEventListener("pwa-installed", markInstalled);
       window.removeEventListener("appinstalled", markInstalled);
     };
-  }, []);
+  }, [mode]);
 
   // Detect "already installed" even from a normal browser tab (not just when
   // running standalone). getInstalledRelatedApps reports the related app
@@ -112,7 +127,7 @@ export function usePwaInstall(mode?: PwaMode) {
       .then((apps: Array<{ id?: string; url?: string; platform?: string }>) => {
         if (cancelled || !Array.isArray(apps) || apps.length === 0) return;
         const match = apps.some((app) => {
-          if (app?.id) return app.id === expectedId;
+          if (app?.id) return app.id.replace(/^\//, "") === expectedId;
           if (app?.url)
             return mode === "collector"
               ? app.url.includes("collector")
