@@ -1221,9 +1221,15 @@ export default function Workstation() {
               )}
               {localStorage.getItem("appMode") !== "collector" && (
                 <Link to="/app">
-                  <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
-                    <LayoutDashboard className="h-4 w-4 mr-1" />
-                    Back to Admin
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    title="Back to Admin"
+                    data-testid="button-back-to-dashboard"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 mr-1" />
+                    Admin
                   </Button>
                 </Link>
               )}

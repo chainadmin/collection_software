@@ -90,3 +90,14 @@ export function calculateLiquidationRate(collected: number, faceValue: number): 
   if (faceValue === 0) return 0;
   return Math.round((collected / faceValue) * 10000) / 100;
 }
+
+// Payment statuses that never became real money -- declined, reversed,
+// failed, or cancelled. Liquidation and collection-rate figures should
+// count everything else (posted, pending, and any other in-flight status),
+// not just payments that have already posted, since a pending arrangement
+// is still real collected value for that portfolio/collector.
+const NON_COLLECTIBLE_PAYMENT_STATUSES = new Set(["declined", "reversed", "failed", "cancelled"]);
+
+export function isCollectiblePaymentStatus(status: string): boolean {
+  return !NON_COLLECTIBLE_PAYMENT_STATUSES.has(status);
+}

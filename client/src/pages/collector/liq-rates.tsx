@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Target, DollarSign, Percent } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { isCollectiblePaymentStatus } from "@/lib/utils";
 import type { Payment, Debtor, Collector, Portfolio } from "@shared/schema";
 
 export default function LiqRates() {
@@ -30,10 +31,12 @@ export default function LiqRates() {
     (d) => d.assignedCollectorId === currentCollector?.id
   );
 
-  // "Posted" is this app's definition of actually-collected money; a payment
-  // that only reached "processed" hasn't been posted to the ledger yet.
+  // Liquidation rate factors in all money this collector has brought in that
+  // hasn't fallen through -- posted (settled), pending (promised), and any
+  // other in-flight status -- scoped to payments this specific collector
+  // actually processed.
   const myPayments = payments.filter(
-    (p) => p.status === "posted" && p.processedBy === currentCollector?.id
+    (p) => isCollectiblePaymentStatus(p.status) && p.processedBy === currentCollector?.id
   );
 
   const totalOriginalBalance = myDebtors.reduce(

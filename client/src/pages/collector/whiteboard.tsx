@@ -24,10 +24,15 @@ export default function Whiteboard() {
     queryKey: ["/api/debtors"],
   });
 
-  // "posted" is real, settled money; "pending" is scheduled/promised for today
-  // but not yet run. Both matter to the whiteboard -- not just posted.
+  // "posted" is real, settled money, so it's scoped to the day it actually
+  // ran (paymentDate). "pending" is a promise a collector booked today --
+  // its paymentDate can legitimately be next week (a payment arrangement),
+  // so today's whiteboard has to key pending off when it was taken
+  // (createdAt), not when it's scheduled to run. Otherwise a $100
+  // arrangement booked today for next week would vanish from today's
+  // activity and only show up on its due date.
   const postedToday = payments.filter((p) => p.paymentDate === today && p.status === "posted");
-  const pendingToday = payments.filter((p) => p.paymentDate === today && p.status === "pending");
+  const pendingToday = payments.filter((p) => p.status === "pending" && String(p.createdAt).slice(0, 10) === today);
   const todayPayments = [...postedToday, ...pendingToday];
 
   const totalCollectedToday = postedToday.reduce((sum, p) => sum + p.amount, 0);

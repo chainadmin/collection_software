@@ -338,6 +338,12 @@ export const payments = pgTable("payments", {
   // All rows created by one multi-payment request share this retry identity.
   arrangementId: text("arrangement_id"),
   arrangementIndex: integer("arrangement_index"),
+  // When the payment row was actually entered/booked -- distinct from
+  // paymentDate, which is when a pending payment is scheduled to run (which
+  // can be days or weeks in the future for an arrangement taken today).
+  // "Today's activity" views use this to show what collectors actually did
+  // today, not what happens to be due today.
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   organizationIdempotencyUnique: uniqueIndex("payments_org_idempotency_unique")
     .on(table.organizationId, table.idempotencyKey),
