@@ -1487,17 +1487,17 @@ export default function Workstation() {
                     />
                   </div>
                 </div>
-                <div className="flex-1 flex flex-col justify-center rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-4 py-2 min-w-[170px] max-w-xs">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="flex-1 flex flex-col justify-center rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-5 py-3 min-w-[170px] max-w-md">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     Current Balance
                   </p>
                   <p
-                    className="text-3xl font-bold font-mono tabular-nums leading-tight text-primary"
+                    className="text-5xl font-bold font-mono tabular-nums leading-tight text-primary"
                     data-testid="text-current-balance"
                   >
                     {formatCurrency(selectedDebtor.currentBalance)}
                   </p>
-                  <div className="mt-2 pt-2 border-t border-primary/15 space-y-1.5">
+                  <div className="mt-3 pt-3 border-t border-primary/15 space-y-1.5">
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-muted-foreground">Original</span>
                       <span className="font-mono tabular-nums">{formatCurrency(selectedDebtor.originalBalance)}</span>
