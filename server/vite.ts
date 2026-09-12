@@ -50,7 +50,7 @@ export async function setupVite(server: Server, app: Express) {
         if (manifestPattern.test(template)) {
           template = template.replace(manifestPattern, `<link id="app-manifest" rel="manifest" href="${manifestOverride}" />`);
         } else {
-          viteLogger.warn(`[collector-install] manifest link not found in index.html — PWA install may not work`);
+          viteLogger.warn(`[collector-pwa] manifest link not found in index.html — PWA install may not work`);
         }
       }
       const page = await vite.transformIndexHtml(url, template);
@@ -61,7 +61,7 @@ export async function setupVite(server: Server, app: Express) {
     }
   }
 
-  app.get("/collector-install", (req, res, next) => {
+  app.get(["/collector-install", "/collector-login"], (req, res, next) => {
     serveIndexHtml(req.originalUrl, res, next, "/manifest-collector.json");
   });
 

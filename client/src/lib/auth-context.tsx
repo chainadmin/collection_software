@@ -173,9 +173,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     localStorage.removeItem(AUTH_STORAGE_KEY);
-    // Clear collector mode flag too so the next login on this browser
-    // (admin or collector) starts from a clean slate.
-    localStorage.removeItem("appMode");
+    // Keep appMode across logout. It identifies which installed app initiated
+    // the session, so AppContent can return a collector to the collector login
+    // instead of briefly redirecting them through the admin login. A
+    // successful admin login explicitly clears a stale collector mode above.
   };
 
   const setAuthUser = (authUser: AuthUser) => {

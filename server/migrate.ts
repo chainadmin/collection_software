@@ -843,6 +843,9 @@ export async function runMigrations() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'payment_token') THEN
           ALTER TABLE payments ADD COLUMN payment_token text;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'created_at') THEN
+          ALTER TABLE payments ADD COLUMN created_at timestamp NOT NULL DEFAULT now();
+        END IF;
       END $$;
     `);
 

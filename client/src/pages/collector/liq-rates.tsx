@@ -2,11 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Target, DollarSign, Percent } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { isCollectiblePaymentStatus } from "@/lib/utils";
 import type { Payment, Debtor, Collector, Portfolio } from "@shared/schema";
 
 export default function LiqRates() {
+  const { user: authUser } = useAuth();
+
   const { data: payments = [] } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/recent"],
+    queryKey: ["/api/payments"],
   });
 
   const { data: debtors = [] } = useQuery<Debtor[]>({
@@ -21,14 +25,18 @@ export default function LiqRates() {
     queryKey: ["/api/portfolios"],
   });
 
-  const currentCollector = collectors[1];
+  const currentCollector = collectors.find((c) => c.id === authUser?.id);
 
   const myDebtors = debtors.filter(
     (d) => d.assignedCollectorId === currentCollector?.id
   );
 
+  // Liquidation rate factors in all money this collector has brought in that
+  // hasn't fallen through -- posted (settled), pending (promised), and any
+  // other in-flight status -- scoped to payments this specific collector
+  // actually processed.
   const myPayments = payments.filter(
-    (p) => p.status === "processed" && p.processedBy === currentCollector?.id
+    (p) => isCollectiblePaymentStatus(p.status) && p.processedBy === currentCollector?.id
   );
 
   const totalOriginalBalance = myDebtors.reduce(

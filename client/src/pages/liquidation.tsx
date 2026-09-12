@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatCard } from "@/components/stat-card";
-import { formatCurrency, formatCurrencyCompact, calculateLiquidationRate } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact, calculateLiquidationRate, isCollectiblePaymentStatus } from "@/lib/utils";
 import type { Portfolio, Payment, Debtor } from "@shared/schema";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -56,6 +56,14 @@ export default function Liquidation() {
     [payments]
   );
 
+  // Liquidation rate is meant to reflect all money that hasn't fallen
+  // through -- posted (settled), pending (promised), and any other
+  // in-flight status -- not just what's already posted.
+  const collectiblePayments = useMemo(
+    () => (payments || []).filter((p) => isCollectiblePaymentStatus(p.status)),
+    [payments]
+  );
+
   const debtorPortfolioMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const d of debtors || []) map.set(d.id, d.portfolioId);
@@ -64,13 +72,13 @@ export default function Liquidation() {
 
   const collectedByPortfolio = useMemo(() => {
     const totals = new Map<string, number>();
-    for (const payment of postedPayments) {
+    for (const payment of collectiblePayments) {
       const portfolioId = debtorPortfolioMap.get(payment.debtorId);
       if (!portfolioId) continue;
       totals.set(portfolioId, (totals.get(portfolioId) || 0) + payment.amount);
     }
     return totals;
-  }, [postedPayments, debtorPortfolioMap]);
+  }, [collectiblePayments, debtorPortfolioMap]);
 
   const portfolioPerformance = useMemo(() => {
     return (portfolios || []).map((p) => {

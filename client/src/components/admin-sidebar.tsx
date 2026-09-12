@@ -116,6 +116,7 @@ const adminSections: NavSection[] = [
     icon: MessageSquare,
     items: [
       { title: "Message Templates", url: "/app/admin/email/templates", icon: FileText },
+      { title: "Email Management", url: "/app/admin/email/manage", icon: Mail },
       { title: "Connect Chain", url: "/app/admin/integrations", icon: Zap },
       { title: "Campaign History", url: "/app/admin/campaigns", icon: Megaphone },
     ],

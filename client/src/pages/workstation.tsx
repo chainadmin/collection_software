@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Phone,
@@ -15,6 +15,9 @@ import {
   Building2,
   CreditCard,
   FileText,
+  Hash,
+  MapPin,
+  Fingerprint,
   ChevronRight,
   SkipForward,
   PhoneOff,
@@ -31,6 +34,7 @@ import {
   Trash2,
   Check,
   X,
+  Loader2,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { formatCardNumber } from "@/lib/bin-lookup";
@@ -53,6 +57,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -96,6 +101,7 @@ import type {
   TimeClockEntry,
   DebtorReference,
   AccountStatus,
+  EmailTemplate,
 } from "@shared/schema";
 
 type CollectorPaymentCard = PaymentCard & { cardNumber?: string };
@@ -125,6 +131,49 @@ const STATUS_COLOR_MAP: Record<string, string> = {
 };
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
+
+function InfoTile({
+  icon: Icon,
+  label,
+  value,
+  mono,
+  className = "",
+  action,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  className?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-md border bg-background/60 px-3 py-2 min-w-0 ${className}`}
+    >
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className="h-3 w-3 shrink-0" />
+        <span className="leading-tight">{label}</span>
+      </div>
+      <div className="mt-0.5 flex items-start gap-1">
+        <span className={`text-sm break-words ${mono ? "font-mono" : ""}`}>{value}</span>
+        {action}
+      </div>
+    </div>
+  );
+}
+
+function calculateAge(dateOfBirth: string): number | null {
+  const dob = new Date(dateOfBirth);
+  if (isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age;
+}
 
 export default function Workstation() {
   const { toast } = useToast();
@@ -195,7 +244,14 @@ export default function Workstation() {
   const [clickedPhone, setClickedPhone] = useState("");
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
   const [calculatorMonths, setCalculatorMonths] = useState("12");
-  
+
+  // Send text/email message state
+  const [messageDialog, setMessageDialog] = useState<{ contactType: "phone" | "email"; contactValue: string } | null>(null);
+  const [messageMode, setMessageMode] = useState<"template" | "custom">("template");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [customSubject, setCustomSubject] = useState("");
+  const [customBody, setCustomBody] = useState("");
+
   // Inline editing state
   const [showEditAddressDialog, setShowEditAddressDialog] = useState(false);
   const [showEditEmailDialog, setShowEditEmailDialog] = useState(false);
@@ -250,6 +306,14 @@ export default function Workstation() {
   const canRunScheduledPayments = canManagePayments || currentCollector?.canViewPaymentRunner === true;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
+
+  // Messaging permissions must always come from the signed-in collector.
+  const messagingEnabled = !!currentCollector?.canViewEmail || currentCollector?.role === "admin" || currentCollector?.role === "manager";
+
+  const { data: messageTemplates = [] } = useQuery<EmailTemplate[]>({
+    queryKey: ["/api/email-templates"],
+    enabled: messagingEnabled,
+  });
 
   useEffect(() => {
     if (selectedDebtorId) announceAccountChange(selectedDebtorId);
@@ -585,6 +649,55 @@ export default function Workstation() {
     onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
+  const availableMessageTemplates = messageTemplates.filter((t) =>
+    t.isActive !== false && (messageDialog?.contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
+  );
+
+  const openMessageDialog = (contactType: "phone" | "email", contactValue: string) => {
+    const channelTemplates = messageTemplates.filter((t) =>
+      t.isActive !== false && (contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
+    );
+    setMessageMode(channelTemplates.length > 0 ? "template" : "custom");
+    setSelectedTemplateId("");
+    setCustomSubject("");
+    setCustomBody("");
+    setMessageDialog({ contactType, contactValue });
+  };
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async () => {
+      if (!messageDialog || !selectedDebtorId) throw new Error("No recipient selected.");
+      if (messageMode === "template") {
+        if (!selectedTemplateId) throw new Error("Choose a template first.");
+        return apiRequest("POST", "/api/collector/messages/send", {
+          debtorId: selectedDebtorId,
+          templateId: selectedTemplateId,
+          contactValue: messageDialog.contactValue,
+          contactType: messageDialog.contactType,
+        });
+      }
+      if (!customBody.trim()) throw new Error("Write a message first.");
+      return apiRequest("POST", "/api/collector/messages/send", {
+        debtorId: selectedDebtorId,
+        contactValue: messageDialog.contactValue,
+        contactType: messageDialog.contactType,
+        subject: customSubject,
+        body: customBody,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaign-logs"] });
+      setMessageDialog(null);
+      setSelectedTemplateId("");
+      setCustomSubject("");
+      setCustomBody("");
+      toast({ title: "Message sent", description: "The message was sent through your Chain delivery system." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Send failed", description: e?.message || "Failed to send message.", variant: "destructive" });
+    },
+  });
+
   const addEmploymentMutation = useMutation({
     mutationFn: async (data: { debtorId: string; employerName: string; employerPhone?: string; employerAddress?: string; position?: string; salary?: number; isCurrent?: boolean }) => {
       return apiRequest("POST", `/api/debtors/${data.debtorId}/employment`, data);
@@ -814,7 +927,7 @@ export default function Workstation() {
     );
   };
 
-  const handleCallOutcome = (outcome: CallOutcome) => {
+  const handleCallOutcome = (outcome: CallOutcome, phone?: string) => {
     if (!selectedDebtorId || !currentCollector) return;
 
     const today = new Date().toISOString().split("T")[0];
@@ -848,6 +961,13 @@ export default function Workstation() {
         noteType = "promise";
         nextFollowUp = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
         break;
+    }
+
+    // Record which number the outcome applies to, not just the disposition --
+    // a debtor with multiple phone numbers on file otherwise leaves the note
+    // ambiguous about which one was actually dialed.
+    if (phone) {
+      noteContent += ` (${phone})`;
     }
 
     addNoteMutation.mutate({
@@ -1154,9 +1274,15 @@ export default function Workstation() {
               )}
               {localStorage.getItem("appMode") !== "collector" && (
                 <Link to="/app">
-                  <Button size="sm" variant="default" data-testid="button-back-to-dashboard">
-                    <LayoutDashboard className="h-4 w-4 mr-1" />
-                    Back to Admin
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    title="Back to Admin"
+                    data-testid="button-back-to-dashboard"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 mr-1" />
+                    Admin
                   </Button>
                 </Link>
               )}
@@ -1279,9 +1405,9 @@ export default function Workstation() {
           <div className="flex flex-1 overflow-hidden">
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-4 border-b bg-card">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex-1 min-w-[280px]">
+                  <div className="flex items-center gap-3 mb-3">
                     <h1 className="text-xl font-semibold">
                       {selectedDebtor.firstName} {selectedDebtor.lastName}
                     </h1>
@@ -1305,64 +1431,86 @@ export default function Workstation() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="mt-1 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">File #: </span>
-                      <span className="font-mono">{selectedDebtor.fileNumber || "N/A"}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Acct #: </span>
-                      <span className="font-mono">{selectedDebtor.accountNumber}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">SSN: </span>
-                      <span className="font-mono">{selectedDebtor.ssn || `***-**-${selectedDebtor.ssnLast4 || "????"}`}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">DOB: </span>
-                      <span>{selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}</span>
-                    </div>
-                    <div className="col-span-2 flex items-center gap-1">
-                      <span className="text-muted-foreground">Address: </span>
-                      <span>
-                        {selectedDebtor.address 
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    <InfoTile icon={Hash} label="File #" value={selectedDebtor.fileNumber || "N/A"} mono />
+                    <InfoTile icon={Hash} label="Acct #" value={selectedDebtor.accountNumber} mono />
+                    <InfoTile
+                      icon={Fingerprint}
+                      label="SSN"
+                      value={selectedDebtor.ssn || `***-**-${selectedDebtor.ssnLast4 || "????"}`}
+                      mono
+                    />
+                    <InfoTile
+                      icon={Calendar}
+                      label="DOB"
+                      value={
+                        selectedDebtor.dateOfBirth
+                          ? (() => {
+                              const age = calculateAge(selectedDebtor.dateOfBirth);
+                              return `${formatDate(selectedDebtor.dateOfBirth)}${age !== null ? ` (${age})` : ""}`;
+                            })()
+                          : "N/A"
+                      }
+                    />
+                    <InfoTile
+                      icon={MapPin}
+                      label="Address"
+                      className="col-span-2"
+                      value={
+                        selectedDebtor.address
                           ? `${selectedDebtor.address}, ${selectedDebtor.city || ""} ${selectedDebtor.state || ""} ${selectedDebtor.zipCode || ""}`.trim()
-                          : "N/A"}
-                      </span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-5 w-5"
-                        onClick={openEditAddressDialog}
-                        data-testid="button-edit-address"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Client: </span>
-                      <span>{selectedDebtor.clientName || "N/A"}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Original Creditor: </span>
-                      <span>{selectedDebtor.originalCreditor || "N/A"}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Charge Off Date: </span>
-                      <span>{selectedDebtor.chargeOffDate ? formatDate(selectedDebtor.chargeOffDate) : "N/A"}</span>
-                    </div>
+                          : "N/A"
+                      }
+                      action={
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5 shrink-0"
+                          onClick={openEditAddressDialog}
+                          data-testid="button-edit-address"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      }
+                    />
+                    <InfoTile icon={Building2} label="Client" value={selectedDebtor.clientName || "N/A"} />
+                    <InfoTile
+                      icon={FileText}
+                      label="Creditor"
+                      className="col-span-2 sm:col-span-1"
+                      value={selectedDebtor.originalCreditor || "N/A"}
+                    />
+                    <InfoTile
+                      icon={CalendarClock}
+                      label="Charge Off"
+                      value={selectedDebtor.chargeOffDate ? formatDate(selectedDebtor.chargeOffDate) : "N/A"}
+                    />
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-2xl font-bold font-mono">{formatCurrency(selectedDebtor.currentBalance)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Original: {formatCurrency(selectedDebtor.originalBalance)}
+                <div className="shrink-0 rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-3 py-2 min-w-[170px]">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Current Balance
                   </p>
-                  {lastPayment && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Last Pay: {formatCurrency(lastPayment.amount)} on {formatDate(lastPayment.paymentDate)}
-                    </p>
-                  )}
+                  <p
+                    className="text-2xl font-bold font-mono tabular-nums leading-tight text-primary"
+                    data-testid="text-current-balance"
+                  >
+                    {formatCurrency(selectedDebtor.currentBalance)}
+                  </p>
+                  <div className="mt-1.5 pt-1.5 border-t border-primary/15 space-y-1">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Original</span>
+                      <span className="font-mono tabular-nums">{formatCurrency(selectedDebtor.originalBalance)}</span>
+                    </div>
+                    {lastPayment && (
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-muted-foreground">Last Payment</span>
+                        <span className="font-mono tabular-nums">
+                          {formatCurrency(lastPayment.amount)} · {formatDate(lastPayment.paymentDate)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1510,6 +1658,25 @@ export default function Workstation() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
+                              {messagingEnabled && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openMessageDialog(contact.type as "phone" | "email", contact.value);
+                                  }}
+                                  aria-label={contact.type === "phone" ? `Text ${contact.value}` : `Email ${contact.value}`}
+                                  data-testid={`button-message-contact-${contact.id}`}
+                                >
+                                  {contact.type === "phone" ? (
+                                    <MessageSquare className="h-3 w-3" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -2318,7 +2485,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("connected");
+                  handleCallOutcome("connected", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-connected"
@@ -2329,7 +2496,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("no_answer");
+                  handleCallOutcome("no_answer", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-no-answer"
@@ -2340,7 +2507,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("voicemail");
+                  handleCallOutcome("voicemail", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-voicemail"
@@ -2351,7 +2518,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("busy");
+                  handleCallOutcome("busy", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-busy"
@@ -2362,7 +2529,7 @@ export default function Workstation() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  handleCallOutcome("wrong_number");
+                  handleCallOutcome("wrong_number", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-wrong-number"
@@ -2373,7 +2540,7 @@ export default function Workstation() {
               <Button
                 variant="default"
                 onClick={() => {
-                  handleCallOutcome("promise");
+                  handleCallOutcome("promise", clickedPhone);
                   setShowCallOutcomeDialog(false);
                 }}
                 data-testid="outcome-promise"
@@ -2386,6 +2553,120 @@ export default function Workstation() {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowCallOutcomeDialog(false)}>
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!messageDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMessageDialog(null);
+            setSelectedTemplateId("");
+            setCustomSubject("");
+            setCustomBody("");
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-send-message">
+          <DialogHeader>
+            <DialogTitle>Send {messageDialog?.contactType === "email" ? "Email" : "Text Message"}</DialogTitle>
+            <DialogDescription>
+              {messageMode === "template"
+                ? "Choose an admin-created template. It's populated only with this account's information."
+                : "Write your own message. This account's information is available."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Recipient</Label>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{messageDialog?.contactType === "email" ? "Email" : "Text"}</Badge>
+                <span className="text-sm font-mono">{messageDialog?.contactValue}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={messageMode === "template" ? "default" : "outline"}
+                onClick={() => setMessageMode("template")}
+                data-testid="button-mode-template"
+              >
+                Use a Template
+              </Button>
+              <Button
+                size="sm"
+                variant={messageMode === "custom" ? "default" : "outline"}
+                onClick={() => setMessageMode("custom")}
+                data-testid="button-mode-custom"
+              >
+                Write My Own
+              </Button>
+            </div>
+
+            {messageMode === "template" ? (
+              <div className="space-y-2">
+                <Label>Template</Label>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger data-testid="select-message-template">
+                    <SelectValue placeholder="Choose a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableMessageTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableMessageTemplates.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No active templates are available for this channel.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {messageDialog?.contactType === "email" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-message-subject">Subject</Label>
+                    <Input
+                      id="custom-message-subject"
+                      value={customSubject}
+                      onChange={(e) => setCustomSubject(e.target.value)}
+                      placeholder="Subject"
+                      data-testid="input-custom-message-subject"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="custom-message-body">Message</Label>
+                  <Textarea
+                    id="custom-message-body"
+                    value={customBody}
+                    onChange={(e) => setCustomBody(e.target.value)}
+                    placeholder={messageDialog?.contactType === "email" ? "Write your email..." : "Write your text message..."}
+                    rows={5}
+                    data-testid="input-custom-message-body"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMessageDialog(null)}>Cancel</Button>
+            <Button
+              onClick={() => sendMessageMutation.mutate()}
+              disabled={
+                sendMessageMutation.isPending ||
+                (messageMode === "template"
+                  ? !selectedTemplateId || availableMessageTemplates.length === 0
+                  : !customBody.trim() || (messageDialog?.contactType === "email" && !customSubject.trim()))
+              }
+              data-testid="button-send-message"
+            >
+              {sendMessageMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -919,6 +919,7 @@ export class MemStorage implements IStorage {
       completedAt: null,
       arrangementId: null,
       arrangementIndex: null,
+      createdAt: new Date("2024-12-15"),
     });
     this.payments.set(payment2Id, {
       id: payment2Id,
@@ -944,6 +945,7 @@ export class MemStorage implements IStorage {
       completedAt: null,
       arrangementId: null,
       arrangementIndex: null,
+      createdAt: new Date("2024-12-01"),
     });
     this.payments.set(payment3Id, {
       id: payment3Id,
@@ -969,6 +971,7 @@ export class MemStorage implements IStorage {
       completedAt: null,
       arrangementId: null,
       arrangementIndex: null,
+      createdAt: new Date("2024-12-10"),
     });
     this.payments.set(payment4Id, {
       id: payment4Id,
@@ -994,6 +997,7 @@ export class MemStorage implements IStorage {
       completedAt: null,
       arrangementId: null,
       arrangementIndex: null,
+      createdAt: new Date("2024-12-12"),
     });
 
     const batch1Id = randomUUID();
@@ -1825,6 +1829,7 @@ export class MemStorage implements IStorage {
       completedAt: payment.completedAt ?? null,
       arrangementId: payment.arrangementId ?? null,
       arrangementIndex: payment.arrangementIndex ?? null,
+      createdAt: payment.createdAt ?? new Date(),
     };
     this.payments.set(id, newPayment);
     return newPayment;
@@ -1890,6 +1895,7 @@ export class MemStorage implements IStorage {
           completedAt: null,
           arrangementId: input.arrangementId,
           arrangementIndex: index,
+          createdAt: new Date(),
         };
         this.payments.set(id, payment);
         inserted.push(payment);

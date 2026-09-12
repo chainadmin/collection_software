@@ -4,7 +4,6 @@ import { storage } from "./storage";
 import { registerChainConnectionTestRoute, registerExternalApiRoutes } from "./external-api";
 import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTimeCardInput, rejectRawCardData, type OneTimeCardInput } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
-import { interpretCampaignSendResponse } from "./campaign-send-response";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
 import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
@@ -31,6 +30,7 @@ import {
   sendOrgNotificationEmail,
   sendSignupWelcomeEmail,
 } from "./email";
+import { sendChainMessage } from "./chain-messaging";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
@@ -1900,76 +1900,113 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allCollectors = await storage.getCollectors();
       const allPayments = await storage.getPayments();
-      
+      const allDebtors = await storage.getDebtors();
+
       // Filter by organization
       const collectors = allCollectors.filter(c => c.organizationId === orgId);
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
-      
-      // Get current month and next month date ranges
+      const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+
       const now = new Date();
-      const today = now.toISOString().split('T')[0];
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
       const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split('T')[0];
       const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().split('T')[0];
-      
+
+      // Trailing + upcoming month window for the per-collector monthly breakdown
+      // (used by the Collector Reporting drill-down).
+      const MONTHS_BACK = 5;
+      const MONTHS_FORWARD = 3;
+      const monthWindow = Array.from({ length: MONTHS_BACK + MONTHS_FORWARD + 1 }, (_, idx) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - MONTHS_BACK + idx, 1);
+        return {
+          key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+          label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
+        };
+      });
+
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
-        
-        // Payments before start of current month (start of month baseline)
-        const beforeMonthPayments = collectorPayments.filter(p => {
-          if (!p.paymentDate) return false;
-          const paymentDate = p.paymentDate.split('T')[0];
-          return paymentDate < currentMonthStart;
+
+        // "New money" is scoped to what's actually scheduled to happen THIS
+        // calendar month -- not a payment arrangement's full total. A $1,000
+        // arrangement booked as $100 every two weeks is $1,000 of scheduled
+        // collections spread across several months; only the installment(s)
+        // whose paymentDate falls in the current month belong to this
+        // month's figures.
+        const thisMonthPayments = collectorPayments.filter(p => {
+          if (!p.paymentDate || (p.status !== 'posted' && p.status !== 'pending')) return false;
+          const d = p.paymentDate.split('T')[0];
+          return d >= currentMonthStart && d <= currentMonthEnd;
         });
-        
-        // All payments up to today (current totals)
-        const allTimePayments = collectorPayments.filter(p => {
-          if (!p.paymentDate) return false;
-          const paymentDate = p.paymentDate.split('T')[0];
-          return paymentDate <= today;
-        });
-        
-        // Next month scheduled payments from post dates
-        const nextMonthPending = orgPayments.filter(p => {
-          if (p.nextPaymentDate && p.processedBy === collector.id) {
-            const nextDate = p.nextPaymentDate.split('T')[0];
-            return nextDate >= nextMonthStart && nextDate <= nextMonthEnd;
-          }
-          return false;
-        });
-        
-        // Start of month baseline (posted + pending combined)
-        const somPending = beforeMonthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const somPosted = beforeMonthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
-        const somTotal = somPosted + somPending;
-        
-        // Current totals (posted + pending combined)
-        const currentPending = allTimePayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = allTimePayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
-        const currentTotal = currentPosted + currentPending;
-        
-        // Declined and reversed (payments removed from pending/posted)
-        const totalDeclined = allTimePayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const totalReversed = allTimePayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
-        
-        // New money = difference between current total and start of month total
+        const currentTotal = thisMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+
+        // Start-of-month baseline: of this month's scheduled installments,
+        // the ones that were already booked (createdAt) before the month
+        // began -- i.e. recurring collections from an earlier arrangement,
+        // not fresh production. Whatever's left after subtracting this is
+        // this month's actual new business.
+        const somTotal = thisMonthPayments
+          .filter(p => p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart)
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        // New money = this month's scheduled total minus whatever portion of
+        // it was already on the books before the month began.
         const newMoney = currentTotal - somTotal;
-        
-        // Next month pending total
-        const nextMonthPendingTotal = nextMonthPending.reduce((sum, p) => sum + p.amount, 0);
-        
+
+        // All-time posted/pending totals for this collector, independent of
+        // the current-month scoping above -- used for lifetime collections,
+        // wage/ROI, and liquidation figures elsewhere.
+        const currentPending = collectorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+        const currentPosted = collectorPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
+
+        // Declined and reversed (payments removed from pending/posted)
+        const totalDeclined = collectorPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
+        const totalReversed = collectorPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+
+        // Pending specifically scheduled to run next calendar month, keyed off
+        // the payment's own paymentDate -- not nextPaymentDate, which is only
+        // populated on recurring payments' bookkeeping pointer and is null on
+        // an ordinary one-time or arrangement pending payment.
+        const nextMonthPendingTotal = collectorPayments
+          .filter(p => p.status === 'pending' && p.paymentDate)
+          .filter(p => {
+            const d = p.paymentDate!.split('T')[0];
+            return d >= nextMonthStart && d <= nextMonthEnd;
+          })
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        // Posted vs. pending, broken out by month, for the collector drill-down.
+        const monthlyBreakdown = monthWindow.map(({ key, label }) => {
+          const monthPayments = collectorPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(key));
+          return {
+            month: key,
+            label,
+            posted: monthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0),
+            pending: monthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
+          };
+        });
+
+        // Liquidation rate: this collector's all-time posted collections
+        // against the original balance of the accounts assigned to them.
+        const assignedDebtors = orgDebtors.filter(d => d.assignedCollectorId === collector.id);
+        const assignedOriginalBalance = assignedDebtors.reduce((sum, d) => sum + (d.originalBalance || 0), 0);
+        const liquidationRate = assignedOriginalBalance > 0 ? (currentPosted / assignedOriginalBalance) * 100 : 0;
+
         return {
           id: collector.id,
           name: collector.name,
           role: collector.role,
-          // Start of month (posted + pending)
+          // This month's scheduled posted+pending total that was already on
+          // the books before the month began
           somTotal,
-          // Current (posted + pending)
+          // This month's scheduled posted+pending total, as of now
           currentTotal,
+          // All-time posted/pending totals (not scoped to this month)
           currentPending,
           currentPosted,
-          // New money this month
+          // New money this month (currentTotal minus somTotal)
           newMoney,
           // Declined and reversed
           totalDeclined,
@@ -1979,9 +2016,15 @@ export async function registerRoutes(
           // Goals
           currentMonthGoal: collector.goal || 0,
           goalProgress: collector.goal ? Math.round((newMoney / collector.goal) * 100) : 0,
+          // Per-month posted/pending history for drill-down views
+          monthlyBreakdown,
+          // Personal liquidation rate
+          assignedAccounts: assignedDebtors.length,
+          assignedOriginalBalance,
+          liquidationRate,
         };
       });
-      
+
       res.json(performanceData);
     } catch (error) {
       console.error("Failed to fetch collector performance:", error);
@@ -5395,35 +5438,31 @@ export async function registerRoutes(
         })),
       };
 
-      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${integration.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      // Chain's External API sends one account per request. Calling its real
+      // channel endpoints (rather than the internal /campaigns/send UI route)
+      // both delivers the message and gives each log item an honest result.
+      const results = await Promise.all(payload.accounts.map((account, index) =>
+        sendChainMessage(integration, {
+          fileNumber: account.fileNumber,
+          contactValue: account.contactValue,
+          channel: campaignChannel,
+          subject: account.renderedSubject,
+          body: account.renderedBody,
+          externalId: items[index].id,
+        })));
+      const totalSent = results.filter((result) => result.success).length;
+      const totalFailed = results.length - totalSent;
 
-      if (!externalResponse.ok) {
-        const errorText = await externalResponse.text();
-        await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
-        return res.status(502).json({ error: "External campaign send failed", details: errorText });
-      }
+      const status = totalSent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
+      const errorMessage = status === "sent" ? null : `Chain reported ${totalSent} sent, ${totalFailed} failed of ${items.length} contacts`;
+      await storage.updateCampaignLog(campaignLog.id, { status, errorMessage });
+      await Promise.all(items.map((item, index) => storage.updateCampaignLogItem(item.id, {
+        status: results[index].success ? "sent" : "failed",
+        externalId: results[index].externalId || null,
+        responseText: results[index].error || null,
+      })));
 
-      // A 2xx response only means *something* answered with a 2xx - see
-      // interpretCampaignSendResponse for why that alone can't be trusted.
-      const rawBody = await externalResponse.text();
-      const outcome = interpretCampaignSendResponse(rawBody, items.length);
-      await storage.updateCampaignLog(campaignLog.id, { status: outcome.status, errorMessage: outcome.errorMessage });
-      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: outcome.status === "failed" ? "failed" : "sent" })));
-
-      res.json({
-        success: outcome.status !== "failed",
-        campaignLogId: campaignLog.id,
-        totalSent: outcome.totalSent,
-        totalFailed: outcome.totalFailed,
-        ...(outcome.status === "failed" && outcome.errorMessage ? { error: outcome.errorMessage } : {}),
-      });
+      res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
     }
@@ -5445,29 +5484,59 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Messaging is not enabled for this collector" });
       }
 
-      const { debtorId, templateId, contactValue, contactType, integrationId } = req.body as {
+      const { debtorId, templateId, contactValue, contactType, integrationId, subject, body } = req.body as {
         debtorId: string;
-        templateId: string;
+        templateId?: string;
         contactValue: string;
         contactType: "phone" | "email";
         integrationId?: string;
+        subject?: string;
+        body?: string;
       };
-      if (!debtorId || !templateId || !contactValue || !contactType) {
-        return res.status(400).json({ error: "debtorId, templateId, contactValue, and contactType are required" });
+      if (!debtorId || !contactValue || !contactType) {
+        return res.status(400).json({ error: "debtorId, contactValue, and contactType are required" });
+      }
+      if (!templateId && !(body && body.trim())) {
+        return res.status(400).json({ error: "Provide a templateId or a message body" });
       }
 
       const debtor = await storage.getDebtor(debtorId);
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Account not found" });
       }
-      const template = await storage.getEmailTemplate(templateId);
-      if (!template || !template.isActive || !validateOrgOwnership(template.organizationId, orgId)) {
-        return res.status(404).json({ error: "Template not found" });
+
+      // Either send an admin-created template, or a one-off message the
+      // collector composed themselves. Both funnel into the same Chain payload shape.
+      let channel: "email" | "sms";
+      let messageName: string;
+      let rawSubject: string;
+      let rawBody: string;
+      let usedTemplateId: string | null = null;
+
+      if (templateId) {
+        const template = await storage.getEmailTemplate(templateId);
+        if (!template || !template.isActive || !validateOrgOwnership(template.organizationId, orgId)) {
+          return res.status(404).json({ error: "Template not found" });
+        }
+        const expectedContactType = template.templateType === "email" ? "email" : "phone";
+        if (contactType !== expectedContactType) {
+          return res.status(400).json({ error: `This template requires a ${expectedContactType} contact` });
+        }
+        channel = template.templateType === "email" ? "email" : "sms";
+        messageName = `${template.name} - ${debtor.fileNumber || debtor.accountNumber}`;
+        rawSubject = template.subject ?? "";
+        rawBody = template.body;
+        usedTemplateId = template.id;
+      } else {
+        channel = contactType === "email" ? "email" : "sms";
+        if (channel === "email" && !(subject && subject.trim())) {
+          return res.status(400).json({ error: "An email requires a subject" });
+        }
+        messageName = `Message to ${debtor.fileNumber || debtor.accountNumber}`;
+        rawSubject = subject ?? "";
+        rawBody = body!;
       }
-      const expectedContactType = template.templateType === "email" ? "email" : "phone";
-      if (contactType !== expectedContactType) {
-        return res.status(400).json({ error: `This template requires a ${expectedContactType} contact` });
-      }
+
       const contacts = await storage.getDebtorContacts(debtor.id);
       const allowedValues = new Set([
         debtor.email,
@@ -5485,11 +5554,10 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No active Chain provider configured" });
       }
 
-      const channel = template.templateType === "email" ? "email" : "sms";
       const campaignLog = await storage.createCampaignLog({
         organizationId: orgId,
         integrationId: integration.id,
-        campaignName: `${template.name} - ${debtor.fileNumber || debtor.accountNumber}`,
+        campaignName: messageName,
         campaignType: channel,
         totalAccounts: 1,
         status: "pending",
@@ -5515,38 +5583,38 @@ export async function registerRoutes(
         campaignName: campaignLog.campaignName,
         campaignType: channel,
         template: {
-          id: template.id,
-          name: template.name,
-          type: template.templateType,
-          subject: template.subject ?? "",
-          body: template.body,
+          id: usedTemplateId || "custom",
+          name: usedTemplateId ? messageName : "Custom message",
+          type: channel,
+          subject: rawSubject,
+          body: rawBody,
         },
         accounts: [{
           fileNumber: item.fileNumber,
           contactValue: item.contactValue,
           contactType: item.contactType,
-          renderedSubject: isEmail ? await renderTemplateForDebtor(template.subject ?? "", debtor, true) : "",
-          renderedBody: await renderTemplateForDebtor(template.body, debtor, isEmail),
+          renderedSubject: isEmail ? await renderTemplateForDebtor(rawSubject, debtor, true) : "",
+          renderedBody: await renderTemplateForDebtor(rawBody, debtor, isEmail),
         }],
       };
 
-      const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${integration.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+      const chainResult = await sendChainMessage(integration, {
+        fileNumber: item.fileNumber,
+        contactValue: item.contactValue,
+        channel,
+        subject: payload.accounts[0].renderedSubject,
+        body: payload.accounts[0].renderedBody,
+        externalId: item.id,
       });
-      if (!externalResponse.ok) {
-        const errorText = await externalResponse.text();
+      if (!chainResult.success) {
+        const errorText = chainResult.error || "External send failed";
         await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
         await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
         return res.status(502).json({ error: "External message send failed", details: errorText });
       }
 
       await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
-      await storage.updateCampaignLogItem(item.id, { status: "sent" });
+      await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });

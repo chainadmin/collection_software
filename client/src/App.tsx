@@ -44,6 +44,7 @@ import TimeClock from "@/pages/admin/reporting/time-clock";
 import ServerAccess from "@/pages/admin/settings/server-access";
 import EmailSettings from "@/pages/admin/email/settings";
 import EmailTemplates from "@/pages/admin/email/templates";
+import EmailManage from "@/pages/admin/email/manage";
 import Campaigns from "@/pages/admin/campaigns";
 import Clients from "@/pages/admin/clients";
 import Integrations from "@/pages/admin/integrations";
@@ -95,6 +96,7 @@ function AppRouter() {
       <Route path="/app/admin/settings/server-access" component={ServerAccess} />
       <Route path="/app/admin/email/settings" component={EmailSettings} />
       <Route path="/app/admin/email/templates" component={EmailTemplates} />
+      <Route path="/app/admin/email/manage" component={EmailManage} />
       <Route path="/app/admin/campaigns" component={Campaigns} />
       <Route path="/app/admin/settings" component={Settings} />
       <Route path="/app/admin/clients" component={Clients} />
@@ -277,6 +279,21 @@ function AppContent() {
   const [location] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
 
+  // Remember which of our two separately installable PWAs owns this window.
+  // sessionStorage is isolated to the app window and, unlike localStorage,
+  // does not let launching one app overwrite the identity of the other.
+  useState(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia?.("(display-mode: standalone)").matches ||
+      sessionStorage.getItem("dmp_standalone_mode")
+    ) return null;
+
+    const mode = location.startsWith("/collector-") ? "collector" : "admin";
+    sessionStorage.setItem("dmp_standalone_mode", mode);
+    return mode;
+  });
+
   // Keep the active web app manifest aligned with the page being viewed so
   // installing from a collector page installs the collector PWA and
   // installing from anywhere else installs the admin PWA.
@@ -376,9 +393,10 @@ function App() {
       window.dispatchEvent(new Event("pwa-install-available"));
     };
     const installedHandler = () => {
+      const mode = (window as any).__pwaInstallPromptMode as "admin" | "collector" | null;
       (window as any).__pwaInstallPrompt = null;
       (window as any).__pwaInstallPromptMode = null;
-      window.dispatchEvent(new Event("pwa-installed"));
+      window.dispatchEvent(new CustomEvent("pwa-installed", { detail: { mode } }));
     };
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", installedHandler);

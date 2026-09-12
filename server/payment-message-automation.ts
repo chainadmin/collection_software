@@ -1,7 +1,7 @@
 import type { Debtor, Organization, Payment } from "@shared/schema";
 import type { IStorage } from "./storage";
 import { createHash } from "crypto";
-import { interpretCampaignSendResponse } from "./campaign-send-response";
+import { sendChainMessage } from "./chain-messaging";
 
 export interface PaymentMessageAutomationSettings {
   enabled?: boolean;
@@ -306,17 +306,17 @@ async function sendGeneratedPaymentMessage(
     }],
   };
 
-  const externalResponse = await fetch(`${integration.apiBaseUrl.replace(/\/$/, "")}/campaigns/send`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${integration.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const chainResult = await sendChainMessage(integration, {
+    fileNumber: item.fileNumber,
+    contactValue: item.contactValue,
+    channel,
+    subject: payload.accounts[0].renderedSubject,
+    body: payload.accounts[0].renderedBody,
+    externalId: item.id,
   });
 
-  if (!externalResponse.ok) {
-    const errorText = await externalResponse.text();
+  if (!chainResult.success) {
+    const errorText = chainResult.error || "External send failed";
     await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
     await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
     await storage.createNote({
@@ -330,27 +330,8 @@ async function sendGeneratedPaymentMessage(
     return;
   }
 
-  // A 2xx only means *something* answered with a 2xx - see
-  // interpretCampaignSendResponse for why that alone can't be trusted.
-  const rawBody = await externalResponse.text();
-  const outcome = interpretCampaignSendResponse(rawBody, 1);
-
-  if (outcome.status === "failed") {
-    await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: outcome.errorMessage });
-    await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: outcome.errorMessage });
-    await storage.createNote({
-      organizationId: org.id,
-      debtorId: debtor.id,
-      collectorId: payment.processedBy || "system",
-      content: `Automatic ${context.success ? "receipt" : "decline"} ${channel} was not delivered: ${outcome.errorMessage}`,
-      noteType: "payment_message",
-      createdDate: new Date().toISOString().split("T")[0],
-    });
-    return;
-  }
-
   await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
-  await storage.updateCampaignLogItem(item.id, { status: "sent" });
+  await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
   await storage.createNote({
     organizationId: org.id,
     debtorId: debtor.id,
