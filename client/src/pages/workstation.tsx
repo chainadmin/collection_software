@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Phone,
@@ -15,6 +15,9 @@ import {
   Building2,
   CreditCard,
   FileText,
+  Hash,
+  MapPin,
+  Fingerprint,
   ChevronRight,
   SkipForward,
   PhoneOff,
@@ -128,6 +131,37 @@ const STATUS_COLOR_MAP: Record<string, string> = {
 };
 
 type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
+
+function InfoTile({
+  icon: Icon,
+  label,
+  value,
+  mono,
+  className = "",
+  action,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  className?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-md border bg-background/60 px-3 py-2 min-w-0 ${className}`}
+    >
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className="h-3 w-3 shrink-0" />
+        <span className="leading-tight">{label}</span>
+      </div>
+      <div className="mt-0.5 flex items-start gap-1">
+        <span className={`text-sm break-words ${mono ? "font-mono" : ""}`}>{value}</span>
+        {action}
+      </div>
+    </div>
+  );
+}
 
 export default function Workstation() {
   const { toast } = useToast();
@@ -1359,9 +1393,9 @@ export default function Workstation() {
           <div className="flex flex-1 overflow-hidden">
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-4 border-b bg-card">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex-1 min-w-[280px]">
+                  <div className="flex items-center gap-3 mb-3">
                     <h1 className="text-xl font-semibold">
                       {selectedDebtor.firstName} {selectedDebtor.lastName}
                     </h1>
@@ -1385,64 +1419,79 @@ export default function Workstation() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="mt-1 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">File #: </span>
-                      <span className="font-mono">{selectedDebtor.fileNumber || "N/A"}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Acct #: </span>
-                      <span className="font-mono">{selectedDebtor.accountNumber}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">SSN: </span>
-                      <span className="font-mono">{selectedDebtor.ssn || `***-**-${selectedDebtor.ssnLast4 || "????"}`}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">DOB: </span>
-                      <span>{selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}</span>
-                    </div>
-                    <div className="col-span-2 flex items-center gap-1">
-                      <span className="text-muted-foreground">Address: </span>
-                      <span>
-                        {selectedDebtor.address 
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    <InfoTile icon={Hash} label="File #" value={selectedDebtor.fileNumber || "N/A"} mono />
+                    <InfoTile icon={Hash} label="Acct #" value={selectedDebtor.accountNumber} mono />
+                    <InfoTile
+                      icon={Fingerprint}
+                      label="SSN"
+                      value={selectedDebtor.ssn || `***-**-${selectedDebtor.ssnLast4 || "????"}`}
+                      mono
+                    />
+                    <InfoTile
+                      icon={Calendar}
+                      label="DOB"
+                      value={selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}
+                    />
+                    <InfoTile
+                      icon={MapPin}
+                      label="Address"
+                      className="col-span-2"
+                      value={
+                        selectedDebtor.address
                           ? `${selectedDebtor.address}, ${selectedDebtor.city || ""} ${selectedDebtor.state || ""} ${selectedDebtor.zipCode || ""}`.trim()
-                          : "N/A"}
-                      </span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-5 w-5"
-                        onClick={openEditAddressDialog}
-                        data-testid="button-edit-address"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Client: </span>
-                      <span>{selectedDebtor.clientName || "N/A"}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Original Creditor: </span>
-                      <span>{selectedDebtor.originalCreditor || "N/A"}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">Charge Off Date: </span>
-                      <span>{selectedDebtor.chargeOffDate ? formatDate(selectedDebtor.chargeOffDate) : "N/A"}</span>
-                    </div>
+                          : "N/A"
+                      }
+                      action={
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5 shrink-0"
+                          onClick={openEditAddressDialog}
+                          data-testid="button-edit-address"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      }
+                    />
+                    <InfoTile icon={Building2} label="Client" value={selectedDebtor.clientName || "N/A"} />
+                    <InfoTile
+                      icon={FileText}
+                      label="Creditor"
+                      className="col-span-2 sm:col-span-1"
+                      value={selectedDebtor.originalCreditor || "N/A"}
+                    />
+                    <InfoTile
+                      icon={CalendarClock}
+                      label="Charge Off"
+                      value={selectedDebtor.chargeOffDate ? formatDate(selectedDebtor.chargeOffDate) : "N/A"}
+                    />
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-2xl font-bold font-mono">{formatCurrency(selectedDebtor.currentBalance)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Original: {formatCurrency(selectedDebtor.originalBalance)}
+                <div className="shrink-0 rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-4 py-3 min-w-[210px]">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Current Balance
                   </p>
-                  {lastPayment && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Last Pay: {formatCurrency(lastPayment.amount)} on {formatDate(lastPayment.paymentDate)}
-                    </p>
-                  )}
+                  <p
+                    className="text-3xl font-bold font-mono tabular-nums leading-tight text-primary"
+                    data-testid="text-current-balance"
+                  >
+                    {formatCurrency(selectedDebtor.currentBalance)}
+                  </p>
+                  <div className="mt-2 pt-2 border-t border-primary/15 space-y-1">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Original</span>
+                      <span className="font-mono tabular-nums">{formatCurrency(selectedDebtor.originalBalance)}</span>
+                    </div>
+                    {lastPayment && (
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-muted-foreground">Last Payment</span>
+                        <span className="font-mono tabular-nums">
+                          {formatCurrency(lastPayment.amount)} · {formatDate(lastPayment.paymentDate)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
