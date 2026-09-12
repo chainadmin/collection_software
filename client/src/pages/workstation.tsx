@@ -163,6 +163,18 @@ function InfoTile({
   );
 }
 
+function calculateAge(dateOfBirth: string): number | null {
+  const dob = new Date(dateOfBirth);
+  if (isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age;
+}
+
 export default function Workstation() {
   const { toast } = useToast();
   const { user: authUser, isLoading: authLoading } = useAuth();
@@ -1431,7 +1443,14 @@ export default function Workstation() {
                     <InfoTile
                       icon={Calendar}
                       label="DOB"
-                      value={selectedDebtor.dateOfBirth ? formatDate(selectedDebtor.dateOfBirth) : "N/A"}
+                      value={
+                        selectedDebtor.dateOfBirth
+                          ? (() => {
+                              const age = calculateAge(selectedDebtor.dateOfBirth);
+                              return `${formatDate(selectedDebtor.dateOfBirth)}${age !== null ? ` (${age})` : ""}`;
+                            })()
+                          : "N/A"
+                      }
                     />
                     <InfoTile
                       icon={MapPin}
@@ -1468,17 +1487,17 @@ export default function Workstation() {
                     />
                   </div>
                 </div>
-                <div className="shrink-0 rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-4 py-3 min-w-[210px]">
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="shrink-0 rounded-lg border-2 border-primary/25 bg-gradient-to-br from-primary/[0.07] to-transparent px-3 py-2 min-w-[170px]">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Current Balance
                   </p>
                   <p
-                    className="text-3xl font-bold font-mono tabular-nums leading-tight text-primary"
+                    className="text-2xl font-bold font-mono tabular-nums leading-tight text-primary"
                     data-testid="text-current-balance"
                   >
                     {formatCurrency(selectedDebtor.currentBalance)}
                   </p>
-                  <div className="mt-2 pt-2 border-t border-primary/15 space-y-1">
+                  <div className="mt-1.5 pt-1.5 border-t border-primary/15 space-y-1">
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-muted-foreground">Original</span>
                       <span className="font-mono tabular-nums">{formatCurrency(selectedDebtor.originalBalance)}</span>
