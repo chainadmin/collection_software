@@ -1,6 +1,7 @@
 import type { Debtor, Organization, Payment } from "@shared/schema";
 import type { IStorage } from "./storage";
 import { createHash } from "crypto";
+import { interpretCampaignSendResponse } from "./campaign-send-response";
 
 export interface PaymentMessageAutomationSettings {
   enabled?: boolean;
@@ -329,26 +330,19 @@ async function sendGeneratedPaymentMessage(
     return;
   }
 
-  // A 2xx only means Chain accepted and processed the request - it does not
-  // mean the single contact here actually received it (a blocked number, an
-  // opted-out consumer, or a provider failure on Chain's side all still
-  // return 2xx). Read totalSent to tell the two apart.
-  let delivered = true;
-  try {
-    const externalResult = await externalResponse.json() as { totalSent?: number; totalFailed?: number };
-    if (typeof externalResult.totalSent === "number") delivered = externalResult.totalSent > 0;
-  } catch {
-    // Response body didn't include delivery counts - fall back to the 2xx.
-  }
+  // A 2xx only means *something* answered with a 2xx - see
+  // interpretCampaignSendResponse for why that alone can't be trusted.
+  const rawBody = await externalResponse.text();
+  const outcome = interpretCampaignSendResponse(rawBody, 1);
 
-  if (!delivered) {
-    await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: "Chain accepted the request but did not deliver it" });
-    await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: "Chain accepted the request but did not deliver it" });
+  if (outcome.status === "failed") {
+    await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: outcome.errorMessage });
+    await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: outcome.errorMessage });
     await storage.createNote({
       organizationId: org.id,
       debtorId: debtor.id,
       collectorId: payment.processedBy || "system",
-      content: `Automatic ${context.success ? "receipt" : "decline"} ${channel} was not delivered by Chain (blocked, opted out, or failed).`,
+      content: `Automatic ${context.success ? "receipt" : "decline"} ${channel} was not delivered: ${outcome.errorMessage}`,
       noteType: "payment_message",
       createdDate: new Date().toISOString().split("T")[0],
     });

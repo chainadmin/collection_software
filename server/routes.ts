@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { registerChainConnectionTestRoute, registerExternalApiRoutes } from "./external-api";
 import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTimeCardInput, rejectRawCardData, type OneTimeCardInput } from "./payment-input";
 import { redactPayment, redactPayments } from "./payment-presenter";
+import { interpretCampaignSendResponse } from "./campaign-send-response";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
 import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
@@ -5409,30 +5410,20 @@ export async function registerRoutes(
         return res.status(502).json({ error: "External campaign send failed", details: errorText });
       }
 
-      // A 2xx response only means Chain accepted and processed the request -
-      // it does not mean anything was actually delivered. Chain reports how
-      // many of the contacts it actually sent/failed/skipped; read that
-      // instead of treating any 2xx as a full success, or a template
-      // mismatch, opt-outs, or a blocked number all look identical to a
-      // fully successful send.
-      let totalSent = items.length;
-      let totalFailed = 0;
-      try {
-        const externalResult = await externalResponse.json() as { totalSent?: number; totalFailed?: number; totalSkipped?: number };
-        if (typeof externalResult.totalSent === "number") totalSent = externalResult.totalSent;
-        if (typeof externalResult.totalFailed === "number") totalFailed = externalResult.totalFailed;
-      } catch {
-        // Chain's response body did not include delivery counts - fall back
-        // to treating the 2xx as a full success rather than failing the
-        // whole request over an unparseable (but still successful) response.
-      }
+      // A 2xx response only means *something* answered with a 2xx - see
+      // interpretCampaignSendResponse for why that alone can't be trusted.
+      const rawBody = await externalResponse.text();
+      const outcome = interpretCampaignSendResponse(rawBody, items.length);
+      await storage.updateCampaignLog(campaignLog.id, { status: outcome.status, errorMessage: outcome.errorMessage });
+      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: outcome.status === "failed" ? "failed" : "sent" })));
 
-      const status = totalSent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
-      const errorMessage = status === "sent" ? null : `Chain reported ${totalSent} sent, ${totalFailed} failed of ${items.length} contacts`;
-      await storage.updateCampaignLog(campaignLog.id, { status, errorMessage });
-      await Promise.all(items.map((item) => storage.updateCampaignLogItem(item.id, { status: status === "failed" ? "failed" : "sent" })));
-
-      res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
+      res.json({
+        success: outcome.status !== "failed",
+        campaignLogId: campaignLog.id,
+        totalSent: outcome.totalSent,
+        totalFailed: outcome.totalFailed,
+        ...(outcome.status === "failed" && outcome.errorMessage ? { error: outcome.errorMessage } : {}),
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
     }
