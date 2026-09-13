@@ -197,8 +197,12 @@ export async function sendOrgNotificationEmail(
     return { success: false, error: "Email notifications are disabled for this organization" };
   }
 
+  // The recipient field is a multi-line textarea, so accept addresses
+  // separated by commas, semicolons, and/or newlines - not just commas.
+  // A newline-separated list left un-split here becomes a single "address"
+  // with an embedded newline, which mail providers reject outright.
   const recipients = (orgSettings.notificationEmail || "")
-    .split(",")
+    .split(/[,;\n]+/)
     .map((addr) => addr.trim())
     .filter(Boolean);
 

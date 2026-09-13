@@ -272,9 +272,19 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
   <li>Needs review: <strong>${orgResult.needsReview}</strong></li>
 </ul>`;
         const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}\nNeeds review: ${orgResult.needsReview}`;
-        sendOrgNotificationEmail(orgId, subject, html, text).catch((err) => {
-          console.error(`[Auto Runner] Failed to send report email for org ${orgName}:`, err);
-        });
+        // sendOrgNotificationEmail resolves (never rejects) with
+        // {success:false, error} for routine failures like a disabled
+        // toggle or missing recipients, so a bare .catch() here would never
+        // fire and those failures would be invisible. Inspect the result.
+        sendOrgNotificationEmail(orgId, subject, html, text)
+          .then((emailResult) => {
+            if (!emailResult.success) {
+              console.error(`[Auto Runner] Report email not sent for org "${orgName}": ${emailResult.error}`);
+            }
+          })
+          .catch((err) => {
+            console.error(`[Auto Runner] Failed to send report email for org ${orgName}:`, err);
+          });
       }
     }
 
