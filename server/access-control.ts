@@ -44,3 +44,31 @@ export function canRunPaymentsRecord(
     (live.role === "admin" || live.role === "manager" || live.canViewPaymentRunner === true)
   );
 }
+
+/**
+ * Allows editing a pending payment's amount/date/method. This is a
+ * dedicated grant, separate from Payment Runner access
+ * (canRunPaymentsRecord) — an org can hand a collector the ability to
+ * correct payment details without also giving them Payment Runner
+ * access, and vice versa.
+ */
+export function canEditPaymentsRecord(
+  sessionCollector: { id?: string } | undefined,
+  live: {
+    id?: string;
+    status?: string;
+    organizationId?: string;
+    role?: string;
+    canEditPayments?: boolean | null;
+  } | undefined,
+  orgId: string,
+): boolean {
+  return !!(
+    sessionCollector?.id &&
+    live &&
+    live.id === sessionCollector.id &&
+    live.status === "active" &&
+    live.organizationId === orgId &&
+    (live.role === "admin" || live.role === "manager" || live.canEditPayments === true)
+  );
+}

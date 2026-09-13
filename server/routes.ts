@@ -6,7 +6,7 @@ import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTi
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { canRunPaymentsRecord, canEditPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
 import { computeSubscriptionAccess } from "./subscription-access";
 import bcrypt from "bcrypt";
 import { 
@@ -187,6 +187,13 @@ async function canRunPayments(req: any, orgId: string): Promise<boolean> {
   if (!sessionCollector?.id) return false;
   const live = await storage.getCollector(sessionCollector.id);
   return canRunPaymentsRecord(sessionCollector, live, orgId);
+}
+
+async function canEditPayments(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return canEditPaymentsRecord(sessionCollector, live, orgId);
 }
 
 
@@ -3546,8 +3553,8 @@ export async function registerRoutes(
   app.patch("/api/payments/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!(await canRunPayments(req, orgId))) {
-        return res.status(403).json({ error: "Payment Runner permission required" });
+      if (!(await canEditPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment edit permission required" });
       }
       const payment = await storage.getPayment(req.params.id);
       if (!payment || payment.organizationId !== orgId) {

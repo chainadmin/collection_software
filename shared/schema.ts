@@ -75,6 +75,7 @@ export const collectors = pgTable("collectors", {
   canViewDashboard: boolean("can_view_dashboard").default(false),
   canViewEmail: boolean("can_view_email").default(false),
   canViewPaymentRunner: boolean("can_view_payment_runner").default(false),
+  canEditPayments: boolean("can_edit_payments").default(false),
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });

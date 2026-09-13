@@ -304,6 +304,10 @@ export default function Workstation() {
   const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : null;
   const canManagePayments = currentCollector?.role === "admin" || currentCollector?.role === "manager";
   const canRunScheduledPayments = canManagePayments || currentCollector?.canViewPaymentRunner === true;
+  // Editing a pending payment's amount/date/method is its own dedicated
+  // grant, separate from Payment Runner access, so an org can hand out
+  // one without the other.
+  const canEditPayments = canManagePayments || currentCollector?.canEditPayments === true;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
 
@@ -2036,7 +2040,7 @@ export default function Workstation() {
                                     </p>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    {canManagePayments && (
+                                    {canEditPayments && (
                                       <Button
                                         variant="ghost"
                                         size="icon"

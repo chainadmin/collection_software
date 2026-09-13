@@ -89,6 +89,7 @@ const addCollectorSchema = z.object({
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
+  canEditPayments: z.boolean().default(false),
 });
 
 const editCollectorSchema = z.object({
@@ -103,6 +104,7 @@ const editCollectorSchema = z.object({
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
+  canEditPayments: z.boolean().default(false),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -316,6 +318,21 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
               </FormItem>
             )}
           />
+          <FormField
+            control={control}
+            name="canEditPayments"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-edit-payments" />
+                </FormControl>
+                <div className="flex items-center gap-2 pb-0">
+                  <Edit className="h-4 w-4 text-muted-foreground" />
+                  <FormLabel className="font-normal">Edit Pending Payments</FormLabel>
+                </div>
+              </FormItem>
+            )}
+          />
         </div>
       </div>
     </>
@@ -344,6 +361,7 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
       canViewDashboard: false,
       canViewEmail: false,
       canViewPaymentRunner: false,
+      canEditPayments: false,
     },
   });
 
@@ -424,6 +442,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
       canViewDashboard: false,
       canViewEmail: false,
       canViewPaymentRunner: false,
+      canEditPayments: false,
     },
   });
 
@@ -441,6 +460,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         canViewDashboard: collector.canViewDashboard ?? false,
         canViewEmail: collector.canViewEmail ?? false,
         canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
+        canEditPayments: collector.canEditPayments ?? false,
       });
     }
   }, [collector?.id]);
@@ -459,6 +479,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         canViewDashboard: data.canViewDashboard,
         canViewEmail: data.canViewEmail,
         canViewPaymentRunner: data.canViewPaymentRunner,
+        canEditPayments: data.canEditPayments,
         avatarInitials: getInitials(data.name),
       };
       if (data.password && data.password.length >= 6) {

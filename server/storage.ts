@@ -560,6 +560,7 @@ export class MemStorage implements IStorage {
       canViewDashboard: true,
       canViewEmail: true,
       canViewPaymentRunner: true,
+      canEditPayments: true,
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
@@ -576,6 +577,7 @@ export class MemStorage implements IStorage {
       canViewDashboard: false,
       canViewEmail: true,
       canViewPaymentRunner: false,
+      canEditPayments: false,
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
@@ -592,6 +594,7 @@ export class MemStorage implements IStorage {
       canViewDashboard: false,
       canViewEmail: true,
       canViewPaymentRunner: false,
+      canEditPayments: false,
     });
 
     const portfolio1Id = randomUUID();
@@ -1288,6 +1291,7 @@ export class MemStorage implements IStorage {
       canViewDashboard: collector.canViewDashboard ?? false,
       canViewEmail: collector.canViewEmail ?? false,
       canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
+      canEditPayments: collector.canEditPayments ?? false,
     };
     this.collectors.set(id, newCollector);
     return newCollector;

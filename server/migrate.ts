@@ -78,7 +78,8 @@ export async function runMigrations() {
         "hourly_wage" integer DEFAULT 0,
         "can_view_dashboard" boolean DEFAULT false,
         "can_view_email" boolean DEFAULT false,
-        "can_view_payment_runner" boolean DEFAULT false
+        "can_view_payment_runner" boolean DEFAULT false,
+        "can_edit_payments" boolean DEFAULT false
       )
     `);
 
@@ -614,6 +615,12 @@ export async function runMigrations() {
       ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS phone2 text;
       ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS phone3 text;
       ALTER TABLE debtor_references ADD COLUMN IF NOT EXISTS import_slot integer;
+    `);
+
+    // Per-collector permission to edit a pending payment's amount/date/method
+    // from the workstation, independent of Payment Runner access.
+    await db.execute(sql`
+      ALTER TABLE collectors ADD COLUMN IF NOT EXISTS can_edit_payments boolean DEFAULT false;
     `);
 
     // Legacy PAN is left in place for a non-destructive migration but is no
