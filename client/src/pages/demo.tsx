@@ -5,6 +5,7 @@ import {
   Users,
   CreditCard,
   TrendingUp,
+  TrendingDown,
   Undo2,
   ArrowRight,
   FolderKanban,
@@ -32,6 +33,7 @@ import {
   XCircle,
   Image as ImageIcon,
   Send,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +50,7 @@ import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact, formatDate, calculateLiquidationRate } from "@/lib/utils";
 
 const DEMO_ORG_NAME = "Meridian Recovery Group";
 
@@ -64,10 +66,31 @@ const DEMO_STATS = {
 };
 
 const DEMO_PORTFOLIOS = [
-  { id: "p1", name: "Meridian Bankcard Pool 24-A", totalAccounts: 1204, totalFaceValue: 184320000, status: "open" },
-  { id: "p2", name: "Summit Medical Recovery Q1", totalAccounts: 842, totalFaceValue: 96150000, status: "open" },
-  { id: "p3", name: "Harborline Auto Deficiency", totalAccounts: 517, totalFaceValue: 61870000, status: "in_payment" },
-  { id: "p4", name: "Crestpoint Retail Charge-Off", totalAccounts: 919, totalFaceValue: 73440000, status: "closed" },
+  {
+    id: "p1", name: "Meridian Bankcard Pool 24-A", creditorName: "Northgate Bank",
+    totalAccounts: 1204, totalFaceValue: 184320000, purchasePrice: 9216000, collected: 22130000, status: "open",
+  },
+  {
+    id: "p2", name: "Summit Medical Recovery Q1", creditorName: "Summit Medical Group",
+    totalAccounts: 842, totalFaceValue: 96150000, purchasePrice: 3846000, collected: 11570000, status: "open",
+  },
+  {
+    id: "p3", name: "Harborline Auto Deficiency", creditorName: "Harborline Auto Finance",
+    totalAccounts: 517, totalFaceValue: 61870000, purchasePrice: 3712200, collected: 5490000, status: "in_payment",
+  },
+  {
+    id: "p4", name: "Crestpoint Retail Charge-Off", creditorName: "Crestpoint Card Services",
+    totalAccounts: 919, totalFaceValue: 73440000, purchasePrice: 2570400, collected: 19830000, status: "closed",
+  },
+];
+
+const DEMO_MONTHLY_COLLECTIONS = [
+  { label: "Apr '26", collected: 2800000 },
+  { label: "May '26", collected: 3100000 },
+  { label: "Jun '26", collected: 3500000 },
+  { label: "Jul '26", collected: 4100000 },
+  { label: "Aug '26", collected: 4700000 },
+  { label: "Sep '26", collected: 5200000 },
 ];
 
 const DEMO_PAYMENTS = [
@@ -562,6 +585,260 @@ function DemoCollectorsTab() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function DemoLiquidationTab() {
+  const [calcFaceValue, setCalcFaceValue] = useState("");
+  const [calcPurchasePrice, setCalcPurchasePrice] = useState("");
+  const [calcCollected, setCalcCollected] = useState("");
+
+  const portfolioPerformance = useMemo(
+    () =>
+      DEMO_PORTFOLIOS.map((p) => {
+        const liquidationRate = calculateLiquidationRate(p.collected, p.totalFaceValue);
+        const profit = p.collected - p.purchasePrice;
+        const roi = p.purchasePrice > 0 ? (profit / p.purchasePrice) * 100 : 0;
+        return { ...p, liquidationRate, profit, roi };
+      }),
+    [],
+  );
+
+  const totalFaceValue = portfolioPerformance.reduce((sum, p) => sum + p.totalFaceValue, 0);
+  const totalPurchased = portfolioPerformance.reduce((sum, p) => sum + p.purchasePrice, 0);
+  const totalCollected = portfolioPerformance.reduce((sum, p) => sum + p.collected, 0);
+  const totalAccounts = portfolioPerformance.reduce((sum, p) => sum + p.totalAccounts, 0);
+  const overallLiquidationRate = calculateLiquidationRate(totalCollected, totalFaceValue);
+  const overallRoi = totalPurchased > 0 ? ((totalCollected - totalPurchased) / totalPurchased) * 100 : 0;
+
+  const highestMonthlyCollection = Math.max(...DEMO_MONTHLY_COLLECTIONS.map((m) => m.collected), 1);
+
+  const calculatorResult = useMemo(() => {
+    const faceValue = (parseFloat(calcFaceValue) || 0) * 100;
+    const purchasePrice = (parseFloat(calcPurchasePrice) || 0) * 100;
+    const collected = (parseFloat(calcCollected) || 0) * 100;
+
+    const liquidationRate = calculateLiquidationRate(collected, faceValue);
+    const profit = collected - purchasePrice;
+    const roiPercent = purchasePrice > 0 ? (profit / purchasePrice) * 100 : 0;
+    const costPerDollar = faceValue > 0 ? (purchasePrice / faceValue) * 100 : 0;
+
+    return { liquidationRate, profit, roiPercent, costPerDollar, breakEvenRate: costPerDollar };
+  }, [calcFaceValue, calcPurchasePrice, calcCollected]);
+
+  const hasCalculatorInput = calcFaceValue || calcPurchasePrice || calcCollected;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Total Face Value" value={formatCurrencyCompact(totalFaceValue)} icon={DollarSign} />
+        <StatCard title="Total Collected" value={formatCurrencyCompact(totalCollected)} icon={TrendingUp} trend={{ value: 10.6, isPositive: true }} />
+        <StatCard title="Liquidation Rate" value={`${overallLiquidationRate.toFixed(2)}%`} icon={BarChart3} />
+        <StatCard
+          title="Overall ROI"
+          value={`${overallRoi.toFixed(1)}%`}
+          icon={overallRoi >= 0 ? TrendingUp : TrendingDown}
+          trend={{ value: Math.abs(Math.round(overallRoi * 10) / 10), isPositive: overallRoi >= 0 }}
+        />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium">Portfolio Performance</CardTitle>
+            <p className="text-sm text-muted-foreground">Liquidation rates and ROI by portfolio</p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {portfolioPerformance.map((portfolio) => (
+                <div key={portfolio.id} className="p-4 rounded-md border" data-testid={`demo-liquidation-portfolio-${portfolio.id}`}>
+                  <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <div>
+                      <p className="font-medium">{portfolio.name}</p>
+                      <p className="text-xs text-muted-foreground">{portfolio.creditorName}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-semibold font-mono">{portfolio.liquidationRate.toFixed(2)}%</p>
+                      <p className="text-xs text-muted-foreground">Liquidation Rate</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Face Value</p>
+                      <p className="font-mono">{formatCurrencyCompact(portfolio.totalFaceValue)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Purchased For</p>
+                      <p className="font-mono">{formatCurrencyCompact(portfolio.purchasePrice)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Collected</p>
+                      <p className="font-mono">{formatCurrencyCompact(portfolio.collected)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">ROI</p>
+                      <p className={`font-mono ${portfolio.roi >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                        {portfolio.roi >= 0 ? "+" : ""}{portfolio.roi.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(portfolio.liquidationRate, 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <Calculator className="h-5 w-5" /> Liquidation Calculator
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">Try your own numbers</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="demo-calc-face-value">Total Face Value ($)</Label>
+              <Input
+                id="demo-calc-face-value"
+                type="number"
+                step="0.01"
+                placeholder="100,000"
+                value={calcFaceValue}
+                onChange={(e) => setCalcFaceValue(e.target.value)}
+                data-testid="input-demo-calc-face-value"
+              />
+            </div>
+            <div>
+              <Label htmlFor="demo-calc-purchase-price">Purchase Price ($)</Label>
+              <Input
+                id="demo-calc-purchase-price"
+                type="number"
+                step="0.01"
+                placeholder="5,000"
+                value={calcPurchasePrice}
+                onChange={(e) => setCalcPurchasePrice(e.target.value)}
+                data-testid="input-demo-calc-purchase-price"
+              />
+            </div>
+            <div>
+              <Label htmlFor="demo-calc-collected">Amount Collected ($)</Label>
+              <Input
+                id="demo-calc-collected"
+                type="number"
+                step="0.01"
+                placeholder="15,000"
+                value={calcCollected}
+                onChange={(e) => setCalcCollected(e.target.value)}
+                data-testid="input-demo-calc-collected"
+              />
+            </div>
+
+            {hasCalculatorInput && (
+              <div className="space-y-3 pt-4 border-t" data-testid="text-demo-calc-result">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Liquidation Rate</span>
+                  <span className="font-mono font-medium">{calculatorResult.liquidationRate.toFixed(2)}%</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Cost per Dollar</span>
+                  <span className="font-mono">{calculatorResult.costPerDollar.toFixed(2)}%</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Break-Even Rate</span>
+                  <span className="font-mono">{calculatorResult.breakEvenRate.toFixed(2)}%</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Profit/Loss</span>
+                  <span className={`font-mono font-medium ${calculatorResult.profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {calculatorResult.profit >= 0 ? "+" : ""}{formatCurrency(calculatorResult.profit)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">ROI</span>
+                  <span className={`font-mono font-medium ${calculatorResult.roiPercent >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {calculatorResult.roiPercent >= 0 ? "+" : ""}{calculatorResult.roiPercent.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-medium">Monthly Collection Trend</CardTitle>
+            <p className="text-sm text-muted-foreground">Posted payments over the last 6 months</p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {DEMO_MONTHLY_COLLECTIONS.map((month) => (
+                <div key={month.label} className="flex items-center gap-4">
+                  <div className="w-16 text-xs text-muted-foreground">{month.label}</div>
+                  <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary/80 rounded-full transition-all"
+                      style={{ width: `${Math.max((month.collected / highestMonthlyCollection) * 100, 4)}%` }}
+                    />
+                  </div>
+                  <div className="w-24 text-right text-sm font-mono">{formatCurrencyCompact(month.collected)}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-medium">Key Metrics Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <DollarSign className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Average Collection</p>
+                    <p className="text-xs text-muted-foreground">Per account</p>
+                  </div>
+                </div>
+                <p className="text-lg font-semibold font-mono">{formatCurrency(totalCollected / Math.max(totalAccounts, 1))}</p>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Calendar className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Days to Break-Even</p>
+                    <p className="text-xs text-muted-foreground">Estimated</p>
+                  </div>
+                </div>
+                <p className="text-lg font-semibold font-mono">{Math.round(totalPurchased / (totalCollected / 365))}</p>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Collection Velocity</p>
+                    <p className="text-xs text-muted-foreground">Monthly average</p>
+                  </div>
+                </div>
+                <p className="text-lg font-semibold font-mono">{formatCurrencyCompact(totalCollected / 12)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1075,6 +1352,9 @@ function DemoApp() {
             <TabsTrigger value="collectors" data-testid="tab-demo-collectors">
               <Phone className="h-4 w-4 mr-2" /> Collectors
             </TabsTrigger>
+            <TabsTrigger value="liquidation" data-testid="tab-demo-liquidation">
+              <BarChart3 className="h-4 w-4 mr-2" /> Liquidation
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="mt-6"><DemoDashboardTab /></TabsContent>
           <TabsContent value="debtors" className="mt-6"><DemoDebtorsTab /></TabsContent>
@@ -1082,6 +1362,7 @@ function DemoApp() {
           <TabsContent value="automation" className="mt-6"><DemoAutomationTab /></TabsContent>
           <TabsContent value="payments" className="mt-6"><DemoPaymentsTab /></TabsContent>
           <TabsContent value="collectors" className="mt-6"><DemoCollectorsTab /></TabsContent>
+          <TabsContent value="liquidation" className="mt-6"><DemoLiquidationTab /></TabsContent>
         </Tabs>
       </div>
     </div>
