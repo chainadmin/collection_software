@@ -7,6 +7,7 @@ import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
 import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { computeSubscriptionAccess } from "./subscription-access";
 import bcrypt from "bcrypt";
 import { 
   processDebtorCardPayment,
@@ -321,42 +322,7 @@ async function checkSubscriptionActive(orgId: string): Promise<{ active: boolean
   if (!org) {
     return { active: false, reason: "Organization not found" };
   }
-  
-  // If organization is not active, block access
-  if (!org.isActive) {
-    return { active: false, reason: "Organization is inactive" };
-  }
-  
-  // If subscription is active, allow access
-  if (org.subscriptionStatus === "active") {
-    return { active: true };
-  }
-  
-  // If in trial, check if trial has expired
-  if (org.subscriptionStatus === "trial") {
-    const today = new Date();
-    const trialEnd = org.trialEndDate ? new Date(org.trialEndDate) : null;
-    const billingStart = org.billingStartDate ? new Date(org.billingStartDate) : null;
-
-    // Some organizations have a free month configured after creation.
-    // In that case, keep trial access until the later of trial end or billing start date.
-    const accessEndDate = trialEnd && billingStart
-      ? (trialEnd > billingStart ? trialEnd : billingStart)
-      : (billingStart || trialEnd);
-
-    if (!accessEndDate) {
-      return { active: true };
-    }
-
-    if (today <= accessEndDate) {
-      return { active: true };
-    } else {
-      return { active: false, reason: "Trial has expired. Please subscribe to continue." };
-    }
-  }
-  
-  // Default: allow access for legacy orgs without subscription status
-  return { active: true };
+  return computeSubscriptionAccess(org);
 }
 
 export async function registerRoutes(
