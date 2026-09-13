@@ -62,8 +62,24 @@ export async function sendChainMessage(
   const text = await response.text();
   let result: any;
   try { result = text ? JSON.parse(text) : undefined; } catch { result = undefined; }
-  if (!response.ok || result?.success === false) {
-    return { success: false, error: responseError(result) || text || `Chain returned HTTP ${response.status}` };
+
+  // Chain's real endpoint always returns JSON with an explicit `success`
+  // boolean. Anything else - an HTML page (Chain's own web app answers any
+  // unmatched path, including POST, with a 200 OK page - so a misconfigured
+  // apiBaseUrl missing /api/v2 still looks like a "successful" 2xx), an
+  // empty body, or JSON without that field - means the request never
+  // reached Chain's message handler at all, and must not be treated as a
+  // default success. An earlier version of this check only looked for an
+  // explicit `success: false` and defaulted to success otherwise, which
+  // silently hid exactly this misconfiguration.
+  if (!response.ok || typeof result?.success !== "boolean") {
+    const misroutedHint = response.ok && result === undefined
+      ? "Chain's response was not valid JSON - check that the integration's API URL points at Chain's API, not its web app."
+      : undefined;
+    return { success: false, error: responseError(result) || misroutedHint || text || `Chain returned HTTP ${response.status}` };
+  }
+  if (!result.success) {
+    return { success: false, error: responseError(result) || "Chain reported the message was not delivered" };
   }
   return {
     success: true,
