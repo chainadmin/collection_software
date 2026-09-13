@@ -215,6 +215,54 @@ function redactCollectorWage<T extends { id: string; hourlyWage: number | null }
   return { ...collector, hourlyWage: null };
 }
 
+const COMPANY_ACCOUNTS_USERNAME = "company-accounts";
+
+// Finds (or creates, on first use) the org's built-in placeholder collector
+// that accounts with payment history move to when their real collector is
+// removed - so that history stays trackable instead of becoming orphaned.
+// Never a real person: login is blocked for isSystemAccount collectors.
+async function getOrCreateCompanyAccountsCollector(orgId: string) {
+  const existing = await storage.getCollectorByOrgAndUsername(orgId, COMPANY_ACCOUNTS_USERNAME);
+  if (existing) return existing;
+  return storage.createCollector({
+    organizationId: orgId,
+    name: "Company Accounts",
+    email: `${COMPANY_ACCOUNTS_USERNAME}+${orgId}@internal.local`,
+    username: COMPANY_ACCOUNTS_USERNAME,
+    password: await hashPassword(crypto.randomUUID()),
+    role: "collector",
+    status: "active",
+    avatarInitials: "CA",
+    isSystemAccount: true,
+  });
+}
+
+// Splits a collector's assigned accounts for removal: accounts with a
+// posted or pending payment keep their history trackable by moving to
+// Company Accounts; everything else returns to the unassigned House Desk.
+// Also identifies the collector's own processed payments, so their
+// collections/wage-cost/ROI history can move to Company Accounts too
+// instead of silently vanishing from reporting once their row is deleted
+// (reporting is keyed off which collector processed each payment, which is
+// independent of which collector an account is currently assigned to).
+async function classifyDebtorsForRemoval(orgId: string, collectorId: string) {
+  const [allDebtors, allPayments] = await Promise.all([storage.getDebtors(), storage.getPayments()]);
+  const assigned = allDebtors.filter(
+    (d) => d.organizationId === orgId && d.assignedCollectorId === collectorId,
+  );
+  const debtorIdsWithActivePayment = new Set(
+    allPayments
+      .filter((p) => p.organizationId === orgId && (p.status === "posted" || p.status === "pending"))
+      .map((p) => p.debtorId),
+  );
+  const toCompanyAccounts = assigned.filter((d) => debtorIdsWithActivePayment.has(d.id));
+  const toHouseDesk = assigned.filter((d) => !debtorIdsWithActivePayment.has(d.id));
+  const processedPayments = allPayments.filter(
+    (p) => p.organizationId === orgId && p.processedBy === collectorId,
+  );
+  return { toCompanyAccounts, toHouseDesk, processedPayments };
+}
+
 
 // Validate that a resource belongs to the authenticated user's organization
 // Returns true if valid, false if the resource doesn't belong to the org
@@ -711,7 +759,7 @@ export async function registerRoutes(
 
       // Find collector by email
       const collector = await storage.getCollectorByEmail(email);
-      if (!collector) {
+      if (!collector || collector.isSystemAccount) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
@@ -838,7 +886,7 @@ export async function registerRoutes(
 
       const trimmedUsername = String(username).trim();
       const collector = await storage.getCollectorByOrgAndUsername(organization.id, trimmedUsername);
-      if (!collector) {
+      if (!collector || collector.isSystemAccount) {
         return res.status(401).json({
           code: "invalid_credentials",
           error: "That username and password don't match. Please try again.",
@@ -2115,6 +2163,29 @@ export async function registerRoutes(
     }
   });
 
+  // Preview of what removing a collector will do to their assigned accounts,
+  // shown in the confirmation dialog before an admin commits to it.
+  app.get("/api/collectors/:id/removal-impact", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCollector(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { toCompanyAccounts, toHouseDesk } = await classifyDebtorsForRemoval(orgId, existing.id);
+      res.json({
+        totalAssigned: toCompanyAccounts.length + toHouseDesk.length,
+        houseDeskCount: toHouseDesk.length,
+        companyAccountsCount: toCompanyAccounts.length,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to compute removal impact" });
+    }
+  });
+
   app.delete("/api/collectors/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2125,6 +2196,30 @@ export async function registerRoutes(
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (existing.isSystemAccount) {
+        return res.status(400).json({ error: "The Company Accounts collector can't be removed" });
+      }
+
+      // Reassign this collector's accounts before removing them: accounts
+      // with payment history move to Company Accounts so that history stays
+      // trackable; everything else returns to the unassigned House Desk.
+      const { toCompanyAccounts, toHouseDesk, processedPayments } = await classifyDebtorsForRemoval(orgId, existing.id);
+      if (toCompanyAccounts.length > 0 || processedPayments.length > 0) {
+        const companyAccounts = await getOrCreateCompanyAccountsCollector(orgId);
+        await Promise.all(
+          toCompanyAccounts.map((d) => storage.updateDebtor(d.id, { assignedCollectorId: companyAccounts.id })),
+        );
+        // Move the collector's own collections history too, so it stays
+        // attributed to Company Accounts in reporting instead of vanishing
+        // once this collector's row no longer exists to sum payments under.
+        await Promise.all(
+          processedPayments.map((p) => storage.updatePayment(p.id, { processedBy: companyAccounts.id })),
+        );
+      }
+      if (toHouseDesk.length > 0) {
+        await Promise.all(toHouseDesk.map((d) => storage.updateDebtor(d.id, { assignedCollectorId: null })));
+      }
+
       const deleted = await storage.deleteCollector(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Collector not found" });

@@ -574,6 +574,73 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
   );
 }
 
+interface RemovalImpact {
+  totalAssigned: number;
+  houseDeskCount: number;
+  companyAccountsCount: number;
+}
+
+interface RemoveCollectorDialogProps {
+  collector: Collector | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  isRemoving: boolean;
+}
+
+function RemoveCollectorDialog({ collector, onOpenChange, onConfirm, isRemoving }: RemoveCollectorDialogProps) {
+  const { data: impact, isLoading } = useQuery<RemovalImpact>({
+    queryKey: ["/api/collectors", collector?.id, "removal-impact"],
+    enabled: !!collector,
+  });
+
+  return (
+    <AlertDialog open={!!collector} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {collector?.name}?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>This permanently removes the collector. This action cannot be undone.</p>
+              {isLoading ? (
+                <p>Checking assigned accounts…</p>
+              ) : impact && impact.totalAssigned > 0 ? (
+                <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
+                  <p className="font-medium text-foreground">
+                    {impact.totalAssigned} assigned account{impact.totalAssigned === 1 ? "" : "s"} will be affected:
+                  </p>
+                  {impact.houseDeskCount > 0 && (
+                    <p>
+                      • <strong className="text-foreground">{impact.houseDeskCount}</strong> with no payment history → House Desk (unassigned)
+                    </p>
+                  )}
+                  {impact.companyAccountsCount > 0 && (
+                    <p>
+                      • <strong className="text-foreground">{impact.companyAccountsCount}</strong> with payment history → Company Accounts (so history stays tracked)
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p>This collector has no assigned accounts.</p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-delete-collector">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirm}
+            disabled={isRemoving}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            data-testid="button-confirm-delete-collector"
+          >
+            Remove Collector
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function Collectors() {
   const { toast } = useToast();
   const { user: authUser } = useAuth();
@@ -591,17 +658,23 @@ export default function Collectors() {
   const currentCollector = collectors?.find((c) => c.id === authUser?.id);
   const showFinancials = currentCollector?.canViewFinancials === true;
 
+  // "Company Accounts" is a built-in placeholder, not a real collector -
+  // keep it out of this management page entirely (nothing here applies to
+  // it), even though it still appears normally in reporting/liquidation.
+  const manageableCollectors = collectors?.filter((c) => !c.isSystemAccount);
+
   const deleteCollectorMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/collectors/${id}`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
       toast({ title: "Collector removed", description: "Collector has been removed." });
     },
   });
 
-  const filteredCollectors = collectors?.filter((collector) => {
+  const filteredCollectors = manageableCollectors?.filter((collector) => {
     return (
       searchQuery === "" ||
       collector.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -610,9 +683,9 @@ export default function Collectors() {
     );
   });
 
-  const activeCollectors = collectors?.filter((c) => c.status === "active").length || 0;
-  const totalSeats = collectors?.length || 0;
-  const totalGoal = collectors?.reduce((sum, c) => sum + (c.goal || 0), 0) || 0;
+  const activeCollectors = manageableCollectors?.filter((c) => c.status === "active").length || 0;
+  const totalSeats = manageableCollectors?.length || 0;
+  const totalGoal = manageableCollectors?.reduce((sum, c) => sum + (c.goal || 0), 0) || 0;
 
   const collectorInstallUrl = typeof window !== "undefined"
     ? `${window.location.origin}/collector-install`
@@ -866,29 +939,15 @@ export default function Collectors() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!collectorToDelete} onOpenChange={(open) => { if (!open) setCollectorToDelete(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove this collector?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove <strong>{collectorToDelete?.name}</strong>. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete-collector">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (collectorToDelete) deleteCollectorMutation.mutate(collectorToDelete.id);
-                setCollectorToDelete(null);
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              data-testid="button-confirm-delete-collector"
-            >
-              Remove Collector
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RemoveCollectorDialog
+        collector={collectorToDelete}
+        onOpenChange={(open) => { if (!open) setCollectorToDelete(null); }}
+        onConfirm={() => {
+          if (collectorToDelete) deleteCollectorMutation.mutate(collectorToDelete.id);
+          setCollectorToDelete(null);
+        }}
+        isRemoving={deleteCollectorMutation.isPending}
+      />
     </div>
   );
 }

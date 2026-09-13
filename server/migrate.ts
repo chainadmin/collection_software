@@ -80,7 +80,8 @@ export async function runMigrations() {
         "can_view_email" boolean DEFAULT false,
         "can_view_payment_runner" boolean DEFAULT false,
         "can_edit_payments" boolean DEFAULT false,
-        "can_view_financials" boolean DEFAULT false
+        "can_view_financials" boolean DEFAULT false,
+        "is_system_account" boolean DEFAULT false
       )
     `);
 
@@ -641,6 +642,11 @@ export async function runMigrations() {
           UPDATE collectors SET can_view_financials = true WHERE role IN ('admin', 'manager');
         END IF;
       END $$;
+    `);
+
+    // Marks the org's built-in "Company Accounts" placeholder collector.
+    await db.execute(sql`
+      ALTER TABLE collectors ADD COLUMN IF NOT EXISTS is_system_account boolean DEFAULT false;
     `);
 
     // Legacy PAN is left in place for a non-destructive migration but is no

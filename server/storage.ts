@@ -562,6 +562,7 @@ export class MemStorage implements IStorage {
       canViewPaymentRunner: true,
       canEditPayments: true,
       canViewFinancials: true,
+      isSystemAccount: false,
     });
     this.collectors.set(collector2Id, {
       id: collector2Id,
@@ -580,6 +581,7 @@ export class MemStorage implements IStorage {
       canViewPaymentRunner: false,
       canEditPayments: false,
       canViewFinancials: false,
+      isSystemAccount: false,
     });
     this.collectors.set(collector3Id, {
       id: collector3Id,
@@ -598,6 +600,7 @@ export class MemStorage implements IStorage {
       canViewPaymentRunner: false,
       canEditPayments: false,
       canViewFinancials: false,
+      isSystemAccount: false,
     });
 
     const portfolio1Id = randomUUID();
@@ -1296,6 +1299,7 @@ export class MemStorage implements IStorage {
       canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
       canEditPayments: collector.canEditPayments ?? false,
       canViewFinancials: collector.canViewFinancials ?? false,
+      isSystemAccount: collector.isSystemAccount ?? false,
     };
     this.collectors.set(id, newCollector);
     return newCollector;
