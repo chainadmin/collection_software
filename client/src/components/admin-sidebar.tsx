@@ -27,6 +27,7 @@ import {
   Megaphone,
   MessageSquare,
   LogOut,
+  Tv,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,7 @@ const adminSections: NavSection[] = [
       { title: "Collector Reporting", url: "/app/admin/reporting/collectors", icon: Users },
       { title: "Time Clock", url: "/app/admin/reporting/time-clock", icon: Clock },
       { title: "Liquidation Rates", url: "/app/liquidation", icon: TrendingUp },
+      { title: "Team Scoreboard", url: "/app/tv-board", icon: Tv },
     ],
   },
   {
