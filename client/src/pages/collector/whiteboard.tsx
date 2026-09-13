@@ -24,35 +24,115 @@ export default function Whiteboard() {
     queryKey: ["/api/debtors"],
   });
 
+  const currentMonth = today.slice(0, 7);
+
   // "posted" is real, settled money, so it's scoped to the day it actually
   // ran (paymentDate). "pending" is a promise a collector booked today --
   // its paymentDate can legitimately be next week (a payment arrangement),
   // so today's whiteboard has to key pending off when it was taken
   // (createdAt), not when it's scheduled to run. Otherwise a $100
   // arrangement booked today for next week would vanish from today's
-  // activity and only show up on its due date.
+  // activity and only show up on its due date. It's further scoped to
+  // arrangements still due this month, so a promise booked today for a
+  // future month doesn't inflate this month's pending figure.
   const postedToday = payments.filter((p) => p.paymentDate === today && p.status === "posted");
-  const pendingToday = payments.filter((p) => p.status === "pending" && String(p.createdAt).slice(0, 10) === today);
+  const pendingToday = payments.filter((p) =>
+    p.status === "pending" &&
+    String(p.createdAt).slice(0, 10) === today &&
+    String(p.paymentDate).slice(0, 7) === currentMonth
+  );
   const todayPayments = [...postedToday, ...pendingToday];
 
-  const totalCollectedToday = postedToday.reduce((sum, p) => sum + p.amount, 0);
+  // An account is "new" (or recovered) as of today if its earliest
+  // non-void payment record is dated today. Declined/reversed attempts
+  // don't establish prior history, so an account whose only prior records
+  // were declined/reversed still counts as new today -- it's collected,
+  // not repeat, money.
+  const earliestRealPaymentDateByDebtor = new Map<string, string>();
+  for (const p of payments) {
+    if (p.status === "declined" || p.status === "reversed") continue;
+    const recordDate = String(p.createdAt).slice(0, 10);
+    const earliest = earliestRealPaymentDateByDebtor.get(p.debtorId);
+    if (!earliest || recordDate < earliest) {
+      earliestRealPaymentDateByDebtor.set(p.debtorId, recordDate);
+    }
+  }
+  const newAccountIdsToday = new Set(
+    Array.from(earliestRealPaymentDateByDebtor.entries())
+      .filter(([, date]) => date === today)
+      .map(([debtorId]) => debtorId)
+  );
+
+  const totalCollectedToday = postedToday
+    .filter((p) => newAccountIdsToday.has(p.debtorId))
+    .reduce((sum, p) => sum + p.amount, 0);
   const totalPendingToday = pendingToday.reduce((sum, p) => sum + p.amount, 0);
   const transactionCount = postedToday.length;
 
-  const collectorStats = collectors.map((collector) => {
-    const posted = postedToday.filter((p) => p.processedBy === collector.id);
-    const pending = pendingToday.filter((p) => p.processedBy === collector.id);
-    const postedTotal = posted.reduce((sum, p) => sum + p.amount, 0);
-    const pendingTotal = pending.reduce((sum, p) => sum + p.amount, 0);
-    return {
-      id: collector.id,
-      name: collector.name,
-      initials: collector.avatarInitials || collector.name.split(" ").map(n => n[0]).join(""),
-      collected: postedTotal,
-      pending: pendingTotal,
-      transactions: posted.length + pending.length,
-    };
-  }).sort((a, b) => (b.collected + b.pending) - (a.collected + a.pending));
+  const activeCollectorIdsToday = new Set([
+    ...postedToday.map((p) => p.processedBy),
+    ...pendingToday.map((p) => p.processedBy),
+  ]);
+
+  const collectorInitials = (collector: Collector) =>
+    collector.avatarInitials || collector.name.split(" ").map((n) => n[0]).join("");
+
+  const topCollectorsToday = collectors
+    .map((collector) => {
+      const posted = postedToday.filter((p) => p.processedBy === collector.id);
+      return {
+        id: collector.id,
+        name: collector.name,
+        initials: collectorInitials(collector),
+        amount: posted.reduce((sum, p) => sum + p.amount, 0),
+        transactions: posted.length,
+      };
+    })
+    .filter((c) => c.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const topClosersToday = collectors
+    .map((collector) => {
+      const arrangements = pendingToday.filter((p) => p.processedBy === collector.id);
+      return {
+        id: collector.id,
+        name: collector.name,
+        initials: collectorInitials(collector),
+        count: arrangements.length,
+        amount: arrangements.reduce((sum, p) => sum + p.amount, 0),
+      };
+    })
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  // Monday-start week-to-date, for the longer-horizon Top Collector views.
+  const now = new Date();
+  const diffToMonday = (now.getDay() + 6) % 7;
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - diffToMonday);
+  const weekStartStr = weekStart.toISOString().split("T")[0];
+
+  const postedThisWeek = payments.filter((p) =>
+    p.status === "posted" && p.paymentDate >= weekStartStr && p.paymentDate <= today
+  );
+  const postedThisMonth = payments.filter((p) =>
+    p.status === "posted" && String(p.paymentDate).slice(0, 7) === currentMonth
+  );
+
+  const topCollectorsByAmount = (list: Payment[]) =>
+    collectors
+      .map((collector) => ({
+        id: collector.id,
+        name: collector.name,
+        initials: collectorInitials(collector),
+        amount: list.filter((p) => p.processedBy === collector.id).reduce((sum, p) => sum + p.amount, 0),
+      }))
+      .filter((c) => c.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
+
+  const topCollectorsWeek = topCollectorsByAmount(postedThisWeek);
+  const topCollectorsMonth = topCollectorsByAmount(postedThisMonth);
 
   const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -65,6 +145,34 @@ export default function Whiteboard() {
     const debtor = debtors.find((d) => d.id === debtorId);
     return debtor ? `${debtor.firstName} ${debtor.lastName}` : "Unknown";
   };
+
+  const renderRankedRow = (
+    entry: { id: string; name: string; initials: string },
+    index: number,
+    primary: string,
+    secondary: string | undefined,
+    testIdPrefix: string
+  ) => (
+    <div
+      key={entry.id}
+      className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+      data-testid={`${testIdPrefix}-${entry.id}`}
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-lg font-bold text-muted-foreground w-6">
+          {index + 1}
+        </span>
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium">
+          {entry.initials}
+        </div>
+        <div>
+          <p className="font-medium">{entry.name}</p>
+          {secondary && <p className="text-xs text-muted-foreground">{secondary}</p>}
+        </div>
+      </div>
+      <p className="font-mono font-bold">{primary}</p>
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -85,7 +193,7 @@ export default function Whiteboard() {
             <p className="text-2xl font-bold font-mono" data-testid="text-total-collected">
               {formatCurrency(totalCollectedToday)}
             </p>
-            <p className="text-xs text-muted-foreground">Posted today</p>
+            <p className="text-xs text-muted-foreground">New accounts, posted today</p>
           </CardContent>
         </Card>
 
@@ -98,7 +206,7 @@ export default function Whiteboard() {
             <p className="text-2xl font-bold font-mono" data-testid="text-total-pending">
               {formatCurrency(totalPendingToday)}
             </p>
-            <p className="text-xs text-muted-foreground">Scheduled, not yet posted</p>
+            <p className="text-xs text-muted-foreground">Booked today, due this month</p>
           </CardContent>
         </Card>
 
@@ -137,7 +245,7 @@ export default function Whiteboard() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {collectorStats.filter((c) => c.collected > 0 || c.pending > 0).length}
+              {activeCollectorIdsToday.size}
             </p>
             <p className="text-xs text-muted-foreground">With activity today</p>
           </CardContent>
@@ -147,52 +255,94 @@ export default function Whiteboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Collector Leaderboard</CardTitle>
+            <CardTitle>Top Collectors — Today</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {collectorStats.length === 0 ? (
+              {topCollectorsToday.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">
                   No collection activity yet today
                 </p>
               ) : (
-                collectorStats.map((collector, index) => (
-                  <div
-                    key={collector.id}
-                    className="flex items-center justify-between p-3 rounded-md bg-muted/50"
-                    data-testid={`leaderboard-collector-${collector.id}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold text-muted-foreground w-6">
-                        {index + 1}
-                      </span>
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium">
-                        {collector.initials}
-                      </div>
-                      <div>
-                        <p className="font-medium">{collector.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {collector.transactions} transaction{collector.transactions !== 1 ? "s" : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono font-bold">
-                        {formatCurrency(collector.collected)}
-                      </p>
-                      {collector.pending > 0 && (
-                        <p className="font-mono text-xs text-yellow-600 dark:text-yellow-400">
-                          +{formatCurrency(collector.pending)} pending
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))
+                topCollectorsToday.map((collector, index) =>
+                  renderRankedRow(
+                    collector,
+                    index,
+                    formatCurrency(collector.amount),
+                    `${collector.transactions} transaction${collector.transactions !== 1 ? "s" : ""}`,
+                    "leaderboard-collector-today"
+                  )
+                )
               )}
             </div>
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Closers — Today</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {topClosersToday.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">
+                  No arrangements booked yet today
+                </p>
+              ) : (
+                topClosersToday.map((collector, index) =>
+                  renderRankedRow(
+                    collector,
+                    index,
+                    `${collector.count} arrangement${collector.count !== 1 ? "s" : ""}`,
+                    `${formatCurrency(collector.amount)} pending`,
+                    "leaderboard-closer-today"
+                  )
+                )
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Collectors — This Week</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {topCollectorsWeek.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">
+                  No collection activity yet this week
+                </p>
+              ) : (
+                topCollectorsWeek.map((collector, index) =>
+                  renderRankedRow(collector, index, formatCurrency(collector.amount), undefined, "leaderboard-collector-week")
+                )
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Collectors — This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {topCollectorsMonth.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">
+                  No collection activity yet this month
+                </p>
+              ) : (
+                topCollectorsMonth.map((collector, index) =>
+                  renderRankedRow(collector, index, formatCurrency(collector.amount), undefined, "leaderboard-collector-month")
+                )
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Recent Payments</CardTitle>
