@@ -72,3 +72,31 @@ export function canEditPaymentsRecord(
     (live.role === "admin" || live.role === "manager" || live.canEditPayments === true)
   );
 }
+
+/**
+ * Allows viewing company financials: employee hourly wages, wage-cost/ROI
+ * profitability reporting, and portfolio ROI. Deliberately NOT granted by
+ * role=admin/manager alone - unlike every other permission here, this one
+ * must be explicitly turned on per collector, so a collector promoted to
+ * admin to help run operations doesn't automatically see pay and
+ * profitability data unless the org chooses to share it with them.
+ */
+export function canViewFinancialsRecord(
+  sessionCollector: { id?: string } | undefined,
+  live: {
+    id?: string;
+    status?: string;
+    organizationId?: string;
+    canViewFinancials?: boolean | null;
+  } | undefined,
+  orgId: string,
+): boolean {
+  return !!(
+    sessionCollector?.id &&
+    live &&
+    live.id === sessionCollector.id &&
+    live.status === "active" &&
+    live.organizationId === orgId &&
+    live.canViewFinancials === true
+  );
+}

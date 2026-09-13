@@ -76,6 +76,12 @@ export const collectors = pgTable("collectors", {
   canViewEmail: boolean("can_view_email").default(false),
   canViewPaymentRunner: boolean("can_view_payment_runner").default(false),
   canEditPayments: boolean("can_edit_payments").default(false),
+  // Whether this collector can see company-level financials: employee hourly
+  // wages, wage-cost/ROI profitability reporting, and portfolio ROI. Not
+  // implied by role=admin - an org must grant this explicitly so a
+  // collector promoted to admin for day-to-day management doesn't
+  // automatically see pay and profitability data.
+  canViewFinancials: boolean("can_view_financials").default(false),
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });

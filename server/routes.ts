@@ -6,7 +6,7 @@ import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTi
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { canRunPaymentsRecord, canEditPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
 import { computeSubscriptionAccess } from "./subscription-access";
 import bcrypt from "bcrypt";
 import { 
@@ -194,6 +194,25 @@ async function canEditPayments(req: any, orgId: string): Promise<boolean> {
   if (!sessionCollector?.id) return false;
   const live = await storage.getCollector(sessionCollector.id);
   return canEditPaymentsRecord(sessionCollector, live, orgId);
+}
+
+async function canViewFinancials(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return canViewFinancialsRecord(sessionCollector, live, orgId);
+}
+
+// Hourly wage is company-financial data. A collector may always see their
+// own, but another collector's wage is only included for a viewer who has
+// been explicitly granted canViewFinancials - role=admin does not imply it.
+function redactCollectorWage<T extends { id: string; hourlyWage: number | null }>(
+  collector: T,
+  viewerId: string | undefined,
+  viewerCanSeeFinancials: boolean,
+): T {
+  if (viewerCanSeeFinancials || collector.id === viewerId) return collector;
+  return { ...collector, hourlyWage: null };
 }
 
 
@@ -639,6 +658,7 @@ export async function registerRoutes(
         canViewDashboard: true,
         canViewEmail: true,
         canViewPaymentRunner: true,
+        canViewFinancials: true,
       });
 
       // Create admin notification for new organization registration
@@ -1181,6 +1201,7 @@ export async function registerRoutes(
         canViewDashboard: true,
         canViewEmail: true,
         canViewPaymentRunner: true,
+        canViewFinancials: true,
       });
 
       res.json(org);
@@ -1861,7 +1882,9 @@ export async function registerRoutes(
       const allCollectors = await storage.getCollectors();
       // Filter to only return collectors from the authenticated user's organization
       const orgCollectors = allCollectors.filter(c => c.organizationId === orgId);
-      res.json(orgCollectors);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(orgCollectors.map(c => redactCollectorWage(c, viewerId, viewerCanSeeFinancials)));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collectors" });
     }
@@ -2015,7 +2038,9 @@ export async function registerRoutes(
       if (!validateOrgOwnership(collector.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      res.json(collector);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(redactCollectorWage(collector, viewerId, viewerCanSeeFinancials));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collector" });
     }
@@ -2057,6 +2082,11 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const body = { ...req.body };
+      if (typeof body.canViewFinancials === "boolean" && body.canViewFinancials !== existing.canViewFinancials) {
+        if (!(await canViewFinancials(req, orgId))) {
+          return res.status(403).json({ error: "Only a collector with financial visibility can grant or revoke it" });
+        }
+      }
       if (body.username !== undefined) {
         body.username = String(body.username).trim();
         if (!body.username) {
@@ -2077,7 +2107,9 @@ export async function registerRoutes(
       if (!collector) {
         return res.status(404).json({ error: "Collector not found" });
       }
-      res.json(collector);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(redactCollectorWage(collector, viewerId, viewerCanSeeFinancials));
     } catch (error) {
       res.status(500).json({ error: "Failed to update collector" });
     }

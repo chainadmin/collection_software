@@ -75,6 +75,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, getInitials } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import type { Collector } from "@shared/schema";
 
 const addCollectorSchema = z.object({
@@ -90,6 +91,7 @@ const addCollectorSchema = z.object({
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
   canEditPayments: z.boolean().default(false),
+  canViewFinancials: z.boolean().default(false),
 });
 
 const editCollectorSchema = z.object({
@@ -105,6 +107,7 @@ const editCollectorSchema = z.object({
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
   canEditPayments: z.boolean().default(false),
+  canViewFinancials: z.boolean().default(false),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -113,9 +116,10 @@ type EditCollectorForm = z.infer<typeof editCollectorSchema>;
 interface CollectorFormFieldsProps {
   control: Control<FieldValues>;
   isEdit?: boolean;
+  showFinancials: boolean;
 }
 
-function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
+function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormFieldsProps) {
   return (
     <>
       <FormField
@@ -131,30 +135,32 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
           </FormItem>
         )}
       />
-      <FormField
-        control={control}
-        name="hourlyWage"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Hourly Wage ($)</FormLabel>
-            <FormControl>
-              <Input
-                type="number"
-                placeholder="15.00"
-                step="0.01"
-                value={field.value ? (field.value / 100).toFixed(2) : ""}
-                onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
-                onBlur={field.onBlur}
-                name={field.name}
-                ref={field.ref}
-                data-testid="input-collector-hourly-wage"
-              />
-            </FormControl>
-            <FormDescription>Required — used for profitability tracking</FormDescription>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
+      {showFinancials && (
+        <FormField
+          control={control}
+          name="hourlyWage"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Hourly Wage ($)</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  placeholder="15.00"
+                  step="0.01"
+                  value={field.value ? (field.value / 100).toFixed(2) : ""}
+                  onChange={(e) => field.onChange(Math.round(parseFloat(e.target.value || "0") * 100))}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                  data-testid="input-collector-hourly-wage"
+                />
+              </FormControl>
+              <FormDescription>Required — used for profitability tracking</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
       <FormField
         control={control}
         name="email"
@@ -333,6 +339,23 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
               </FormItem>
             )}
           />
+          {showFinancials && (
+            <FormField
+              control={control}
+              name="canViewFinancials"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center gap-2">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} data-testid="checkbox-view-financials" />
+                  </FormControl>
+                  <div className="flex items-center gap-2 pb-0">
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    <FormLabel className="font-normal">Company Financials &amp; Wages</FormLabel>
+                  </div>
+                </FormItem>
+              )}
+            />
+          )}
         </div>
       </div>
     </>
@@ -342,9 +365,10 @@ function CollectorFormFields({ control, isEdit }: CollectorFormFieldsProps) {
 interface AddCollectorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  showFinancials: boolean;
 }
 
-function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
+function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollectorDialogProps) {
   const { toast } = useToast();
 
   const form = useForm<AddCollectorForm>({
@@ -357,11 +381,16 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
       role: "collector",
       status: "active",
       goal: 0,
-      hourlyWage: 0,
+      // Hourly wage is required by the schema, but the field is hidden from
+      // anyone without financial visibility - seed a placeholder so they can
+      // still onboard a collector; someone with financial visibility can set
+      // the real rate afterward.
+      hourlyWage: showFinancials ? 0 : 1500,
       canViewDashboard: false,
       canViewEmail: false,
       canViewPaymentRunner: false,
       canEditPayments: false,
+      canViewFinancials: false,
     },
   });
 
@@ -400,7 +429,7 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} showFinancials={showFinancials} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
@@ -423,9 +452,10 @@ function AddCollectorDialog({ open, onOpenChange }: AddCollectorDialogProps) {
 interface EditCollectorDialogProps {
   collector: Collector | null;
   onClose: () => void;
+  showFinancials: boolean;
 }
 
-function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
+function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollectorDialogProps) {
   const { toast } = useToast();
 
   const form = useForm<EditCollectorForm>({
@@ -443,6 +473,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
       canViewEmail: false,
       canViewPaymentRunner: false,
       canEditPayments: false,
+      canViewFinancials: false,
     },
   });
 
@@ -456,11 +487,16 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         role: collector.role,
         status: collector.status,
         goal: collector.goal || 0,
-        hourlyWage: collector.hourlyWage || 0,
+        // The server redacts hourlyWage to null for a viewer without
+        // financial visibility, so seed a placeholder rather than 0 - it
+        // never reaches the server (see payload below), it just keeps the
+        // hidden field's value valid for the form.
+        hourlyWage: showFinancials ? (collector.hourlyWage || 0) : 1500,
         canViewDashboard: collector.canViewDashboard ?? false,
         canViewEmail: collector.canViewEmail ?? false,
         canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
         canEditPayments: collector.canEditPayments ?? false,
+        canViewFinancials: collector.canViewFinancials ?? false,
       });
     }
   }, [collector?.id]);
@@ -475,13 +511,20 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
         role: data.role,
         status: data.status,
         goal: data.goal,
-        hourlyWage: data.hourlyWage,
         canViewDashboard: data.canViewDashboard,
         canViewEmail: data.canViewEmail,
         canViewPaymentRunner: data.canViewPaymentRunner,
         canEditPayments: data.canEditPayments,
         avatarInitials: getInitials(data.name),
       };
+      // Both fields are hidden from anyone without financial visibility, and
+      // their form values are only placeholders in that case - never send
+      // them, so a save from that editor can't clobber the real wage or
+      // silently change who can see financials.
+      if (showFinancials) {
+        payload.hourlyWage = data.hourlyWage;
+        payload.canViewFinancials = data.canViewFinancials;
+      }
       if (data.password && data.password.length >= 6) {
         payload.password = data.password;
       }
@@ -511,7 +554,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
             onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
             className="space-y-4"
           >
-            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} isEdit />
+            <CollectorFormFields control={form.control as unknown as Control<FieldValues>} isEdit showFinancials={showFinancials} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
@@ -533,6 +576,7 @@ function EditCollectorDialog({ collector, onClose }: EditCollectorDialogProps) {
 
 export default function Collectors() {
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCollector, setEditingCollector] = useState<Collector | null>(null);
@@ -543,6 +587,9 @@ export default function Collectors() {
   const { data: collectors, isLoading } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
+
+  const currentCollector = collectors?.find((c) => c.id === authUser?.id);
+  const showFinancials = currentCollector?.canViewFinancials === true;
 
   const deleteCollectorMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -739,10 +786,12 @@ export default function Collectors() {
                         <User className="h-4 w-4" />
                         <span>@{collector.username}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <DollarSign className="h-4 w-4" />
-                        <span className="font-mono">{formatCurrency(collector.hourlyWage || 0)}/hr</span>
-                      </div>
+                      {showFinancials && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <DollarSign className="h-4 w-4" />
+                          <span className="font-mono">{formatCurrency(collector.hourlyWage || 0)}/hr</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between pt-2">
                         <StatusBadge status={collector.status} />
                         <div className="flex items-center gap-1 text-sm">
@@ -777,10 +826,11 @@ export default function Collectors() {
         </CardContent>
       </Card>
 
-      <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} />
+      <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} showFinancials={showFinancials} />
       <EditCollectorDialog
         collector={editingCollector}
         onClose={() => setEditingCollector(null)}
+        showFinancials={showFinancials}
       />
 
       {/* QR Code Dialog */}

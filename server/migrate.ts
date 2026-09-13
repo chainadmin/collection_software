@@ -79,7 +79,8 @@ export async function runMigrations() {
         "can_view_dashboard" boolean DEFAULT false,
         "can_view_email" boolean DEFAULT false,
         "can_view_payment_runner" boolean DEFAULT false,
-        "can_edit_payments" boolean DEFAULT false
+        "can_edit_payments" boolean DEFAULT false,
+        "can_view_financials" boolean DEFAULT false
       )
     `);
 
@@ -621,6 +622,25 @@ export async function runMigrations() {
     // from the workstation, independent of Payment Runner access.
     await db.execute(sql`
       ALTER TABLE collectors ADD COLUMN IF NOT EXISTS can_edit_payments boolean DEFAULT false;
+    `);
+
+    // Per-collector permission to see company financials (employee hourly
+    // wages, wage-cost/ROI profitability reporting, portfolio ROI). Not
+    // implied by role=admin going forward - an org must grant it. Existing
+    // admins/managers already had unrestricted access to this data, so on
+    // the one migration run that first adds this column, back-fill it on
+    // for them so nobody's access silently changes. The IF NOT EXISTS guard
+    // means this back-fill runs exactly once; a later explicit toggle-off
+    // by an org is never overwritten on subsequent restarts.
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name = 'collectors' AND column_name = 'can_view_financials') THEN
+          ALTER TABLE collectors ADD COLUMN can_view_financials boolean DEFAULT false;
+          UPDATE collectors SET can_view_financials = true WHERE role IN ('admin', 'manager');
+        END IF;
+      END $$;
     `);
 
     // Legacy PAN is left in place for a non-destructive migration but is no
