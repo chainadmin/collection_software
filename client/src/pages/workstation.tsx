@@ -2002,7 +2002,7 @@ export default function Workstation() {
                         <CardTitle className="text-sm font-medium flex items-center justify-between gap-2">
                           <span className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
-                            Editable Payments
+                            Pending Payments
                             {debtorPayments?.filter((p) => p.status !== "posted").length ? (
                               <Badge variant="secondary" className="ml-1">
                                 {debtorPayments.filter((p) => p.status !== "posted").length}
@@ -2075,7 +2075,7 @@ export default function Workstation() {
                             </p>
                           </div>
                         ) : (
-                          <p className="text-sm text-muted-foreground">No editable payments</p>
+                          <p className="text-sm text-muted-foreground">No pending payments</p>
                         )}
                       </CardContent>
                     </CollapsibleContent>

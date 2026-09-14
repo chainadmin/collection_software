@@ -563,12 +563,15 @@ export function RecordPaymentDialog({
               {paymentCards && paymentCards.length > 0 && (
                 <div>
                   <Label>Use Saved Card (Optional)</Label>
-                  <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                  <Select
+                    value={selectedCardId || "new"}
+                    onValueChange={(value) => setSelectedCardId(value === "new" ? "" : value)}
+                  >
                     <SelectTrigger data-testid="select-saved-card">
                       <SelectValue placeholder="Enter new card below or select saved" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Enter New Card</SelectItem>
+                      <SelectItem value="new">Enter New Card</SelectItem>
                       {paymentCards.filter(card => card.vaultStatus === "locally_stored" || (card.vaultStatus === "vaulted" && !!card.processorType && !!card.merchantId)).map((card) => (
                         <SelectItem key={card.id} value={card.id}>
                           {card.cardType.toUpperCase()} •••• {card.cardNumberLast4} (Exp: {card.expiryMonth}/{card.expiryYear})
