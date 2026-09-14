@@ -463,6 +463,28 @@ export async function registerRoutes(
         if (!organization || !organization.isActive) {
           return res.status(403).json({ error: "Organization is not active" });
         }
+
+        // A trial that has run out (and no active/billed subscription) blocks
+        // tenant data access. The billing and session paths that let the org
+        // actually resolve it (check status, pay, or log out) stay reachable.
+        const subscriptionExemptPaths = [
+          "/billing/subscription",
+          "/billing/subscribe",
+          "/billing/checkout-success",
+          "/billing/plans",
+          "/auth/logout",
+          "/auth/session",
+        ];
+        if (!subscriptionExemptPaths.some(p => path === p || path.startsWith(p + "/"))) {
+          const access = computeSubscriptionAccess(organization);
+          if (!access.active) {
+            return res.status(402).json({
+              error: access.reason || "Subscription required",
+              code: "subscription_required",
+            });
+          }
+        }
+
         if (organization.ipRestrictionEnabled) {
           const clientIp = getClientIp(req);
           const allowed = !!clientIp &&

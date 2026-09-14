@@ -15,6 +15,7 @@ import {
   Clock,
   CheckCircle,
   ExternalLink,
+  Mail,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -188,13 +189,28 @@ export default function Subscribe() {
           </Link>
           
           {subscription?.isTrialExpired ? (
-            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6 inline-flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              <div className="text-left">
-                <p className="font-medium text-destructive">Your trial has expired</p>
-                <p className="text-sm text-muted-foreground">Subscribe now to continue using Debt Manager Pro</p>
+            <>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6 inline-flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+                <div className="text-left">
+                  <p className="font-medium text-destructive">Your trial has expired</p>
+                  <p className="text-sm text-muted-foreground">Subscribe now to continue using Debt Manager Pro</p>
+                </div>
               </div>
-            </div>
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6 inline-flex items-center gap-3">
+                <Mail className="h-5 w-5 text-primary" />
+                <div className="text-left">
+                  <p className="font-medium">Contact DMP to set up your system</p>
+                  <a
+                    href="mailto:support@chainsoftwaregroup.com"
+                    className="text-sm text-primary hover:underline"
+                    data-testid="link-contact-support"
+                  >
+                    support@chainsoftwaregroup.com
+                  </a>
+                </div>
+              </div>
+            </>
           ) : subscription?.status === "trial" ? (
             <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6 inline-flex items-center gap-3">
               <Clock className="h-5 w-5 text-primary" />
