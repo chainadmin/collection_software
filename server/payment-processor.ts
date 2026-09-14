@@ -13,7 +13,6 @@ import { isPotentialDuplicateGatewayMessage } from "./payment-gateway-result";
 import { decryptCardNumber } from "./card-encryption";
 import { usaepayAuthorization } from "./usaepay-auth";
 import type { OneTimeCardInput } from "./payment-input";
-import { applyPaymentToDebtorBalance } from "./payment-safety";
 
 export interface ProcessPaymentResult {
   success: boolean;
@@ -866,16 +865,7 @@ export async function processPayment(
   }
 
   if (debtor && !result.ambiguous && !result.configurationError) {
-    if (result.success) {
-      await storage.updateDebtor(payment.debtorId, { status: "processed" });
-      // This automatic gateway flow only ever marked the debtor "processed" -
-      // it never applied the payment amount to current_balance the way
-      // postPaymentAtomically does for manually-reconciled payments. That
-      // left current_balance frozen at whatever it was when the account was
-      // imported, so anything reading it (including DMP's own outbound sync
-      // to Chain) kept showing the original balance forever.
-      await applyPaymentToDebtorBalance(payment.debtorId, orgId, payment.amount);
-    }
+    if (result.success) await storage.updateDebtor(payment.debtorId, { status: "processed" });
   }
 
   if (!result.success && !result.ambiguous && !result.configurationError && debtor) {

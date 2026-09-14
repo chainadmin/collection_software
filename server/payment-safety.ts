@@ -1,39 +1,5 @@
 import { pool } from "./db";
 
-/**
- * Atomically decrement a debtor's current_balance by a payment amount,
- * without touching payment or debtor status. Used by the automatic gateway
- * payment flow (payment-processor.ts), which has its own status handling -
- * unlike postPaymentAtomically below (used for manual reconciliation), it
- * must not also move the payment to "posted" or the debtor to "paid"/
- * "in_payment", since that would change existing status semantics this
- * flow's callers rely on.
- */
-export async function applyPaymentToDebtorBalance(debtorId: string, organizationId: string, amountCents: number) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const debtorResult = await client.query(
-      `SELECT current_balance FROM debtors WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
-      [debtorId, organizationId],
-    );
-    const debtor = debtorResult.rows[0];
-    if (!debtor) throw Object.assign(new Error("Account not found"), { statusCode: 404 });
-    const newBalance = Math.max(0, debtor.current_balance - amountCents);
-    await client.query(
-      `UPDATE debtors SET current_balance = $1 WHERE id = $2`,
-      [newBalance, debtorId],
-    );
-    await client.query("COMMIT");
-    return newBalance;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 /** Atomically post a payment while locking both payment and debtor. */
 export async function postPaymentAtomically(
   paymentId: string,
