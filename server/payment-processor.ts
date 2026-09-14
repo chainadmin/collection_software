@@ -865,7 +865,10 @@ export async function processPayment(
   }
 
   if (debtor && !result.ambiguous && !result.configurationError) {
-    if (result.success) await storage.updateDebtor(payment.debtorId, { status: "processed" });
+    // Marks the account status only - it never touches the payment record
+    // itself, which stays "pending" above so nothing is reversed/deleted
+    // automatically. Only an explicit, approved reverse/NSF action does that.
+    await storage.updateDebtor(payment.debtorId, { status: result.success ? "processed" : "decline" });
   }
 
   if (!result.success && !result.ambiguous && !result.configurationError && debtor) {

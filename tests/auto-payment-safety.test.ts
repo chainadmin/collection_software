@@ -232,6 +232,38 @@ test("USAePay saved-card duplicate response persists as needs_review", async () 
   }
 });
 
+test("a real gateway decline flags the account declined without touching the payment's pending status", async () => {
+  const source = payment({ cardId: "card-1" });
+  let persistedPayment: Partial<Payment> | undefined;
+  let debtorUpdate: Partial<{ status: string }> | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    "response=2&responsetext=Card+Declined&transactionid=txn-declined",
+    { status: 200 },
+  );
+  try {
+    const storage = savedCardStorage(source, "nmi", update => {
+      persistedPayment = update;
+    });
+    (storage as any).updateDebtor = async (_id: string, update: Partial<{ status: string }>) => {
+      debtorUpdate = update;
+      return { id: "debtor-1", organizationId: "org-1" };
+    };
+
+    const result = await processPayment(source, storage, "org-1");
+
+    assert.equal(result.success, false);
+    assert.equal(result.ambiguous, undefined);
+    // The payment itself stays pending - only an explicit, approved reverse
+    // or NSF action is allowed to delete/reverse it, never the auto runner.
+    assert.equal(persistedPayment?.status, "pending");
+    // But the account status does need to reflect the decline so staff see it.
+    assert.deepEqual(debtorUpdate, { status: "decline" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("USAePay authentication errors are reported as configuration errors before transaction creation", async () => {
   const source = payment({ cardId: "card-1" });
   let persisted: Partial<Payment> | undefined;

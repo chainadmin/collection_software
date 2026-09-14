@@ -372,15 +372,19 @@ export default function PaymentRunner() {
   }) || [];
 
   const today = format(new Date(), "yyyy-MM-dd");
-  const declinedPayments = allPayments?.filter((p) =>
-    p.status === "pending" && Boolean(p.completedAt) &&
-    String(p.notes || "").startsWith("DECLINED:") && p.paymentDate < today
-  ) || [];
+  const isDeclinedPending = (p: PaymentWithDebtor) =>
+    p.status === "pending" && Boolean(p.completedAt) && String(p.notes || "").startsWith("DECLINED:");
+  // Scoped to today only - older unresolved declines are handled through the
+  // Past Due Payments card below, which drops each one the moment it's
+  // posted/reversed/NSF'd, so nothing lingers here indefinitely.
+  const declinedPayments = allPayments?.filter((p) => isDeclinedPending(p) && p.paymentDate === today) || [];
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
+  // "reversed" and "cancelled" are terminal - nothing left to do with them,
+  // so they're excluded here rather than sitting in an action list forever.
   const reviewPayments = allPayments?.filter((p) =>
-    ["reversed", "needs_review", "failed", "declined", "cancelled"].includes(p.status)
+    ["needs_review", "failed", "declined"].includes(p.status)
   ) || [];
   
   const processedTotal = processedPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -453,7 +457,7 @@ export default function PaymentRunner() {
               size="icon"
               onClick={() => handleOpenPost(payment)}
               disabled={isPosting}
-              title="Post manually"
+              title="Post"
               data-testid={`button-post-${payment.id}`}
             >
               {isPosting ? (
@@ -466,7 +470,7 @@ export default function PaymentRunner() {
               variant="ghost"
               size="icon"
               onClick={() => handleOpenReverse(payment)}
-              title="Reverse manually"
+              title="Reverse"
               data-testid={`button-reverse-${payment.id}`}
             >
               <Undo2 className="h-4 w-4" />
@@ -798,7 +802,7 @@ export default function PaymentRunner() {
                 <XCircle className="h-5 w-5" />
                 Declined Payments
               </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Past-due declines remain pending until you choose whether to delete the current and future payments.</p>
+              <p className="text-sm text-muted-foreground mt-1">Today's declines. The account is flagged declined automatically; the payment itself is only reversed if you approve that separately below.</p>
             </div>
           </CardHeader>
           <CardContent>
@@ -822,35 +826,7 @@ export default function PaymentRunner() {
                     <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-red-600 dark:text-red-400">{formatDate(payment.paymentDate)}</p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    {canPostOrReverse && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" data-testid={`button-reverse-declined-account-${payment.id}`}>
-                            NSF options
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Past-due declined payment</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Delete this payment and its future pending payments and select the NSF account category, or leave everything pending and make no changes.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel data-testid={`button-leave-pending-${payment.id}`}>Leave pending</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
-                              disabled={reverseDeclinedAccountMutation.isPending}
-                              data-testid={`button-delete-nsf-${payment.id}`}
-                            >
-                              Delete payments &amp; select NSF
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </div>
+                  {renderPaymentActions(payment, true, false)}
                 </div>
               ))}
             </div>
@@ -886,7 +862,34 @@ export default function PaymentRunner() {
                     <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-amber-600 dark:text-amber-400">Due {formatDate(payment.paymentDate)}</p>
                   </div>
-                  {renderPaymentActions(payment, false, false)}
+                  {isDeclinedPending(payment) && canPostOrReverse && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="sm" data-testid={`button-reverse-declined-account-${payment.id}`}>
+                          NSF options
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Past-due declined payment</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Delete this payment and its future pending payments and select the NSF account category, or leave everything pending and make no changes.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel data-testid={`button-leave-pending-${payment.id}`}>Leave pending</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
+                            disabled={reverseDeclinedAccountMutation.isPending}
+                            data-testid={`button-delete-nsf-${payment.id}`}
+                          >
+                            Delete payments &amp; select NSF
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                  {renderPaymentActions(payment, isDeclinedPending(payment), false)}
                 </div>
               ))}
             </div>
@@ -1021,9 +1024,9 @@ export default function PaymentRunner() {
       <AlertDialog open={postDialogOpen} onOpenChange={setPostDialogOpen}>
         <AlertDialogContent data-testid="dialog-manual-post">
           <AlertDialogHeader>
-            <AlertDialogTitle>Post Payment Manually?</AlertDialogTitle>
+            <AlertDialogTitle>Post Payment?</AlertDialogTitle>
             <AlertDialogDescription>
-              This posts the payment directly to the account without charging it through the payment processor. Only continue if the payment was received outside the runner.
+              This posts the payment to the account, applying it to the balance.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {paymentToPost && (
@@ -1041,7 +1044,7 @@ export default function PaymentRunner() {
               disabled={!paymentToPost || postPaymentMutation.isPending}
               data-testid="button-confirm-manual-post"
             >
-              {postPaymentMutation.isPending ? "Posting..." : "Post Without Processing"}
+              {postPaymentMutation.isPending ? "Posting..." : "Post"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
