@@ -69,7 +69,10 @@ export default function DropAccounts() {
       .map((cs) => ({ code: cs.code, label: cs.label })),
   ];
 
-  const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "admin" && c.role !== "auditor");
+  // Auditors are read-only and can't own a work queue, so they stay excluded.
+  // Admins (including the main/owner admin) can still work accounts directly
+  // and must be selectable as a drop target and pull-back source.
+  const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "auditor");
 
   const dropAccountsMutation = useMutation({
     mutationFn: async (data: {
@@ -125,6 +128,13 @@ export default function DropAccounts() {
       }
       return results;
     },
+    onError: (err: any) => {
+      toast({
+        title: "Drop Failed",
+        description: err?.message || "Could not create the drop batch. No accounts were reassigned.",
+        variant: "destructive",
+      });
+    },
   });
 
   const filteredDebtors = debtors.filter((d) => {
@@ -177,14 +187,21 @@ export default function DropAccounts() {
 
     const batchName = `Drop ${new Date().toISOString().split("T")[0]} - ${selectedAccounts.size} accounts`;
     const statusToApply = targetStatus !== KEEP_STATUS_VALUE ? targetStatus : undefined;
-    const results = await dropAccountsMutation.mutateAsync({
-      name: batchName,
-      portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
-      notes: dropNotes || undefined,
-      collectorId: selectedCollector,
-      debtorIds: Array.from(selectedAccounts),
-      status: statusToApply,
-    });
+    let results: { success: number; failed: number; statusFailed: number };
+    try {
+      results = await dropAccountsMutation.mutateAsync({
+        name: batchName,
+        portfolioId: selectedPortfolio !== "all" ? selectedPortfolio : undefined,
+        notes: dropNotes || undefined,
+        collectorId: selectedCollector,
+        debtorIds: Array.from(selectedAccounts),
+        status: statusToApply,
+      });
+    } catch {
+      // The mutation's onError already surfaced a toast; keep the current
+      // selection/notes so the admin can retry instead of losing their work.
+      return;
+    }
 
     queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
     queryClient.invalidateQueries({ queryKey: ["/api/drop-batches"] });

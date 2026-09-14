@@ -52,7 +52,26 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { InstallButton } from "@/components/install-button";
+import { useOrganization } from "@/lib/organization-context";
 import type { AccountStatus } from "@shared/schema";
+
+type OrganizationFormState = {
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+};
+
+const blankOrganizationForm: OrganizationFormState = {
+  name: "",
+  phone: "",
+  address: "",
+  city: "",
+  state: "",
+  zipCode: "",
+};
 
 type PaymentMessageAutomationSettings = {
   enabled?: boolean;
@@ -114,6 +133,8 @@ export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { organization, organizationId } = useOrganization();
+  const [orgForm, setOrgForm] = useState<OrganizationFormState>(blankOrganizationForm);
   const [newStatus, setNewStatus] = useState("");
   const [paymentAutomation, setPaymentAutomation] = useState<PaymentMessageAutomationSettings>(blankPaymentAutomation);
   const [uploadingLogoFilename, setUploadingLogoFilename] = useState<string | null>(null);
@@ -133,6 +154,41 @@ export default function Settings() {
       setPaymentAutomation({ ...blankPaymentAutomation, ...savedPaymentAutomation });
     }
   }, [savedPaymentAutomation]);
+
+  useEffect(() => {
+    if (organization) {
+      setOrgForm({
+        name: organization.name || "",
+        phone: organization.phone || "",
+        address: organization.address || "",
+        city: organization.city || "",
+        state: organization.state || "",
+        zipCode: organization.zipCode || "",
+      });
+    }
+  }, [organization]);
+
+  const saveOrganizationMutation = useMutation({
+    mutationFn: async (payload: OrganizationFormState) => {
+      const res = await apiRequest("PATCH", `/api/organizations/${organizationId}`, payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", organizationId] });
+      toast({ title: "Organization Saved", description: "Organization information was updated." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err?.message || "Failed to save organization information.", variant: "destructive" });
+    },
+  });
+
+  const handleSaveOrganization = () => {
+    if (!orgForm.name.trim()) {
+      toast({ title: "Error", description: "Organization name is required.", variant: "destructive" });
+      return;
+    }
+    saveOrganizationMutation.mutate(orgForm);
+  };
 
   const savePaymentAutomationMutation = useMutation({
     mutationFn: async (payload: PaymentMessageAutomationSettings) => {
@@ -315,6 +371,8 @@ export default function Settings() {
                     id="orgName"
                     placeholder="Enter organization name"
                     data-testid="input-org-name"
+                    value={orgForm.name}
+                    onChange={(e) => setOrgForm((current) => ({ ...current, name: e.target.value }))}
                   />
                 </div>
                 <div>
@@ -323,6 +381,8 @@ export default function Settings() {
                     id="orgPhone"
                     placeholder="Enter phone number"
                     data-testid="input-org-phone"
+                    value={orgForm.phone}
+                    onChange={(e) => setOrgForm((current) => ({ ...current, phone: e.target.value }))}
                   />
                 </div>
               </div>
@@ -332,16 +392,26 @@ export default function Settings() {
                   id="orgAddress"
                   placeholder="Enter street address"
                   data-testid="input-org-address"
+                  value={orgForm.address}
+                  onChange={(e) => setOrgForm((current) => ({ ...current, address: e.target.value }))}
                 />
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <Label htmlFor="orgCity">City</Label>
-                  <Input id="orgCity" placeholder="City" />
+                  <Input
+                    id="orgCity"
+                    placeholder="City"
+                    value={orgForm.city}
+                    onChange={(e) => setOrgForm((current) => ({ ...current, city: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <Label htmlFor="orgState">State</Label>
-                  <Select>
+                  <Select
+                    value={orgForm.state}
+                    onValueChange={(value) => setOrgForm((current) => ({ ...current, state: value }))}
+                  >
                     <SelectTrigger id="orgState">
                       <SelectValue placeholder="Select state" />
                     </SelectTrigger>
@@ -355,11 +425,22 @@ export default function Settings() {
                 </div>
                 <div>
                   <Label htmlFor="orgZip">ZIP Code</Label>
-                  <Input id="orgZip" placeholder="ZIP" />
+                  <Input
+                    id="orgZip"
+                    placeholder="ZIP"
+                    value={orgForm.zipCode}
+                    onChange={(e) => setOrgForm((current) => ({ ...current, zipCode: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="pt-2">
-                <Button data-testid="button-save-org">Save Changes</Button>
+                <Button
+                  data-testid="button-save-org"
+                  onClick={handleSaveOrganization}
+                  disabled={saveOrganizationMutation.isPending}
+                >
+                  {saveOrganizationMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
               </div>
             </CardContent>
           </Card>
