@@ -48,7 +48,11 @@ interface PaymentWithDebtor extends Payment {
 export default function PaymentRunner() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  // Defaults to today so the calendar and Pending summary both start scoped
+  // to today's payments, not every pending payment across every date.
+  // "Clear" (below, where selectedDate is unset) still switches to showing
+  // all dates for whoever wants that view.
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
@@ -392,8 +396,12 @@ export default function PaymentRunner() {
     stripe: "Stripe",
   }[m.processorType] || m.processorType));
 
-  const totalPending = pendingPayments?.length || 0;
-  const totalPendingAmount = pendingPayments?.reduce((sum, p) => sum + p.amount, 0) || 0;
+  // Scoped to whatever the calendar is currently filtered to (defaults to
+  // today), matching the payment list below it - not every pending payment
+  // across every date, which is what this used to add up regardless of the
+  // selected date.
+  const totalPending = filteredPayments.length;
+  const totalPendingAmount = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
 
   const canPostOrReverse = currentCollector?.role === "admin" || currentCollector?.role === "manager";
   const canRunPayments = canPostOrReverse || currentCollector?.canViewPaymentRunner === true;
@@ -645,7 +653,7 @@ export default function PaymentRunner() {
 
       <div className="grid gap-4 md:grid-cols-5">
         <StatCard
-          title="Pending"
+          title={selectedDate ? `Pending for ${format(selectedDate, "MMM d")}` : "Pending (All Dates)"}
           value={formatCurrency(totalPendingAmount)}
           subtitle={`${totalPending} payment${totalPending !== 1 ? 's' : ''}`}
           icon={Clock}
