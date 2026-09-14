@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Users, Download, TrendingUp, Phone, DollarSign, Target, Clock, Wallet, Loader2, X, Gauge } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
+import { useAuth } from "@/lib/auth-context";
 import type { Collector } from "@shared/schema";
 
 interface CollectorMonthlyBreakdown {
@@ -37,12 +38,16 @@ interface CollectorPerformance {
 }
 
 export default function CollectorReporting() {
+  const { user: authUser } = useAuth();
   const [dateRange, setDateRange] = useState("this_month");
   const [selectedCollector, setSelectedCollector] = useState("");
 
   const { data: collectors = [] } = useQuery<Collector[]>({
     queryKey: ["/api/collectors"],
   });
+
+  const currentCollector = collectors.find((c) => c.id === authUser?.id);
+  const showFinancials = currentCollector?.canViewFinancials === true;
 
   const { data: performanceData = [], isLoading: perfLoading } = useQuery<CollectorPerformance[]>({
     queryKey: ["/api/collectors/performance"],
@@ -139,7 +144,7 @@ export default function CollectorReporting() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-3 ${showFinancials ? "lg:grid-cols-5" : ""} gap-4`}>
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -179,34 +184,38 @@ export default function CollectorReporting() {
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-yellow-500/10">
-                <Wallet className="h-6 w-6 text-yellow-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">${totalWageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                <p className="text-sm text-muted-foreground">Wage Cost ({hoursWorked}hrs)</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-lg ${totalProfit >= 0 ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                <TrendingUp className={`h-6 w-6 ${totalProfit >= 0 ? "text-green-500" : "text-red-500"}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {overallROI.toFixed(1)}x ROI
-                </p>
-                <p className="text-sm text-muted-foreground">Profit: ${totalProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {showFinancials && (
+          <>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-lg bg-yellow-500/10">
+                    <Wallet className="h-6 w-6 text-yellow-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">${totalWageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                    <p className="text-sm text-muted-foreground">Wage Cost ({hoursWorked}hrs)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-lg ${totalProfit >= 0 ? "bg-green-500/10" : "bg-red-500/10"}`}>
+                    <TrendingUp className={`h-6 w-6 ${totalProfit >= 0 ? "text-green-500" : "text-red-500"}`} />
+                  </div>
+                  <div>
+                    <p className={`text-2xl font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {overallROI.toFixed(1)}x ROI
+                    </p>
+                    <p className="text-sm text-muted-foreground">Profit: ${totalProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {selectedCollectorDetail && (
@@ -312,11 +321,11 @@ export default function CollectorReporting() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 font-medium">Collector</th>
-                  <th className="text-right py-3 px-4 font-medium">Hourly Rate</th>
-                  <th className="text-right py-3 px-4 font-medium">Wage Cost</th>
+                  {showFinancials && <th className="text-right py-3 px-4 font-medium">Hourly Rate</th>}
+                  {showFinancials && <th className="text-right py-3 px-4 font-medium">Wage Cost</th>}
                   <th className="text-right py-3 px-4 font-medium">Collections</th>
-                  <th className="text-right py-3 px-4 font-medium">Profit</th>
-                  <th className="text-right py-3 px-4 font-medium">ROI</th>
+                  {showFinancials && <th className="text-right py-3 px-4 font-medium">Profit</th>}
+                  {showFinancials && <th className="text-right py-3 px-4 font-medium">ROI</th>}
                   <th className="text-right py-3 px-4 font-medium">New Money</th>
                   <th className="text-right py-3 px-4 font-medium">Pending</th>
                   <th className="text-right py-3 px-4 font-medium">Liquidation Rate</th>
@@ -344,21 +353,29 @@ export default function CollectorReporting() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-right py-3 px-4 font-mono text-sm">
-                        ${(collector.hourlyWage / 100).toFixed(2)}/hr
-                      </td>
-                      <td className="text-right py-3 px-4 font-mono text-sm text-muted-foreground">
-                        ${collector.wageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </td>
+                      {showFinancials && (
+                        <td className="text-right py-3 px-4 font-mono text-sm">
+                          ${(collector.hourlyWage / 100).toFixed(2)}/hr
+                        </td>
+                      )}
+                      {showFinancials && (
+                        <td className="text-right py-3 px-4 font-mono text-sm text-muted-foreground">
+                          ${collector.wageCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </td>
+                      )}
                       <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.collections)}</td>
-                      <td className={`text-right py-3 px-4 font-mono ${collector.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        ${collector.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </td>
-                      <td className="text-right py-3 px-4">
-                        <Badge variant={collector.roi >= 5 ? "default" : collector.roi >= 2 ? "secondary" : "destructive"}>
-                          {collector.roi.toFixed(1)}x
-                        </Badge>
-                      </td>
+                      {showFinancials && (
+                        <td className={`text-right py-3 px-4 font-mono ${collector.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          ${collector.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </td>
+                      )}
+                      {showFinancials && (
+                        <td className="text-right py-3 px-4">
+                          <Badge variant={collector.roi >= 5 ? "default" : collector.roi >= 2 ? "secondary" : "destructive"}>
+                            {collector.roi.toFixed(1)}x
+                          </Badge>
+                        </td>
+                      )}
                       <td className="text-right py-3 px-4 font-mono">{formatCurrency(collector.newMoney)}</td>
                       <td className="text-right py-3 px-4 font-mono text-muted-foreground">{formatCurrency(collector.currentPending)}</td>
                       <td className="text-right py-3 px-4 font-mono" data-testid={`text-liquidation-rate-${collector.id}`}>
@@ -384,6 +401,7 @@ export default function CollectorReporting() {
         </CardContent>
       </Card>
 
+      {showFinancials && (
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Profitability Analysis</CardTitle>
@@ -438,6 +456,7 @@ export default function CollectorReporting() {
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

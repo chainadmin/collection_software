@@ -48,6 +48,8 @@ import EmailManage from "@/pages/admin/email/manage";
 import Campaigns from "@/pages/admin/campaigns";
 import Clients from "@/pages/admin/clients";
 import Integrations from "@/pages/admin/integrations";
+import Demo from "@/pages/demo";
+import TeamScoreboard from "@/pages/team-scoreboard";
 import SuperAdmin from "@/pages/super-admin";
 import SuperAdminLogin from "@/pages/super-admin-login";
 import Subscribe from "@/pages/subscribe";
@@ -360,7 +362,7 @@ function AppContent() {
         <Route path="/collector-install" component={CollectorInstall} />
         <Route path="/signup" component={Signup} />
         <Route path="/subscribe" component={Subscribe} />
-        <Route path="/demo" component={Landing} />
+        <Route path="/demo" component={Demo} />
         <Route path="/contact" component={Landing} />
         <Route path="/super-admin-login" component={SuperAdminLogin} />
         <Route path="/super-admin" component={SuperAdmin} />
@@ -370,6 +372,13 @@ function AppContent() {
 
   if (!isAuthenticated) {
     return <Redirect to={isCollectorMode ? "/collector-login" : "/login"} />;
+  }
+
+  // Chrome-free, full-bleed page meant to be left open on an office TV -
+  // it deliberately skips the sidebar/app shell that every other
+  // authenticated route renders inside.
+  if (location === "/app/tv-board") {
+    return <TeamScoreboard />;
   }
 
   return <AppLayout />;

@@ -75,6 +75,20 @@ export const collectors = pgTable("collectors", {
   canViewDashboard: boolean("can_view_dashboard").default(false),
   canViewEmail: boolean("can_view_email").default(false),
   canViewPaymentRunner: boolean("can_view_payment_runner").default(false),
+  canEditPayments: boolean("can_edit_payments").default(false),
+  // Whether this collector can see company-level financials: employee hourly
+  // wages, wage-cost/ROI profitability reporting, and portfolio ROI. Not
+  // implied by role=admin - an org must grant this explicitly so a
+  // collector promoted to admin for day-to-day management doesn't
+  // automatically see pay and profitability data.
+  canViewFinancials: boolean("can_view_financials").default(false),
+  // Marks the org's built-in "Company Accounts" placeholder collector, used
+  // to hold accounts that keep payment history after their real collector
+  // is removed (so that history stays trackable) rather than sending them
+  // back to the unassigned pool. Never a real person - login is blocked for
+  // any collector with this flag set, and it's hidden from the manageable
+  // collectors list.
+  isSystemAccount: boolean("is_system_account").default(false),
 });
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });

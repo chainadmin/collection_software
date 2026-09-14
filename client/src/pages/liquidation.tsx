@@ -24,15 +24,23 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, calculateLiquidationRate, isCollectiblePaymentStatus } from "@/lib/utils";
-import type { Portfolio, Payment, Debtor } from "@shared/schema";
+import { useAuth } from "@/lib/auth-context";
+import type { Portfolio, Payment, Debtor, Collector } from "@shared/schema";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function Liquidation() {
+  const { user: authUser } = useAuth();
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>("all");
   const [calculatorFaceValue, setCalculatorFaceValue] = useState("");
   const [calculatorPurchasePrice, setCalculatorPurchasePrice] = useState("");
   const [calculatorCollected, setCalculatorCollected] = useState("");
+
+  const { data: collectors = [] } = useQuery<Collector[]>({
+    queryKey: ["/api/collectors"],
+  });
+  const currentCollector = collectors.find((c) => c.id === authUser?.id);
+  const showFinancials = currentCollector?.canViewFinancials === true;
 
   const { data: portfolios, isLoading: portfoliosLoading } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
@@ -192,7 +200,7 @@ export default function Liquidation() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className={`grid gap-4 md:grid-cols-2 ${showFinancials ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <StatCard
           title="Total Face Value"
           value={formatCurrencyCompact(totalFaceValue)}
@@ -209,19 +217,21 @@ export default function Liquidation() {
           value={`${overallLiquidationRate.toFixed(2)}%`}
           icon={BarChart3}
         />
-        <StatCard
-          title="Overall ROI"
-          value={`${roi.toFixed(1)}%`}
-          icon={roi >= 0 ? TrendingUp : TrendingDown}
-          trend={{ value: Math.abs(Math.round(roi * 10) / 10), isPositive: roi >= 0 }}
-        />
+        {showFinancials && (
+          <StatCard
+            title="Overall ROI"
+            value={`${roi.toFixed(1)}%`}
+            icon={roi >= 0 ? TrendingUp : TrendingDown}
+            trend={{ value: Math.abs(Math.round(roi * 10) / 10), isPositive: roi >= 0 }}
+          />
+        )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className={`grid gap-6 ${showFinancials ? "lg:grid-cols-3" : ""}`}>
+        <Card className={showFinancials ? "lg:col-span-2" : ""}>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Portfolio Performance</CardTitle>
-            <CardDescription>Liquidation rates and ROI by portfolio</CardDescription>
+            <CardDescription>{showFinancials ? "Liquidation rates and ROI by portfolio" : "Liquidation rates by portfolio"}</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -246,25 +256,29 @@ export default function Liquidation() {
                         <p className="text-xs text-muted-foreground">Liquidation Rate</p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className={`grid gap-4 text-sm ${showFinancials ? "grid-cols-4" : "grid-cols-2"}`}>
                       <div>
                         <p className="text-muted-foreground text-xs">Face Value</p>
                         <p className="font-mono">{formatCurrencyCompact(portfolio.totalFaceValue)}</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">Purchased For</p>
-                        <p className="font-mono">{formatCurrencyCompact(portfolio.purchasePrice)}</p>
-                      </div>
+                      {showFinancials && (
+                        <div>
+                          <p className="text-muted-foreground text-xs">Purchased For</p>
+                          <p className="font-mono">{formatCurrencyCompact(portfolio.purchasePrice)}</p>
+                        </div>
+                      )}
                       <div>
                         <p className="text-muted-foreground text-xs">Collected</p>
                         <p className="font-mono">{formatCurrencyCompact(portfolio.collected)}</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">ROI</p>
-                        <p className={`font-mono ${portfolio.roi >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                          {portfolio.roi >= 0 ? "+" : ""}{portfolio.roi.toFixed(1)}%
-                        </p>
-                      </div>
+                      {showFinancials && (
+                        <div>
+                          <p className="text-muted-foreground text-xs">ROI</p>
+                          <p className={`font-mono ${portfolio.roi >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                            {portfolio.roi >= 0 ? "+" : ""}{portfolio.roi.toFixed(1)}%
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
                       <div
@@ -284,6 +298,7 @@ export default function Liquidation() {
           </CardContent>
         </Card>
 
+        {showFinancials && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
@@ -366,6 +381,7 @@ export default function Liquidation() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -425,20 +441,22 @@ export default function Liquidation() {
                   {formatCurrency(totalCollected / Math.max(totalAccounts, 1))}
                 </p>
               </div>
-              <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
-                    <Calendar className="h-5 w-5" />
+              {showFinancials && (
+                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                      <Calendar className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Days to Break-Even</p>
+                      <p className="text-xs text-muted-foreground">Estimated</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">Days to Break-Even</p>
-                    <p className="text-xs text-muted-foreground">Estimated</p>
-                  </div>
+                  <p className="text-lg font-semibold font-mono">
+                    {totalCollected > 0 ? Math.round((totalPurchased / (totalCollected / 365)) || 0) : 0}
+                  </p>
                 </div>
-                <p className="text-lg font-semibold font-mono">
-                  {totalCollected > 0 ? Math.round((totalPurchased / (totalCollected / 365)) || 0) : 0}
-                </p>
-              </div>
+              )}
               <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">

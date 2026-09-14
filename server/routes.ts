@@ -6,7 +6,8 @@ import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTi
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { canRunPaymentsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { computeSubscriptionAccess } from "./subscription-access";
 import bcrypt from "bcrypt";
 import { 
   processDebtorCardPayment,
@@ -188,6 +189,80 @@ async function canRunPayments(req: any, orgId: string): Promise<boolean> {
   return canRunPaymentsRecord(sessionCollector, live, orgId);
 }
 
+async function canEditPayments(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return canEditPaymentsRecord(sessionCollector, live, orgId);
+}
+
+async function canViewFinancials(req: any, orgId: string): Promise<boolean> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return false;
+  const live = await storage.getCollector(sessionCollector.id);
+  return canViewFinancialsRecord(sessionCollector, live, orgId);
+}
+
+// Hourly wage is company-financial data. A collector may always see their
+// own, but another collector's wage is only included for a viewer who has
+// been explicitly granted canViewFinancials - role=admin does not imply it.
+function redactCollectorWage<T extends { id: string; hourlyWage: number | null }>(
+  collector: T,
+  viewerId: string | undefined,
+  viewerCanSeeFinancials: boolean,
+): T {
+  if (viewerCanSeeFinancials || collector.id === viewerId) return collector;
+  return { ...collector, hourlyWage: null };
+}
+
+const COMPANY_ACCOUNTS_USERNAME = "company-accounts";
+
+// Finds (or creates, on first use) the org's built-in placeholder collector
+// that accounts with payment history move to when their real collector is
+// removed - so that history stays trackable instead of becoming orphaned.
+// Never a real person: login is blocked for isSystemAccount collectors.
+async function getOrCreateCompanyAccountsCollector(orgId: string) {
+  const existing = await storage.getCollectorByOrgAndUsername(orgId, COMPANY_ACCOUNTS_USERNAME);
+  if (existing) return existing;
+  return storage.createCollector({
+    organizationId: orgId,
+    name: "Company Accounts",
+    email: `${COMPANY_ACCOUNTS_USERNAME}+${orgId}@internal.local`,
+    username: COMPANY_ACCOUNTS_USERNAME,
+    password: await hashPassword(crypto.randomUUID()),
+    role: "collector",
+    status: "active",
+    avatarInitials: "CA",
+    isSystemAccount: true,
+  });
+}
+
+// Splits a collector's assigned accounts for removal: accounts with a
+// posted or pending payment keep their history trackable by moving to
+// Company Accounts; everything else returns to the unassigned House Desk.
+// Also identifies the collector's own processed payments, so their
+// collections/wage-cost/ROI history can move to Company Accounts too
+// instead of silently vanishing from reporting once their row is deleted
+// (reporting is keyed off which collector processed each payment, which is
+// independent of which collector an account is currently assigned to).
+async function classifyDebtorsForRemoval(orgId: string, collectorId: string) {
+  const [allDebtors, allPayments] = await Promise.all([storage.getDebtors(), storage.getPayments()]);
+  const assigned = allDebtors.filter(
+    (d) => d.organizationId === orgId && d.assignedCollectorId === collectorId,
+  );
+  const debtorIdsWithActivePayment = new Set(
+    allPayments
+      .filter((p) => p.organizationId === orgId && (p.status === "posted" || p.status === "pending"))
+      .map((p) => p.debtorId),
+  );
+  const toCompanyAccounts = assigned.filter((d) => debtorIdsWithActivePayment.has(d.id));
+  const toHouseDesk = assigned.filter((d) => !debtorIdsWithActivePayment.has(d.id));
+  const processedPayments = allPayments.filter(
+    (p) => p.organizationId === orgId && p.processedBy === collectorId,
+  );
+  return { toCompanyAccounts, toHouseDesk, processedPayments };
+}
+
 
 // Validate that a resource belongs to the authenticated user's organization
 // Returns true if valid, false if the resource doesn't belong to the org
@@ -321,42 +396,7 @@ async function checkSubscriptionActive(orgId: string): Promise<{ active: boolean
   if (!org) {
     return { active: false, reason: "Organization not found" };
   }
-  
-  // If organization is not active, block access
-  if (!org.isActive) {
-    return { active: false, reason: "Organization is inactive" };
-  }
-  
-  // If subscription is active, allow access
-  if (org.subscriptionStatus === "active") {
-    return { active: true };
-  }
-  
-  // If in trial, check if trial has expired
-  if (org.subscriptionStatus === "trial") {
-    const today = new Date();
-    const trialEnd = org.trialEndDate ? new Date(org.trialEndDate) : null;
-    const billingStart = org.billingStartDate ? new Date(org.billingStartDate) : null;
-
-    // Some organizations have a free month configured after creation.
-    // In that case, keep trial access until the later of trial end or billing start date.
-    const accessEndDate = trialEnd && billingStart
-      ? (trialEnd > billingStart ? trialEnd : billingStart)
-      : (billingStart || trialEnd);
-
-    if (!accessEndDate) {
-      return { active: true };
-    }
-
-    if (today <= accessEndDate) {
-      return { active: true };
-    } else {
-      return { active: false, reason: "Trial has expired. Please subscribe to continue." };
-    }
-  }
-  
-  // Default: allow access for legacy orgs without subscription status
-  return { active: true };
+  return computeSubscriptionAccess(org);
 }
 
 export async function registerRoutes(
@@ -666,6 +706,7 @@ export async function registerRoutes(
         canViewDashboard: true,
         canViewEmail: true,
         canViewPaymentRunner: true,
+        canViewFinancials: true,
       });
 
       // Create admin notification for new organization registration
@@ -718,7 +759,7 @@ export async function registerRoutes(
 
       // Find collector by email
       const collector = await storage.getCollectorByEmail(email);
-      if (!collector) {
+      if (!collector || collector.isSystemAccount) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
@@ -845,7 +886,7 @@ export async function registerRoutes(
 
       const trimmedUsername = String(username).trim();
       const collector = await storage.getCollectorByOrgAndUsername(organization.id, trimmedUsername);
-      if (!collector) {
+      if (!collector || collector.isSystemAccount) {
         return res.status(401).json({
           code: "invalid_credentials",
           error: "That username and password don't match. Please try again.",
@@ -1208,6 +1249,7 @@ export async function registerRoutes(
         canViewDashboard: true,
         canViewEmail: true,
         canViewPaymentRunner: true,
+        canViewFinancials: true,
       });
 
       res.json(org);
@@ -1888,7 +1930,9 @@ export async function registerRoutes(
       const allCollectors = await storage.getCollectors();
       // Filter to only return collectors from the authenticated user's organization
       const orgCollectors = allCollectors.filter(c => c.organizationId === orgId);
-      res.json(orgCollectors);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(orgCollectors.map(c => redactCollectorWage(c, viewerId, viewerCanSeeFinancials)));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collectors" });
     }
@@ -2042,7 +2086,9 @@ export async function registerRoutes(
       if (!validateOrgOwnership(collector.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      res.json(collector);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(redactCollectorWage(collector, viewerId, viewerCanSeeFinancials));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collector" });
     }
@@ -2084,6 +2130,11 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
       const body = { ...req.body };
+      if (typeof body.canViewFinancials === "boolean" && body.canViewFinancials !== existing.canViewFinancials) {
+        if (!(await canViewFinancials(req, orgId))) {
+          return res.status(403).json({ error: "Only a collector with financial visibility can grant or revoke it" });
+        }
+      }
       if (body.username !== undefined) {
         body.username = String(body.username).trim();
         if (!body.username) {
@@ -2104,9 +2155,34 @@ export async function registerRoutes(
       if (!collector) {
         return res.status(404).json({ error: "Collector not found" });
       }
-      res.json(collector);
+      const viewerId = req.session?.collector?.id;
+      const viewerCanSeeFinancials = await canViewFinancials(req, orgId);
+      res.json(redactCollectorWage(collector, viewerId, viewerCanSeeFinancials));
     } catch (error) {
       res.status(500).json({ error: "Failed to update collector" });
+    }
+  });
+
+  // Preview of what removing a collector will do to their assigned accounts,
+  // shown in the confirmation dialog before an admin commits to it.
+  app.get("/api/collectors/:id/removal-impact", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getCollector(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { toCompanyAccounts, toHouseDesk } = await classifyDebtorsForRemoval(orgId, existing.id);
+      res.json({
+        totalAssigned: toCompanyAccounts.length + toHouseDesk.length,
+        houseDeskCount: toHouseDesk.length,
+        companyAccountsCount: toCompanyAccounts.length,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to compute removal impact" });
     }
   });
 
@@ -2120,6 +2196,30 @@ export async function registerRoutes(
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (existing.isSystemAccount) {
+        return res.status(400).json({ error: "The Company Accounts collector can't be removed" });
+      }
+
+      // Reassign this collector's accounts before removing them: accounts
+      // with payment history move to Company Accounts so that history stays
+      // trackable; everything else returns to the unassigned House Desk.
+      const { toCompanyAccounts, toHouseDesk, processedPayments } = await classifyDebtorsForRemoval(orgId, existing.id);
+      if (toCompanyAccounts.length > 0 || processedPayments.length > 0) {
+        const companyAccounts = await getOrCreateCompanyAccountsCollector(orgId);
+        await Promise.all(
+          toCompanyAccounts.map((d) => storage.updateDebtor(d.id, { assignedCollectorId: companyAccounts.id })),
+        );
+        // Move the collector's own collections history too, so it stays
+        // attributed to Company Accounts in reporting instead of vanishing
+        // once this collector's row no longer exists to sum payments under.
+        await Promise.all(
+          processedPayments.map((p) => storage.updatePayment(p.id, { processedBy: companyAccounts.id })),
+        );
+      }
+      if (toHouseDesk.length > 0) {
+        await Promise.all(toHouseDesk.map((d) => storage.updateDebtor(d.id, { assignedCollectorId: null })));
+      }
+
       const deleted = await storage.deleteCollector(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Collector not found" });
@@ -3580,8 +3680,8 @@ export async function registerRoutes(
   app.patch("/api/payments/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!(await canRunPayments(req, orgId))) {
-        return res.status(403).json({ error: "Payment Runner permission required" });
+      if (!(await canEditPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment edit permission required" });
       }
       const payment = await storage.getPayment(req.params.id);
       if (!payment || payment.organizationId !== orgId) {
