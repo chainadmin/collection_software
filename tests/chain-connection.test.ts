@@ -111,7 +111,11 @@ test("Chain login and portfolio contract are tenant isolated and stable", async 
     assert.equal(accountsByChainIdPayload.data[0].dateOfBirth, "1986-04-12");
     assert.equal(accountsByChainIdPayload.data[0].balance, 7350);
     assert.equal(accountsByChainIdPayload.data[0].currentBalance, 7350);
-    assert.equal(accountsByChainIdPayload.data[0].originalBalance, 10000);
+    // Chain's bulk account sync only ever needs the live balance -
+    // originalBalance is deliberately omitted here so a sync can never write
+    // a wrong value into it, even by accident. Chain keeps whatever
+    // originalBalance it already has on file for an account.
+    assert.equal("originalBalance" in accountsByChainIdPayload.data[0], false);
 
     const updatedAccount = await f.request("/api/v2/updatedbase", {
       method: "PUT",

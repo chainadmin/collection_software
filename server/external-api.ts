@@ -715,10 +715,17 @@ export function registerExternalApiRoutes(app: Express) {
         filtered = filtered.slice(0, limit);
       }
       
+      const formatted = await Promise.all(filtered.map((d) => formatDebtorForApi(d)));
+      // Chain's bulk account sync only ever needs the live balance. Dropping
+      // originalBalance here means a sync can no longer write a wrong value
+      // into it even by accident - Chain keeps whatever originalBalance it
+      // already has on file for an account, which never changes anyway.
+      const data = formatted.map(({ originalBalance, ...account }) => account);
+
       res.json({
         success: true,
         total,
-        data: await Promise.all(filtered.map((d) => formatDebtorForApi(d))),
+        data,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch accounts" });
