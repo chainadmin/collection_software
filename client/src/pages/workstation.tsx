@@ -40,7 +40,7 @@ import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bi
 import { formatCardNumber } from "@/lib/bin-lookup";
 import { CardValidationFeedback } from "@/components/card-validation-feedback";
 import { parseCustomFields } from "@/components/account-data-editors";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { announceAccountChange } from "@/lib/account-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -179,6 +179,7 @@ export default function Workstation() {
   const { toast } = useToast();
   const { user: authUser, isLoading: authLoading } = useAuth();
   const search = useSearch();
+  const [, navigate] = useLocation();
   const [selectedDebtorId, setSelectedDebtorId] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState("");
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -236,7 +237,9 @@ export default function Workstation() {
   const [cardCvv, setCardCvv] = useState("");
   const [cardType, setCardType] = useState("visa");
   const [binLookupResult, setBinLookupResult] = useState<BinLookupResult | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(
+    () => new URLSearchParams(search).get("status") || "all",
+  );
   const [selectedCardId, setSelectedCardId] = useState<string>("");
   const [paymentFrequency, setPaymentFrequency] = useState("one_time");
   const [specificPaymentDates, setSpecificPaymentDates] = useState("");
@@ -281,6 +284,35 @@ export default function Workstation() {
       setSelectedDebtorId(accountIdFromSearch);
     }
   }, [accountIdFromSearch]);
+
+  // Keep the URL in sync with which account/status filter a collector is
+  // actually working. Every navigation control on this screen (status
+  // dropdown, previous/next account, clicking an account in the queue) only
+  // ever called setSelectedDebtorId/setStatusFilter directly - the URL was
+  // never updated to match, so it stayed frozen at whatever it was when the
+  // page first loaded (or had no ?account= at all). Leaving this screen for
+  // any reason - a different page, a browser refresh, even just switching
+  // tabs long enough for the route to remount - throws away all local
+  // React state, and coming back restored from that stale/blank URL instead
+  // of wherever the collector actually was. `replace` (not push) so this
+  // doesn't fill up browser history with one entry per account viewed.
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    if (selectedDebtorId) {
+      params.set("account", selectedDebtorId);
+    } else {
+      params.delete("account");
+    }
+    if (statusFilter && statusFilter !== "all") {
+      params.set("status", statusFilter);
+    } else {
+      params.delete("status");
+    }
+    const nextSearch = params.toString();
+    if (nextSearch !== search) {
+      navigate(`/app/workstation${nextSearch ? `?${nextSearch}` : ""}`, { replace: true });
+    }
+  }, [selectedDebtorId, statusFilter]);
 
   const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
     queryKey: ["/api/account-statuses"],
