@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
-import { queryClient } from "./lib/queryClient";
+import { queryClient, apiRequest } from "./lib/queryClient";
+import { useSoftphoneRealtime } from "@/hooks/use-softphone-realtime";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -208,6 +209,25 @@ function AppLayout() {
       ? `/app/workstation?account=${encodeURIComponent(destination)}`
       : `/app/debtors/${encodeURIComponent(destination)}`);
   };
+
+  // Chiamo reports a call as answered with the caller's phone number - DMP
+  // resolves that to an account (see /api/v2/softphone/call-event) and
+  // pushes back only the fileNumber, DMP's external identifier. Resolve it
+  // to this collector's internal debtor id the same way any manual search
+  // does before navigating, rather than exposing the internal id externally.
+  const handleIncomingCallAnswered = useCallback(async (fileNumber: string) => {
+    try {
+      const res = await apiRequest("GET", `/api/debtors/search?q=${encodeURIComponent(fileNumber)}`);
+      const results: Debtor[] = await res.json();
+      const matched = results.find((d) => d.fileNumber === fileNumber) || results[0];
+      if (!matched) return;
+      handleAccountSelect(matched);
+    } catch (error) {
+      console.error("Failed to resolve incoming call to an account:", error);
+    }
+  }, [handleAccountSelect]);
+
+  useSoftphoneRealtime(currentCollector?.id, handleIncomingCallAnswered);
 
   const style = {
     "--sidebar-width": "16rem",

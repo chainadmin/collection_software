@@ -2366,6 +2366,16 @@ export async function registerRoutes(
     }
   });
 
+  // Mints a short-lived, one-time token for the collector's browser to open
+  // the softphone WebSocket connection with, so screen-pop events (a call
+  // Chiamo reports as answered) can reach their live tab without them
+  // touching anything. See server/realtimeSoftphone.ts.
+  app.get("/api/collector/realtime-token", requireCollectorAuth, async (req: any, res) => {
+    const { mintRealtimeToken } = await import("./realtimeSoftphone");
+    const token = mintRealtimeToken(req.session.collector.id, req.session.collector.organizationId);
+    res.json({ token });
+  });
+
   app.get("/api/exports/accounts", requireCollectorAuth, async (req: any, res) => {
     try {
       const orgId = req.session.collector.organizationId;
