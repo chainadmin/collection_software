@@ -4,7 +4,8 @@ import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Target, DollarSign, Percent } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { isCollectiblePaymentStatus } from "@/lib/utils";
-import type { Payment, Debtor, Collector, Portfolio } from "@shared/schema";
+import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
+import type { Payment, Debtor, Collector, Portfolio, FeeSchedule } from "@shared/schema";
 
 export default function LiqRates() {
   const { user: authUser } = useAuth();
@@ -23,6 +24,10 @@ export default function LiqRates() {
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["/api/portfolios"],
+  });
+
+  const { data: feeSchedules = [] } = useQuery<FeeSchedule[]>({
+    queryKey: ["/api/fee-schedules"],
   });
 
   const currentCollector = collectors.find((c) => c.id === authUser?.id);
@@ -47,7 +52,14 @@ export default function LiqRates() {
     (sum, d) => sum + d.currentBalance,
     0
   );
-  const totalCollected = myPayments.reduce((sum, p) => sum + p.amount, 0);
+  // Net of each account's portfolio placement fee -- what the agency itself
+  // keeps, not the raw debtor payment. A portfolio with no fee schedule
+  // keeps 100% of every payment, same as before this existed.
+  const feeRateByDebtorId = buildDebtorFeeRateMap(debtors, portfolios, feeSchedules);
+  const totalCollected = myPayments.reduce(
+    (sum, p) => sum + splitAmountByFee(p.amount, feeRateByDebtorId.get(p.debtorId) ?? 0).companyAmount,
+    0,
+  );
 
   const liquidationRate =
     totalOriginalBalance > 0

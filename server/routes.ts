@@ -63,6 +63,7 @@ import {
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
 import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
+import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -1967,11 +1968,23 @@ export async function registerRoutes(
       const allCollectors = await storage.getCollectors();
       const allPayments = await storage.getPayments();
       const allDebtors = await storage.getDebtors();
+      const allPortfolios = await storage.getPortfolios();
+      const allFeeSchedules = await storage.getFeeSchedules(orgId);
 
       // Filter by organization
       const collectors = allCollectors.filter(c => c.organizationId === orgId);
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
       const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+      const orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
+
+      // debtorId -> basis points of each payment owed back to the client who
+      // placed that debtor's portfolio (0 if the portfolio has no fee
+      // schedule). Used below to report each collector's figures both gross
+      // (existing top-level fields, unchanged) and net of that placement fee
+      // (the nested "company" object) -- the amount the agency itself keeps.
+      const feeRateByDebtorId = buildDebtorFeeRateMap(orgDebtors, orgPortfolios, allFeeSchedules);
+      const companyAmount = (payment: { debtorId: string; amount: number }) =>
+        splitAmountByFee(payment.amount, feeRateByDebtorId.get(payment.debtorId) ?? 0).companyAmount;
 
       const now = new Date();
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -1991,6 +2004,15 @@ export async function registerRoutes(
         };
       });
 
+      // Sums a list of payments both gross (unchanged, existing behavior)
+      // and net of each payment's portfolio placement fee (what the agency
+      // itself keeps) in one pass, so the two figures can never diverge.
+      const sumGrossAndCompany = (list: { debtorId: string; amount: number }[]) =>
+        list.reduce(
+          (acc, p) => ({ gross: acc.gross + p.amount, company: acc.company + companyAmount(p) }),
+          { gross: 0, company: 0 },
+        );
+
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
@@ -2006,51 +2028,64 @@ export async function registerRoutes(
           const d = p.paymentDate.split('T')[0];
           return d >= currentMonthStart && d <= currentMonthEnd;
         });
-        const currentTotal = thisMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+        const currentTotalSums = sumGrossAndCompany(thisMonthPayments);
+        const currentTotal = currentTotalSums.gross;
 
         // Start-of-month baseline: of this month's scheduled installments,
         // the ones that were already booked (createdAt) before the month
         // began -- i.e. recurring collections from an earlier arrangement,
         // not fresh production. Whatever's left after subtracting this is
         // this month's actual new business.
-        const somTotal = thisMonthPayments
-          .filter(p => p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart)
-          .reduce((sum, p) => sum + p.amount, 0);
+        const somTotalSums = sumGrossAndCompany(
+          thisMonthPayments.filter(p => p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart),
+        );
+        const somTotal = somTotalSums.gross;
 
         // New money = this month's scheduled total minus whatever portion of
         // it was already on the books before the month began.
         const newMoney = currentTotal - somTotal;
+        const companyNewMoney = currentTotalSums.company - somTotalSums.company;
 
         // All-time posted/pending totals for this collector, independent of
         // the current-month scoping above -- used for lifetime collections,
         // wage/ROI, and liquidation figures elsewhere.
-        const currentPending = collectorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = collectorPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
+        const currentPendingSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'pending'));
+        const currentPostedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'posted'));
+        const currentPending = currentPendingSums.gross;
+        const currentPosted = currentPostedSums.gross;
 
         // Declined and reversed (payments removed from pending/posted)
-        const totalDeclined = collectorPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const totalReversed = collectorPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        const totalDeclinedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'declined'));
+        const totalReversedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'reversed'));
+        const totalDeclined = totalDeclinedSums.gross;
+        const totalReversed = totalReversedSums.gross;
 
         // Pending specifically scheduled to run next calendar month, keyed off
         // the payment's own paymentDate -- not nextPaymentDate, which is only
         // populated on recurring payments' bookkeeping pointer and is null on
         // an ordinary one-time or arrangement pending payment.
-        const nextMonthPendingTotal = collectorPayments
-          .filter(p => p.status === 'pending' && p.paymentDate)
-          .filter(p => {
-            const d = p.paymentDate!.split('T')[0];
-            return d >= nextMonthStart && d <= nextMonthEnd;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
+        const nextMonthPendingSums = sumGrossAndCompany(
+          collectorPayments
+            .filter(p => p.status === 'pending' && p.paymentDate)
+            .filter(p => {
+              const d = p.paymentDate!.split('T')[0];
+              return d >= nextMonthStart && d <= nextMonthEnd;
+            }),
+        );
+        const nextMonthPendingTotal = nextMonthPendingSums.gross;
 
         // Posted vs. pending, broken out by month, for the collector drill-down.
         const monthlyBreakdown = monthWindow.map(({ key, label }) => {
           const monthPayments = collectorPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(key));
+          const postedSums = sumGrossAndCompany(monthPayments.filter(p => p.status === 'posted'));
+          const pendingSums = sumGrossAndCompany(monthPayments.filter(p => p.status === 'pending'));
           return {
             month: key,
             label,
-            posted: monthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0),
-            pending: monthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
+            posted: postedSums.gross,
+            pending: pendingSums.gross,
+            companyPosted: postedSums.company,
+            companyPending: pendingSums.company,
           };
         });
 
@@ -2059,6 +2094,7 @@ export async function registerRoutes(
         const assignedDebtors = orgDebtors.filter(d => d.assignedCollectorId === collector.id);
         const assignedOriginalBalance = assignedDebtors.reduce((sum, d) => sum + (d.originalBalance || 0), 0);
         const liquidationRate = assignedOriginalBalance > 0 ? (currentPosted / assignedOriginalBalance) * 100 : 0;
+        const companyLiquidationRate = assignedOriginalBalance > 0 ? (currentPostedSums.company / assignedOriginalBalance) * 100 : 0;
 
         return {
           id: collector.id,
@@ -2084,6 +2120,21 @@ export async function registerRoutes(
           goalProgress: collector.goal ? Math.round((newMoney / collector.goal) * 100) : 0,
           // Per-month posted/pending history for drill-down views
           monthlyBreakdown,
+          // Every gross figure above, net of each account's portfolio
+          // placement fee -- what the agency itself actually keeps, e.g. a
+          // $100 payment on a portfolio with a 60% client fee nets $40 here.
+          // Portfolios without a fee schedule are unaffected (company === gross).
+          company: {
+            somTotal: somTotalSums.company,
+            currentTotal: currentTotalSums.company,
+            currentPending: currentPendingSums.company,
+            currentPosted: currentPostedSums.company,
+            newMoney: companyNewMoney,
+            totalDeclined: totalDeclinedSums.company,
+            totalReversed: totalReversedSums.company,
+            nextMonthPending: nextMonthPendingSums.company,
+            liquidationRate: companyLiquidationRate,
+          },
           // Personal liquidation rate
           assignedAccounts: assignedDebtors.length,
           assignedOriginalBalance,
