@@ -89,13 +89,12 @@ export default function CompanyDashboard() {
         pending,
         fellThrough,
         isCurrent: i === 0,
-        target: 1,
+        // Each bar is sized only from that month's own posted/pending/
+        // fell-through amounts -- never compared against any other month.
+        total: posted + pending + fellThrough,
       });
     }
-    // Bars are sized relative to the busiest month across all three
-    // categories, so the longest bar on the chart is always full-width.
-    const highestMonthlyTotal = Math.max(...months.map((month) => month.posted + month.pending + month.fellThrough), 1);
-    return months.map((month) => ({ ...month, target: highestMonthlyTotal }));
+    return months;
   })();
 
   const postedPayments = payments.filter((payment) => payment.status === "posted");
@@ -259,18 +258,22 @@ export default function CompanyDashboard() {
                     </div>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden flex">
-                    <div
-                      className="h-full bg-primary"
-                      style={{ width: `${(month.posted / month.target) * 100}%` }}
-                    />
-                    <div
-                      className="h-full bg-yellow-400/70"
-                      style={{ width: `${(month.pending / month.target) * 100}%` }}
-                    />
-                    <div
-                      className="h-full bg-red-500/70"
-                      style={{ width: `${(month.fellThrough / month.target) * 100}%` }}
-                    />
+                    {month.total > 0 && (
+                      <>
+                        <div
+                          className="h-full bg-primary"
+                          style={{ width: `${(month.posted / month.total) * 100}%` }}
+                        />
+                        <div
+                          className="h-full bg-yellow-400/70"
+                          style={{ width: `${(month.pending / month.total) * 100}%` }}
+                        />
+                        <div
+                          className="h-full bg-red-500/70"
+                          style={{ width: `${(month.fellThrough / month.total) * 100}%` }}
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
