@@ -63,11 +63,12 @@ export default function CompanyDashboard() {
     queryKey: ["/api/portfolios"],
   });
 
-  // Calculate real monthly data from payments -- posted (actually collected)
-  // and pending (scheduled/promised but not yet run) split out separately, and
-  // extended a few months forward so a payment arrangement booked for a future
-  // month (e.g. October, scheduled while today is in September) actually shows
-  // up instead of only ever appearing in a trailing-months-only window.
+  // Calculate real monthly data from payments -- posted (actually collected),
+  // pending (scheduled/promised but not yet run), and declined/reversed
+  // (fell through) split out separately, and extended a few months forward
+  // so a payment arrangement booked for a future month (e.g. October,
+  // scheduled while today is in September) actually shows up instead of
+  // only ever appearing in a trailing-months-only window.
   const monthlyData = (() => {
     const currentDate = new Date();
     const MONTHS_BACK = 5;
@@ -79,15 +80,21 @@ export default function CompanyDashboard() {
       const monthPayments = payments.filter(p => p.paymentDate?.startsWith(monthKey));
       const posted = monthPayments.filter(p => p.status === "posted").reduce((sum, p) => sum + p.amount, 0);
       const pending = monthPayments.filter(p => p.status === "pending").reduce((sum, p) => sum + p.amount, 0);
+      const fellThrough = monthPayments
+        .filter(p => p.status === "declined" || p.status === "reversed")
+        .reduce((sum, p) => sum + p.amount, 0);
       months.push({
         month: d.toLocaleString("default", { month: "short", year: "2-digit" }),
         posted,
         pending,
+        fellThrough,
         isCurrent: i === 0,
         target: 1,
       });
     }
-    const highestMonthlyTotal = Math.max(...months.map((month) => month.posted + month.pending), 1);
+    // Bars are sized relative to the busiest month across all three
+    // categories, so the longest bar on the chart is always full-width.
+    const highestMonthlyTotal = Math.max(...months.map((month) => month.posted + month.pending + month.fellThrough), 1);
     return months.map((month) => ({ ...month, target: highestMonthlyTotal }));
   })();
 
@@ -233,46 +240,44 @@ export default function CompanyDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Monthly Collections</CardTitle>
-            <CardDescription>Posted and pending payments by month, relative to the highest month</CardDescription>
+            <CardDescription>Posted, pending, and declined/reversed payments by month</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {monthlyData.map((month) => {
-                const total = month.posted + month.pending;
-                const percentage = (total / month.target) * 100;
-                const isAboveTarget = percentage >= 100;
-                return (
-                  <div key={month.month} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className={`font-medium ${month.isCurrent ? "text-primary" : ""}`}>{month.month}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono">{formatCurrency(month.posted)}</span>
-                        {month.pending > 0 && (
-                          <span className="font-mono text-xs text-yellow-600 dark:text-yellow-400">
-                            +{formatCurrency(month.pending)} pending
-                          </span>
-                        )}
-                        <Badge variant={isAboveTarget ? "default" : "secondary"}>
-                          {percentage.toFixed(0)}%
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden flex">
-                      <div
-                        className="h-full bg-primary"
-                        style={{ width: `${(month.posted / month.target) * 100}%` }}
-                      />
-                      <div
-                        className="h-full bg-yellow-400/70"
-                        style={{ width: `${(month.pending / month.target) * 100}%` }}
-                      />
+              {monthlyData.map((month) => (
+                <div key={month.month} className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className={`font-medium ${month.isCurrent ? "text-primary" : ""}`}>{month.month}</span>
+                    <div className="flex items-center gap-3 font-mono text-xs">
+                      <span className="text-primary">{formatCurrency(month.posted)}</span>
+                      {month.pending > 0 && (
+                        <span className="text-yellow-600 dark:text-yellow-400">{formatCurrency(month.pending)}</span>
+                      )}
+                      {month.fellThrough > 0 && (
+                        <span className="text-red-600 dark:text-red-400">{formatCurrency(month.fellThrough)}</span>
+                      )}
                     </div>
                   </div>
-                );
-              })}
+                  <div className="h-2 bg-muted rounded-full overflow-hidden flex">
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${(month.posted / month.target) * 100}%` }}
+                    />
+                    <div
+                      className="h-full bg-yellow-400/70"
+                      style={{ width: `${(month.pending / month.target) * 100}%` }}
+                    />
+                    <div
+                      className="h-full bg-red-500/70"
+                      style={{ width: `${(month.fellThrough / month.target) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
               <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-primary inline-block" /> Posted</span>
                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-400/70 inline-block" /> Pending</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500/70 inline-block" /> Declined/Reversed</span>
               </div>
             </div>
           </CardContent>
