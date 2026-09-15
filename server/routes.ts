@@ -2179,6 +2179,15 @@ export async function registerRoutes(
       if (existing) {
         return res.status(409).json({ error: "A collector with that username already exists in your organization" });
       }
+      if (body.chiamoEmail && String(body.chiamoEmail).trim()) {
+        body.chiamoEmail = String(body.chiamoEmail).trim();
+        const existingChiamoLink = await storage.getCollectorByOrgAndChiamoEmail(orgId, body.chiamoEmail);
+        if (existingChiamoLink) {
+          return res.status(409).json({ error: "Another collector is already linked to that Chiamo email" });
+        }
+      } else {
+        body.chiamoEmail = null;
+      }
       if (body.password && !body.password.startsWith("$2")) {
         body.password = await hashPassword(body.password);
       }
@@ -2217,6 +2226,15 @@ export async function registerRoutes(
           const dup = await storage.getCollectorByOrgAndUsername(existing.organizationId, body.username);
           if (dup && dup.id !== existing.id) {
             return res.status(409).json({ error: "A collector with that username already exists in your organization" });
+          }
+        }
+      }
+      if (body.chiamoEmail !== undefined) {
+        body.chiamoEmail = String(body.chiamoEmail ?? "").trim() || null;
+        if (body.chiamoEmail && body.chiamoEmail !== existing.chiamoEmail) {
+          const dupChiamoLink = await storage.getCollectorByOrgAndChiamoEmail(existing.organizationId, body.chiamoEmail);
+          if (dupChiamoLink && dupChiamoLink.id !== existing.id) {
+            return res.status(409).json({ error: "Another collector is already linked to that Chiamo email" });
           }
         }
       }
