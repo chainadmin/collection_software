@@ -36,6 +36,7 @@ import {
   Check,
   X,
   Loader2,
+  Star,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { formatCardNumber } from "@/lib/bin-lookup";
@@ -693,6 +694,15 @@ export default function Workstation() {
     onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
+  const setPrimaryContactMutation = useMutation({
+    mutationFn: async (contactId: string) => apiRequest("POST", `/api/contacts/${contactId}/set-primary`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+      toast({ title: "Primary updated", description: "The primary contact was switched." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to set primary", description: error.message || "Please try again.", variant: "destructive" }),
+  });
+
   const availableMessageTemplates = messageTemplates.filter((t) =>
     t.isActive !== false && (messageDialog?.contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
   );
@@ -833,6 +843,18 @@ export default function Workstation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
     },
+  });
+
+  const setPrimaryReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { referenceId: string; value: string }) => {
+      return apiRequest("POST", `/api/references/${data.referenceId}/primary-phone`, { value: data.value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "references"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+      toast({ title: "Primary updated", description: "The reference's primary number was switched." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to set primary", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
   const resetEmploymentForm = () => {
@@ -1762,6 +1784,22 @@ export default function Workstation() {
                                   )}
                                 </Button>
                               )}
+                              {!contact.isPrimary && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPrimaryContactMutation.mutate(contact.id);
+                                  }}
+                                  aria-label={`Make ${contact.value} the primary ${contact.type}`}
+                                  title="Set as primary"
+                                  data-testid={`button-set-primary-contact-${contact.id}`}
+                                >
+                                  <Star className="h-3 w-3" />
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1930,18 +1968,34 @@ export default function Workstation() {
                                     </div>
                                   </div>
                                   <div className="mt-1 space-y-1">
-                                    {[ref.phone, ref.phone2, ref.phone3].filter(Boolean).map((phone, index) => (
-                                      <p
-                                        key={index}
-                                        className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
-                                        onClick={() => {
-                                          setClickedPhone(phone as string);
-                                          setShowCallOutcomeDialog(true);
-                                        }}
-                                        data-testid={`text-reference-phone-${ref.id}-${index}`}
-                                      >
-                                        {phone}
-                                      </p>
+                                    {[ref.phone, ref.phone2, ref.phone3].map((phone, index) => phone && (
+                                      <div key={index} className="flex items-center gap-2">
+                                        <p
+                                          className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
+                                          onClick={() => {
+                                            setClickedPhone(phone);
+                                            setShowCallOutcomeDialog(true);
+                                          }}
+                                          data-testid={`text-reference-phone-${ref.id}-${index}`}
+                                        >
+                                          {phone}
+                                        </p>
+                                        {index === 0 ? (
+                                          <span className="text-[10px] text-muted-foreground">(Primary)</span>
+                                        ) : (
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-5 w-5"
+                                            onClick={() => setPrimaryReferencePhoneMutation.mutate({ referenceId: ref.id, value: phone })}
+                                            aria-label={`Make ${phone} the primary number`}
+                                            title="Set as primary"
+                                            data-testid={`button-set-primary-reference-phone-${ref.id}-${index}`}
+                                          >
+                                            <Star className="h-3 w-3" />
+                                          </Button>
+                                        )}
+                                      </div>
                                     ))}
                                     {extraPhones.map((p) => (
                                       <div key={p.id} className="flex items-center gap-2">
@@ -1955,6 +2009,17 @@ export default function Workstation() {
                                         >
                                           {p.value}
                                         </p>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5"
+                                          onClick={() => setPrimaryReferencePhoneMutation.mutate({ referenceId: ref.id, value: p.value })}
+                                          aria-label={`Make ${p.value} the primary number`}
+                                          title="Set as primary"
+                                          data-testid={`button-set-primary-reference-phone-${p.id}`}
+                                        >
+                                          <Star className="h-3 w-3" />
+                                        </Button>
                                         <Button
                                           size="icon"
                                           variant="ghost"
