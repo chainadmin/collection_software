@@ -454,12 +454,20 @@ export default function Workstation() {
 
   // Collection-specific statuses that can be worked
   const workableStatuses = ["newbiz", "1st_message", "final", "promise", "payments_pending", "open", "in_payment"];
-  
+
+  // Not a real account status — a view of accounts this collector has
+  // already made contact with today (call outcome, note, or message sent
+  // all stamp lastContactDate), regardless of what status they're in.
+  const WORKED_TODAY_FILTER = "worked_today";
+  const todayIso = new Date().toISOString().split("T")[0];
+
   const workQueue = isReady
     ? (debtors
         ?.filter((d) => {
           const isAssigned = d.assignedCollectorId === authUser?.id;
-          const matchesFilter = statusFilter === "all" || d.status === statusFilter;
+          const matchesFilter =
+            statusFilter === "all" ||
+            (statusFilter === WORKED_TODAY_FILTER ? d.lastContactDate === todayIso : d.status === statusFilter);
           return isAssigned && matchesFilter;
         })
         ?.sort((a, b) => {
@@ -469,7 +477,7 @@ export default function Workstation() {
           return new Date(a.nextFollowUpDate).getTime() - new Date(b.nextFollowUpDate).getTime();
         }) ?? [])
     : [];
-    
+
   // Get counts for status filter dropdown
   const getStatusCounts = () => {
     if (!debtors || !currentCollector) return {};
@@ -481,6 +489,9 @@ export default function Workstation() {
     }, {} as Record<string, number>);
   };
   const statusCounts = getStatusCounts();
+  const workedTodayCount = currentCollector
+    ? (debtors?.filter((d) => d.assignedCollectorId === currentCollector.id && d.lastContactDate === todayIso).length ?? 0)
+    : 0;
   
   // Color mapping for collection statuses
   const getStatusColor = (status: string) => {
@@ -1102,6 +1113,12 @@ export default function Workstation() {
       content: quickNote.trim(),
       noteType: "general",
     });
+    // A note is real work on the account, so it counts toward "Worked Today"
+    // the same as a logged call outcome.
+    updateDebtorMutation.mutate({
+      id: selectedDebtorId,
+      updates: { lastContactDate: new Date().toISOString().split("T")[0] },
+    });
   };
 
   const openEditAddressDialog = () => {
@@ -1435,6 +1452,9 @@ export default function Workstation() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses ({Object.values(statusCounts).reduce((a, b) => a + b, 0)})</SelectItem>
+                <SelectItem value={WORKED_TODAY_FILTER} data-testid="status-filter-worked-today">
+                  Worked Today ({workedTodayCount})
+                </SelectItem>
                 {allStatusOptions.map(opt => (
                   <SelectItem key={opt.code} value={opt.code} data-testid={`status-filter-${opt.code}`}>
                     {opt.label} ({statusCounts[opt.code] || 0})

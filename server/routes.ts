@@ -5787,14 +5787,21 @@ export async function registerRoutes(
         const content = result.success
           ? `${channelLabel} campaign "${campaignName}" sent to ${item.contactValue} using template "${template.name}".`
           : `${channelLabel} campaign "${campaignName}" using template "${template.name}" failed to send to ${item.contactValue}: ${result.error || "Unknown error"}`;
-        return storage.createNote({
+        const tasks: Promise<unknown>[] = [storage.createNote({
           organizationId: orgId,
           debtorId: item.debtorId,
           collectorId,
           content,
           noteType: "message",
           createdDate: noteCreatedDate,
-        });
+        })];
+        // A successfully delivered message is contact with the account, so
+        // it should count toward that account's "Worked Today" filter the
+        // same as a logged call outcome.
+        if (result.success) {
+          tasks.push(storage.updateDebtor(item.debtorId, { lastContactDate: noteCreatedDate }));
+        }
+        return Promise.all(tasks);
       }));
 
       res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
@@ -5961,6 +5968,7 @@ export async function registerRoutes(
         return res.status(502).json({ error: "External message send failed", details: errorText });
       }
 
+      const sentDate = new Date().toISOString().split("T")[0];
       await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
       await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
       await storage.createNote({
@@ -5969,8 +5977,11 @@ export async function registerRoutes(
         collectorId: currentCollector.id,
         content: `${channelLabel} sent to ${contactValue}${templateSuffix}.`,
         noteType: "message",
-        createdDate: new Date().toISOString().split("T")[0],
+        createdDate: sentDate,
       });
+      // Contact with the account, so it counts toward "Worked Today" the
+      // same as a logged call outcome.
+      await storage.updateDebtor(debtor.id, { lastContactDate: sentDate });
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });
