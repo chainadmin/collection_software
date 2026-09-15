@@ -35,13 +35,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const validateSession = async () => {
       // Detect a cold PWA launch: running in standalone display-mode AND the
       // per-session flag is absent (meaning the app was just opened from the
-      // home screen, not navigated within an existing session).
+      // home screen, not navigated within an existing session). A child
+      // window opened via a same-origin link (e.g. "Team Scoreboard" opening
+      // in a new tab) is not a cold launch even though its own sessionStorage
+      // starts empty — window.opener is only ever set for that case, never
+      // for a genuine OS/home-screen launch, so it rules those out.
       const isStandalone =
         typeof window !== "undefined" &&
         window.matchMedia != null &&
         window.matchMedia("(display-mode: standalone)").matches;
+      const hasOpener = typeof window !== "undefined" && !!window.opener;
 
-      if (isStandalone && !sessionStorage.getItem(PWA_SESSION_KEY)) {
+      if (isStandalone && !hasOpener && !sessionStorage.getItem(PWA_SESSION_KEY)) {
         // Mark this session so subsequent in-app navigations are unaffected.
         sessionStorage.setItem(PWA_SESSION_KEY, "1");
         // Invalidate the server session silently.

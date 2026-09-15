@@ -236,7 +236,12 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
                               data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
                             >
                               {item.openInNewTab ? (
-                                <a href={item.url} target="_blank" rel="noopener noreferrer">
+                                // Deliberately no rel="noopener": the auth context relies on
+                                // window.opener to tell a same-origin child tab (opened from
+                                // an already-logged-in session) apart from a genuine cold PWA
+                                // launch. That's only safe because this link is same-origin —
+                                // never do this for a link to another site.
+                                <a href={item.url} target="_blank">
                                   <item.icon className="h-3 w-3" />
                                   <span>{item.title}</span>
                                 </a>
