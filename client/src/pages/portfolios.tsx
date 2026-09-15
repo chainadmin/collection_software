@@ -62,7 +62,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Portfolio, Collector, Client } from "@shared/schema";
+import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
 import { parseImportFile, autoMapColumns, systemFields } from "@/lib/csv-import";
 
 type ImportResults = {
@@ -145,6 +145,10 @@ export default function Portfolios() {
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+  });
+
+  const { data: feeSchedules } = useQuery<FeeSchedule[]>({
+    queryKey: ["/api/fee-schedules"],
   });
 
   const editForm = useForm<EditPortfolioForm>({
@@ -426,7 +430,7 @@ export default function Portfolios() {
       data: {
         name: data.name,
         clientId: data.clientId || null,
-        feeScheduleId: null,
+        feeScheduleId: data.feeScheduleId || null,
         creditorName: data.creditorName || null,
         debtType: data.debtType || null,
         status: data.status,
@@ -1081,6 +1085,37 @@ export default function Portfolios() {
                         <SelectItem value="archived">Archived</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="feeScheduleId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Fee Schedule</FormLabel>
+                    <Select
+                      onValueChange={(val) => field.onChange(val === "none" ? null : val)}
+                      value={field.value || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-fee-schedule">
+                          <SelectValue placeholder="No fee schedule" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No fee schedule (company keeps 100%)</SelectItem>
+                        {feeSchedules?.map((fee) => (
+                          <SelectItem key={fee.id} value={fee.id}>
+                            {fee.name} — {((fee.feePercentage || 0) / 100).toFixed(1)}% to client
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Sets the placement fee remitted back to the client for payments on this portfolio's accounts.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
