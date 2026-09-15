@@ -2714,6 +2714,37 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // Atomically moves the "primary" flag to this contact, clearing it from
+  // whichever sibling of the same type held it. Updating a contact directly
+  // rejects a primary collision, so switching primaries needs this instead
+  // of two separate PATCH calls from the client.
+  app.post("/api/contacts/:id/set-primary", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtorContact(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const contact = await storage.runAtomic(async () => {
+        const siblings = (await storage.getDebtorContacts(existing.debtorId))
+          .filter((c) => c.type === existing.type && c.id !== existing.id && c.isPrimary);
+        for (const sibling of siblings) {
+          await storage.updateDebtorContact(sibling.id, { isPrimary: false });
+        }
+        return storage.updateDebtorContact(req.params.id, { isPrimary: true });
+      });
+      if (!contact) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      res.json(contact);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to set primary contact" });
+    }
+  });
+
   app.get("/api/debtors/:id/employment", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2953,6 +2984,64 @@ export async function registerRoutes(
     if (!validateOrgOwnership(existing.organizationId, orgId)) return res.status(403).json({ error: "Access denied" });
     await storage.deleteReferencePhone(req.params.id);
     res.status(204).send();
+  });
+
+  // Moves the "primary" designation (the reference's Phone 1 / `phone`
+  // column) to a number that currently lives in phone2, phone3, or the
+  // unlimited extras table. The number that was previously primary is
+  // preserved — it slides into an open legacy slot, or, failing that,
+  // back into the extras table — so nothing is dropped in the swap.
+  app.post("/api/references/:id/primary-phone", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      const newPrimary = typeof req.body?.value === "string" ? req.body.value.trim() : "";
+      if (!newPrimary) {
+        return res.status(400).json({ error: "A non-blank phone number is required" });
+      }
+      if (newPrimary === reference.phone) {
+        return res.json(reference);
+      }
+
+      const updated = await storage.runAtomic(async () => {
+        const extraPhones = await storage.getReferencePhones(req.params.id);
+        const matchingExtra = extraPhones.find((p) => p.value === newPrimary);
+        const oldPrimary = reference.phone;
+        const updates: any = { phone: newPrimary };
+
+        if (newPrimary === reference.phone2) {
+          updates.phone2 = oldPrimary;
+        } else if (newPrimary === reference.phone3) {
+          updates.phone3 = oldPrimary;
+        } else if (matchingExtra) {
+          await storage.deleteReferencePhone(matchingExtra.id);
+          if (!reference.phone2) {
+            updates.phone2 = oldPrimary;
+          } else if (!reference.phone3) {
+            updates.phone3 = oldPrimary;
+          } else if (oldPrimary) {
+            await storage.createReferencePhone({
+              organizationId: orgId,
+              referenceId: req.params.id,
+              value: oldPrimary,
+              label: null,
+              isValid: true,
+            });
+          }
+        } else {
+          throw Object.assign(new Error("That number is not on file for this reference"), { status: 400 });
+        }
+
+        return storage.updateDebtorReference(req.params.id, updates);
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.status ? error.message : "Failed to update primary phone" });
+    }
   });
 
   app.get("/api/debtors/:id/bank-accounts", async (req: any, res) => {

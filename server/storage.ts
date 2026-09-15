@@ -411,12 +411,14 @@ export class MemStorage implements IStorage {
     const debtorsBefore = new Map(this.debtors);
     const contactsBefore = new Map(this.debtorContacts);
     const referencesBefore = new Map(this.debtorReferences);
+    const referencePhonesBefore = new Map(this.debtorReferencePhones);
     const employmentBefore = new Map(this.employmentRecords);
     try { return await work(); }
     catch (error) {
       this.debtors = debtorsBefore;
       this.debtorContacts = contactsBefore;
       this.debtorReferences = referencesBefore;
+      this.debtorReferencePhones = referencePhonesBefore;
       this.employmentRecords = employmentBefore;
       throw error;
     }
