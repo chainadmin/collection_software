@@ -193,6 +193,17 @@ export async function runMigrations() {
     `);
 
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "debtor_reference_phones" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "reference_id" varchar NOT NULL,
+        "value" text NOT NULL,
+        "label" text,
+        "is_valid" boolean DEFAULT true
+      )
+    `);
+
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS "bank_accounts" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
         "organization_id" varchar NOT NULL,
