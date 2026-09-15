@@ -28,6 +28,7 @@ import {
   MessageSquare,
   LogOut,
   Tv,
+  Percent,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,7 @@ const adminSections: NavSection[] = [
       { title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard },
       { title: "Merchants", url: "/app/admin/payments/merchants", icon: Banknote },
       { title: "Remittance", url: "/app/admin/payments/remittance", icon: Receipt },
+      { title: "Fee Schedules", url: "/app/admin/settings/fees", icon: Percent },
     ],
   },
   {
