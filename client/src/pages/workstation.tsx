@@ -23,6 +23,7 @@ import {
   PhoneOff,
   PhoneIncoming,
   Voicemail,
+  Ban,
   CalendarClock,
   Send,
   Settings,
@@ -130,7 +131,7 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   indigo: "bg-indigo-500", gray: "bg-gray-500", emerald: "bg-emerald-500", slate: "bg-slate-500",
 };
 
-type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "promise";
+type CallOutcome = "connected" | "no_answer" | "voicemail" | "busy" | "wrong_number" | "disconnected" | "promise";
 
 function InfoTile({
   icon: Icon,
@@ -992,6 +993,10 @@ export default function Workstation() {
         noteContent = "Wrong number - needs research";
         noteType = "research";
         break;
+      case "disconnected":
+        noteContent = "Number disconnected - marked invalid";
+        noteType = "research";
+        break;
       case "promise":
         noteContent = "Promise to pay obtained";
         noteType = "promise";
@@ -1019,6 +1024,13 @@ export default function Workstation() {
         nextFollowUpDate: nextFollowUp,
       },
     });
+
+    if (outcome === "disconnected" && phone) {
+      const matchingContact = contacts?.find((c) => c.type === "phone" && c.value === phone);
+      if (matchingContact) {
+        updateContactMutation.mutate({ contactId: matchingContact.id, updates: { isValid: false } });
+      }
+    }
 
     toast({ title: "Call logged", description: noteContent });
   };
@@ -2572,6 +2584,17 @@ export default function Workstation() {
               >
                 <AlertCircle className="h-4 w-4 mr-2" />
                 Wrong Number
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleCallOutcome("disconnected", clickedPhone);
+                  setShowCallOutcomeDialog(false);
+                }}
+                data-testid="outcome-disconnected"
+              >
+                <Ban className="h-4 w-4 mr-2" />
+                Disconnected
               </Button>
               <Button
                 variant="default"
