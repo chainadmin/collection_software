@@ -194,7 +194,7 @@ export default function PaymentRunner() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
-      toast({ title: "Payment Reversed", description: "Payment has been reversed and future payments cancelled." });
+      toast({ title: "Payment Reversed", description: "Payment has been reversed and future scheduled payments deleted." });
       setReverseDialogOpen(false);
       setSelectedPayment(null);
       setReverseReason("");
