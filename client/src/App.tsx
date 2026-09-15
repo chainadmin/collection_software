@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Switch, Route, useLocation, Redirect } from "wouter";
+import { Switch, Route, useLocation, useSearch, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -281,6 +281,7 @@ function AppLayout() {
 
 function AppContent() {
   const [location] = useLocation();
+  const search = useSearch();
   const { isAuthenticated, isLoading } = useAuth();
 
   // Remember which of our two separately installable PWAs owns this window.
@@ -350,7 +351,12 @@ function AppContent() {
   const isCollectorMode = typeof window !== "undefined" && localStorage.getItem("appMode") === "collector";
 
   if (isAuthenticated && isPublicOnlyRoute) {
-    return <Redirect to={isCollectorMode ? "/app/workstation" : "/app"} />;
+    // Honor a pending redirect (e.g. bounced here mid-login-race while
+    // already authenticated) instead of always landing on the generic
+    // dashboard/workstation.
+    const pendingRedirect = new URLSearchParams(search).get("redirect");
+    const fallback = isCollectorMode ? "/app/workstation" : "/app";
+    return <Redirect to={pendingRedirect && pendingRedirect.startsWith("/app") ? pendingRedirect : fallback} />;
   }
 
   if (isPublicRoute) {
@@ -373,7 +379,11 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
-    return <Redirect to={isCollectorMode ? "/collector-login" : "/login"} />;
+    // Preserve where the collector was actually headed (e.g. Team Scoreboard
+    // opened in a new tab) so logging back in lands there instead of always
+    // dropping them on the generic dashboard.
+    const redirectParam = `?redirect=${encodeURIComponent(location)}`;
+    return <Redirect to={(isCollectorMode ? "/collector-login" : "/login") + redirectParam} />;
   }
 
   // Chrome-free, full-bleed page meant to be left open on an office TV -
