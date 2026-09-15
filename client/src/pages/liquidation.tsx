@@ -68,7 +68,7 @@ export default function Liquidation() {
   // through -- posted (settled), pending (promised), and any other
   // in-flight status -- not just what's already posted.
   const collectiblePayments = useMemo(
-    () => (payments || []).filter((p) => isCollectiblePaymentStatus(p.status)),
+    () => (payments || []).filter((p) => isCollectiblePaymentStatus(p)),
     [payments]
   );
 

@@ -10,6 +10,8 @@ interface CollectorMonthlyBreakdown {
   label: string;
   posted: number;
   pending: number;
+  companyPosted: number;
+  companyPending: number;
 }
 
 interface CollectorPerformance {
@@ -21,6 +23,15 @@ interface CollectorPerformance {
   newMoney: number;
   currentMonthGoal: number;
   monthlyBreakdown: CollectorMonthlyBreakdown[];
+  // Every figure above, net of each account's portfolio placement fee --
+  // what the agency itself keeps rather than what the debtor paid. The
+  // scoreboard shows this instead of the gross figures above so a 60%
+  // client fee on a $100 payment reads as $40 here, not $100.
+  company: {
+    somTotal: number;
+    currentTotal: number;
+    newMoney: number;
+  };
 }
 
 function currentMonthKey(): string {
@@ -48,18 +59,19 @@ export default function TeamScoreboard() {
   const rows = performanceData
     .map((c) => {
       const thisMonth = c.monthlyBreakdown.find((m) => m.month === monthKey);
-      const posted = thisMonth?.posted || 0;
-      const pending = thisMonth?.pending || 0;
-      const needed = Math.max(c.currentMonthGoal - c.newMoney, 0);
-      const progress = c.currentMonthGoal > 0 ? Math.min((c.newMoney / c.currentMonthGoal) * 100, 100) : 0;
+      const posted = thisMonth?.companyPosted || 0;
+      const pending = thisMonth?.companyPending || 0;
+      const newMoney = c.company.newMoney;
+      const needed = Math.max(c.currentMonthGoal - newMoney, 0);
+      const progress = c.currentMonthGoal > 0 ? Math.min((newMoney / c.currentMonthGoal) * 100, 100) : 0;
       return {
         id: c.id,
         name: c.name,
-        start: c.somTotal,
-        newMoney: c.newMoney,
+        start: c.company.somTotal,
+        newMoney,
         posted,
         pending,
-        total: c.currentTotal,
+        total: c.company.currentTotal,
         goal: c.currentMonthGoal,
         needed,
         progress,

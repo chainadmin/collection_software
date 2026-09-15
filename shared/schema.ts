@@ -278,6 +278,23 @@ export const insertDebtorReferenceSchema = createInsertSchema(debtorReferences).
 export type InsertDebtorReference = z.infer<typeof insertDebtorReferenceSchema>;
 export type DebtorReference = typeof debtorReferences.$inferSelect;
 
+// Reference Phone Numbers — the reference's own phone/phone2/phone3 columns
+// stay fixed at three for backwards compatibility with CSV import and the
+// structured account-slots API, but a reference can carry unlimited
+// additional numbers here, added one at a time from the workstation.
+export const debtorReferencePhones = pgTable("debtor_reference_phones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  referenceId: varchar("reference_id").notNull(),
+  value: text("value").notNull(),
+  label: text("label"),
+  isValid: boolean("is_valid").default(true),
+});
+
+export const insertDebtorReferencePhoneSchema = createInsertSchema(debtorReferencePhones).omit({ id: true });
+export type InsertDebtorReferencePhone = z.infer<typeof insertDebtorReferencePhoneSchema>;
+export type DebtorReferencePhone = typeof debtorReferencePhones.$inferSelect;
+
 // Bank Accounts
 export const bankAccounts = pgTable("bank_accounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

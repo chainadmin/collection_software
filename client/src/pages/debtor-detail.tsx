@@ -145,6 +145,7 @@ export default function DebtorDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaign-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", debtorId, "notes"] });
       setMessageDialog(null);
       setSelectedTemplateId("");
       toast({ title: "Message sent", description: "The template was sent through your Chain delivery system." });

@@ -47,6 +47,7 @@ import {
   debtors as debtorsTable,
   payments as paymentsTable,
   type CampaignIntegration,
+  type Payment,
 } from "@shared/schema";
 import { and, desc, eq } from "drizzle-orm";
 import {
@@ -62,7 +63,8 @@ import {
   previewReturn,
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
-import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
+import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf, isFellThroughPayment, isDeclinedPendingPayment } from "@shared/nsf";
+import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
 import {
   debtorMatchesImportIdentifier,
   normalizeImportSsn,
@@ -1967,11 +1969,23 @@ export async function registerRoutes(
       const allCollectors = await storage.getCollectors();
       const allPayments = await storage.getPayments();
       const allDebtors = await storage.getDebtors();
+      const allPortfolios = await storage.getPortfolios();
+      const allFeeSchedules = await storage.getFeeSchedules(orgId);
 
       // Filter by organization
       const collectors = allCollectors.filter(c => c.organizationId === orgId);
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
       const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+      const orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
+
+      // debtorId -> basis points of each payment owed back to the client who
+      // placed that debtor's portfolio (0 if the portfolio has no fee
+      // schedule). Used below to report each collector's figures both gross
+      // (existing top-level fields, unchanged) and net of that placement fee
+      // (the nested "company" object) -- the amount the agency itself keeps.
+      const feeRateByDebtorId = buildDebtorFeeRateMap(orgDebtors, orgPortfolios, allFeeSchedules);
+      const companyAmount = (payment: { debtorId: string; amount: number }) =>
+        splitAmountByFee(payment.amount, feeRateByDebtorId.get(payment.debtorId) ?? 0).companyAmount;
 
       const now = new Date();
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -1991,6 +2005,23 @@ export async function registerRoutes(
         };
       });
 
+      // Sums a list of payments both gross (unchanged, existing behavior)
+      // and net of each payment's portfolio placement fee (what the agency
+      // itself keeps) in one pass, so the two figures can never diverge.
+      const sumGrossAndCompany = (list: { debtorId: string; amount: number }[]) =>
+        list.reduce(
+          (acc, p) => ({ gross: acc.gross + p.amount, company: acc.company + companyAmount(p) }),
+          { gross: 0, company: 0 },
+        );
+
+      // A decline never gets its own terminal status - the payment stays
+      // "pending" (with a DECLINED note) so an NSF/reverse decision can still
+      // act on it. For reporting, a payment that's actually still awaiting an
+      // attempt has to be told apart from one that was attempted and failed,
+      // or a decline would keep inflating "pending" money that was never
+      // coming in.
+      const isActivePending = (p: Payment) => p.status === 'pending' && !isDeclinedPendingPayment(p);
+
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
@@ -2002,55 +2033,68 @@ export async function registerRoutes(
         // whose paymentDate falls in the current month belong to this
         // month's figures.
         const thisMonthPayments = collectorPayments.filter(p => {
-          if (!p.paymentDate || (p.status !== 'posted' && p.status !== 'pending')) return false;
+          if (!p.paymentDate || (p.status !== 'posted' && !isActivePending(p))) return false;
           const d = p.paymentDate.split('T')[0];
           return d >= currentMonthStart && d <= currentMonthEnd;
         });
-        const currentTotal = thisMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+        const currentTotalSums = sumGrossAndCompany(thisMonthPayments);
+        const currentTotal = currentTotalSums.gross;
 
         // Start-of-month baseline: of this month's scheduled installments,
         // the ones that were already booked (createdAt) before the month
         // began -- i.e. recurring collections from an earlier arrangement,
         // not fresh production. Whatever's left after subtracting this is
         // this month's actual new business.
-        const somTotal = thisMonthPayments
-          .filter(p => p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart)
-          .reduce((sum, p) => sum + p.amount, 0);
+        const somTotalSums = sumGrossAndCompany(
+          thisMonthPayments.filter(p => p.createdAt && p.createdAt.toISOString().slice(0, 10) < currentMonthStart),
+        );
+        const somTotal = somTotalSums.gross;
 
         // New money = this month's scheduled total minus whatever portion of
         // it was already on the books before the month began.
         const newMoney = currentTotal - somTotal;
+        const companyNewMoney = currentTotalSums.company - somTotalSums.company;
 
         // All-time posted/pending totals for this collector, independent of
         // the current-month scoping above -- used for lifetime collections,
         // wage/ROI, and liquidation figures elsewhere.
-        const currentPending = collectorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-        const currentPosted = collectorPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0);
+        const currentPendingSums = sumGrossAndCompany(collectorPayments.filter(isActivePending));
+        const currentPostedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'posted'));
+        const currentPending = currentPendingSums.gross;
+        const currentPosted = currentPostedSums.gross;
 
         // Declined and reversed (payments removed from pending/posted)
-        const totalDeclined = collectorPayments.filter(p => p.status === 'declined').reduce((sum, p) => sum + p.amount, 0);
-        const totalReversed = collectorPayments.filter(p => p.status === 'reversed').reduce((sum, p) => sum + p.amount, 0);
+        const totalDeclinedSums = sumGrossAndCompany(collectorPayments.filter(isDeclinedPendingPayment));
+        const totalReversedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'reversed'));
+        const totalDeclined = totalDeclinedSums.gross;
+        const totalReversed = totalReversedSums.gross;
 
         // Pending specifically scheduled to run next calendar month, keyed off
         // the payment's own paymentDate -- not nextPaymentDate, which is only
         // populated on recurring payments' bookkeeping pointer and is null on
         // an ordinary one-time or arrangement pending payment.
-        const nextMonthPendingTotal = collectorPayments
-          .filter(p => p.status === 'pending' && p.paymentDate)
-          .filter(p => {
-            const d = p.paymentDate!.split('T')[0];
-            return d >= nextMonthStart && d <= nextMonthEnd;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
+        const nextMonthPendingSums = sumGrossAndCompany(
+          collectorPayments
+            .filter(p => isActivePending(p) && p.paymentDate)
+            .filter(p => {
+              const d = p.paymentDate!.split('T')[0];
+              return d >= nextMonthStart && d <= nextMonthEnd;
+            }),
+        );
+        const nextMonthPendingTotal = nextMonthPendingSums.gross;
 
         // Posted vs. pending, broken out by month, for the collector drill-down.
         const monthlyBreakdown = monthWindow.map(({ key, label }) => {
           const monthPayments = collectorPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(key));
+          const postedSums = sumGrossAndCompany(monthPayments.filter(p => p.status === 'posted'));
+          const pendingSums = sumGrossAndCompany(monthPayments.filter(isActivePending));
           return {
             month: key,
             label,
-            posted: monthPayments.filter(p => p.status === 'posted').reduce((sum, p) => sum + p.amount, 0),
-            pending: monthPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
+            posted: postedSums.gross,
+            pending: pendingSums.gross,
+            companyPosted: postedSums.company,
+            companyPending: pendingSums.company,
           };
         });
 
@@ -2059,6 +2103,7 @@ export async function registerRoutes(
         const assignedDebtors = orgDebtors.filter(d => d.assignedCollectorId === collector.id);
         const assignedOriginalBalance = assignedDebtors.reduce((sum, d) => sum + (d.originalBalance || 0), 0);
         const liquidationRate = assignedOriginalBalance > 0 ? (currentPosted / assignedOriginalBalance) * 100 : 0;
+        const companyLiquidationRate = assignedOriginalBalance > 0 ? (currentPostedSums.company / assignedOriginalBalance) * 100 : 0;
 
         return {
           id: collector.id,
@@ -2084,6 +2129,21 @@ export async function registerRoutes(
           goalProgress: collector.goal ? Math.round((newMoney / collector.goal) * 100) : 0,
           // Per-month posted/pending history for drill-down views
           monthlyBreakdown,
+          // Every gross figure above, net of each account's portfolio
+          // placement fee -- what the agency itself actually keeps, e.g. a
+          // $100 payment on a portfolio with a 60% client fee nets $40 here.
+          // Portfolios without a fee schedule are unaffected (company === gross).
+          company: {
+            somTotal: somTotalSums.company,
+            currentTotal: currentTotalSums.company,
+            currentPending: currentPendingSums.company,
+            currentPosted: currentPostedSums.company,
+            newMoney: companyNewMoney,
+            totalDeclined: totalDeclinedSums.company,
+            totalReversed: totalReversedSums.company,
+            nextMonthPending: nextMonthPendingSums.company,
+            liquidationRate: companyLiquidationRate,
+          },
           // Personal liquidation rate
           assignedAccounts: assignedDebtors.length,
           assignedOriginalBalance,
@@ -2742,6 +2802,37 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // Atomically moves the "primary" flag to this contact, clearing it from
+  // whichever sibling of the same type held it. Updating a contact directly
+  // rejects a primary collision, so switching primaries needs this instead
+  // of two separate PATCH calls from the client.
+  app.post("/api/contacts/:id/set-primary", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getDebtorContact(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const contact = await storage.runAtomic(async () => {
+        const siblings = (await storage.getDebtorContacts(existing.debtorId))
+          .filter((c) => c.type === existing.type && c.id !== existing.id && c.isPrimary);
+        for (const sibling of siblings) {
+          await storage.updateDebtorContact(sibling.id, { isPrimary: false });
+        }
+        return storage.updateDebtorContact(req.params.id, { isPrimary: true });
+      });
+      if (!contact) {
+        return res.status(404).json({ error: "Contact not found" });
+      }
+      res.json(contact);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to set primary contact" });
+    }
+  });
+
   app.get("/api/debtors/:id/employment", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2810,6 +2901,24 @@ export async function registerRoutes(
     }
   });
 
+  // Every additional phone number (beyond the built-in phone/phone2/phone3
+  // slots) for all of a debtor's references in one call, so the workstation
+  // doesn't need one request per reference to render the full number list.
+  app.get("/api/debtors/:id/reference-phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
+      const references = await storage.getDebtorReferences(req.params.id);
+      const phonesByReference = await Promise.all(references.map((r) => storage.getReferencePhones(r.id)));
+      res.json(phonesByReference.flat());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reference phone numbers" });
+    }
+  });
+
   app.post("/api/debtors/:id/references", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2873,6 +2982,153 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete reference" });
+    }
+  });
+
+  // Reference Phone Numbers — a reference's built-in phone/phone2/phone3
+  // columns stay fixed at three for CSV import and the account-slots API,
+  // but the workstation lets a collector attach unlimited additional
+  // numbers to a reference through these endpoints.
+  app.get("/api/references/:id/phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      const phones = await storage.getReferencePhones(req.params.id);
+      res.json(phones);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reference phone numbers" });
+    }
+  });
+
+  app.post("/api/references/:id/phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      if (typeof req.body?.value !== "string" || !req.body.value.trim()) {
+        return res.status(400).json({ error: "A non-blank phone number is required" });
+      }
+      const phone = await storage.createReferencePhone({
+        value: req.body.value.trim(),
+        label: typeof req.body.label === "string" ? req.body.label.trim() || null : null,
+        isValid: req.body.isValid !== false,
+        referenceId: req.params.id,
+        organizationId: orgId,
+      });
+      res.status(201).json(phone);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add reference phone number" });
+    }
+  });
+
+  app.patch("/api/reference-phones/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getReferencePhone(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Reference phone number not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body: any = {};
+      if (req.body?.value !== undefined) {
+        if (typeof req.body.value !== "string" || !req.body.value.trim()) {
+          return res.status(400).json({ error: "Phone number must be non-blank" });
+        }
+        body.value = req.body.value.trim();
+      }
+      if (req.body?.label !== undefined) {
+        if (req.body.label !== null && typeof req.body.label !== "string") {
+          return res.status(400).json({ error: "Label must be a string or null" });
+        }
+        body.label = typeof req.body.label === "string" ? req.body.label.trim() || null : null;
+      }
+      if (req.body?.isValid !== undefined) {
+        if (typeof req.body.isValid !== "boolean") {
+          return res.status(400).json({ error: "isValid must be true or false" });
+        }
+        body.isValid = req.body.isValid;
+      }
+      const phone = await storage.updateReferencePhone(req.params.id, body);
+      if (!phone) {
+        return res.status(404).json({ error: "Reference phone number not found" });
+      }
+      res.json(phone);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update reference phone number" });
+    }
+  });
+
+  app.delete("/api/reference-phones/:id", async (req: any, res) => {
+    const orgId = getOrgId(req);
+    const existing = await storage.getReferencePhone(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Reference phone number not found" });
+    if (!validateOrgOwnership(existing.organizationId, orgId)) return res.status(403).json({ error: "Access denied" });
+    await storage.deleteReferencePhone(req.params.id);
+    res.status(204).send();
+  });
+
+  // Moves the "primary" designation (the reference's Phone 1 / `phone`
+  // column) to a number that currently lives in phone2, phone3, or the
+  // unlimited extras table. The number that was previously primary is
+  // preserved — it slides into an open legacy slot, or, failing that,
+  // back into the extras table — so nothing is dropped in the swap.
+  app.post("/api/references/:id/primary-phone", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      const newPrimary = typeof req.body?.value === "string" ? req.body.value.trim() : "";
+      if (!newPrimary) {
+        return res.status(400).json({ error: "A non-blank phone number is required" });
+      }
+      if (newPrimary === reference.phone) {
+        return res.json(reference);
+      }
+
+      const updated = await storage.runAtomic(async () => {
+        const extraPhones = await storage.getReferencePhones(req.params.id);
+        const matchingExtra = extraPhones.find((p) => p.value === newPrimary);
+        const oldPrimary = reference.phone;
+        const updates: any = { phone: newPrimary };
+
+        if (newPrimary === reference.phone2) {
+          updates.phone2 = oldPrimary;
+        } else if (newPrimary === reference.phone3) {
+          updates.phone3 = oldPrimary;
+        } else if (matchingExtra) {
+          await storage.deleteReferencePhone(matchingExtra.id);
+          if (!reference.phone2) {
+            updates.phone2 = oldPrimary;
+          } else if (!reference.phone3) {
+            updates.phone3 = oldPrimary;
+          } else if (oldPrimary) {
+            await storage.createReferencePhone({
+              organizationId: orgId,
+              referenceId: req.params.id,
+              value: oldPrimary,
+              label: null,
+              isValid: true,
+            });
+          }
+        } else {
+          throw Object.assign(new Error("That number is not on file for this reference"), { status: 400 });
+        }
+
+        return storage.updateDebtorReference(req.params.id, updates);
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.status ? error.message : "Failed to update primary phone" });
     }
   });
 
@@ -3896,7 +4152,11 @@ export async function registerRoutes(
         notes: `REVERSED: ${reason || "No reason provided"}${voidedWithGateway ? " (Voided with gateway)" : ""}`,
       });
 
-      // Cancel all future scheduled payments for this debtor
+      // Future scheduled payments made moot by this reversal never actually
+      // ran (no charge, no gateway call, nothing to reverse) - they're
+      // deleted outright rather than left behind as "cancelled" rows, so
+      // they don't get mistaken for real declines/reversals anywhere that
+      // counts payment outcomes.
       const allPayments = await storage.getPaymentsForDebtor(payment.debtorId);
       const futurePayments = allPayments.filter(
         (p) =>
@@ -3904,26 +4164,20 @@ export async function registerRoutes(
           p.status === "pending" &&
           new Date(p.paymentDate) > new Date()
       );
-      
-      for (const futurePayment of futurePayments) {
-        await storage.updatePayment(futurePayment.id, {
-          status: "cancelled",
-          notes: `Cancelled due to payment reversal on ${new Date().toISOString().split("T")[0]}`,
-        });
-      }
+      const deletedFuturePayments = await storage.deletePayments(futurePayments.map((p) => p.id), orgId);
 
       // Add note to debtor account
       await storage.createNote({
         debtorId: payment.debtorId,
         collectorId: payment.processedBy || "system",
-        content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${futurePayments.length} future payment(s) cancelled.`,
+        content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${deletedFuturePayments} future payment(s) deleted.`,
         noteType: "payment",
         createdDate: new Date().toISOString().split("T")[0],
         organizationId: orgId,
       });
 
       if (!updatedPayment) return res.status(404).json({ error: "Payment not found" });
-      res.json({ ...redactPayment(updatedPayment), cancelledPayments: futurePayments.length });
+      res.json({ ...redactPayment(updatedPayment), deletedPayments: deletedFuturePayments });
     } catch (error) {
       res.status(500).json({ error: "Failed to reverse payment" });
     }
@@ -5612,6 +5866,30 @@ export async function registerRoutes(
         responseText: results[index].error || null,
       })));
 
+      const channelLabel = campaignChannel === "email" ? "Email" : "Text message";
+      const noteCreatedDate = new Date().toISOString().split("T")[0];
+      await Promise.all(items.map((item, index) => {
+        const result = results[index];
+        const content = result.success
+          ? `${channelLabel} campaign "${campaignName}" sent to ${item.contactValue} using template "${template.name}".`
+          : `${channelLabel} campaign "${campaignName}" using template "${template.name}" failed to send to ${item.contactValue}: ${result.error || "Unknown error"}`;
+        const tasks: Promise<unknown>[] = [storage.createNote({
+          organizationId: orgId,
+          debtorId: item.debtorId,
+          collectorId,
+          content,
+          noteType: "message",
+          createdDate: noteCreatedDate,
+        })];
+        // A successfully delivered message is contact with the account, so
+        // it should count toward that account's "Worked Today" filter the
+        // same as a logged call outcome.
+        if (result.success) {
+          tasks.push(storage.updateDebtor(item.debtorId, { lastContactDate: noteCreatedDate }));
+        }
+        return Promise.all(tasks);
+      }));
+
       res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
@@ -5662,6 +5940,7 @@ export async function registerRoutes(
       let rawSubject: string;
       let rawBody: string;
       let usedTemplateId: string | null = null;
+      let usedTemplateName: string | null = null;
 
       if (templateId) {
         const template = await storage.getEmailTemplate(templateId);
@@ -5677,6 +5956,7 @@ export async function registerRoutes(
         rawSubject = template.subject ?? "";
         rawBody = template.body;
         usedTemplateId = template.id;
+        usedTemplateName = template.name;
       } else {
         channel = contactType === "email" ? "email" : "sms";
         if (channel === "email" && !(subject && subject.trim())) {
@@ -5756,15 +6036,38 @@ export async function registerRoutes(
         body: payload.accounts[0].renderedBody,
         externalId: item.id,
       });
+      const channelLabel = channel === "email" ? "Email" : "Text message";
+      const templateSuffix = usedTemplateName ? ` using template "${usedTemplateName}"` : "";
+
       if (!chainResult.success) {
         const errorText = chainResult.error || "External send failed";
         await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
         await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
+        await storage.createNote({
+          organizationId: orgId,
+          debtorId: debtor.id,
+          collectorId: currentCollector.id,
+          content: `${channelLabel} to ${contactValue}${templateSuffix} failed: ${errorText}`,
+          noteType: "message",
+          createdDate: new Date().toISOString().split("T")[0],
+        });
         return res.status(502).json({ error: "External message send failed", details: errorText });
       }
 
+      const sentDate = new Date().toISOString().split("T")[0];
       await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
       await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
+      await storage.createNote({
+        organizationId: orgId,
+        debtorId: debtor.id,
+        collectorId: currentCollector.id,
+        content: `${channelLabel} sent to ${contactValue}${templateSuffix}.`,
+        noteType: "message",
+        createdDate: sentDate,
+      });
+      // Contact with the account, so it counts toward "Worked Today" the
+      // same as a logged call outcome.
+      await storage.updateDebtor(debtor.id, { lastContactDate: sentDate });
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });

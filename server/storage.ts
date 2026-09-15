@@ -21,6 +21,8 @@ import {
   type InsertEmploymentRecord,
   type DebtorReference,
   type InsertDebtorReference,
+  type DebtorReferencePhone,
+  type InsertDebtorReferencePhone,
   type BankAccount,
   type InsertBankAccount,
   type PaymentCard,
@@ -196,6 +198,12 @@ export interface IStorage {
   createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference>;
   updateDebtorReference(id: string, reference: Partial<InsertDebtorReference>): Promise<DebtorReference | undefined>;
   deleteDebtorReference(id: string): Promise<boolean>;
+
+  getReferencePhones(referenceId: string): Promise<DebtorReferencePhone[]>;
+  getReferencePhone(id: string): Promise<DebtorReferencePhone | undefined>;
+  createReferencePhone(phone: InsertDebtorReferencePhone): Promise<DebtorReferencePhone>;
+  updateReferencePhone(id: string, phone: Partial<InsertDebtorReferencePhone>): Promise<DebtorReferencePhone | undefined>;
+  deleteReferencePhone(id: string): Promise<boolean>;
 
   getBankAccounts(debtorId: string): Promise<BankAccount[]>;
   createBankAccount(account: InsertBankAccount): Promise<BankAccount>;
@@ -404,12 +412,14 @@ export class MemStorage implements IStorage {
     const debtorsBefore = new Map(this.debtors);
     const contactsBefore = new Map(this.debtorContacts);
     const referencesBefore = new Map(this.debtorReferences);
+    const referencePhonesBefore = new Map(this.debtorReferencePhones);
     const employmentBefore = new Map(this.employmentRecords);
     try { return await work(); }
     catch (error) {
       this.debtors = debtorsBefore;
       this.debtorContacts = contactsBefore;
       this.debtorReferences = referencesBefore;
+      this.debtorReferencePhones = referencePhonesBefore;
       this.employmentRecords = employmentBefore;
       throw error;
     }
@@ -425,6 +435,7 @@ export class MemStorage implements IStorage {
   private debtorContacts: Map<string, DebtorContact>;
   private employmentRecords: Map<string, EmploymentRecord>;
   private debtorReferences: Map<string, DebtorReference>;
+  private debtorReferencePhones: Map<string, DebtorReferencePhone>;
   private bankAccounts: Map<string, BankAccount>;
   private paymentCards: Map<string, PaymentCard>;
   private payments: Map<string, Payment>;
@@ -467,6 +478,7 @@ export class MemStorage implements IStorage {
     this.debtorContacts = new Map();
     this.employmentRecords = new Map();
     this.debtorReferences = new Map();
+    this.debtorReferencePhones = new Map();
     this.bankAccounts = new Map();
     this.paymentCards = new Map();
     this.payments = new Map();
@@ -1649,7 +1661,44 @@ export class MemStorage implements IStorage {
   }
 
   async deleteDebtorReference(id: string): Promise<boolean> {
+    for (const [phoneId, phone] of Array.from(this.debtorReferencePhones.entries())) {
+      if (phone.referenceId === id) this.debtorReferencePhones.delete(phoneId);
+    }
     return this.debtorReferences.delete(id);
+  }
+
+  async getReferencePhones(referenceId: string): Promise<DebtorReferencePhone[]> {
+    return Array.from(this.debtorReferencePhones.values()).filter((p) => p.referenceId === referenceId);
+  }
+
+  async getReferencePhone(id: string): Promise<DebtorReferencePhone | undefined> {
+    return this.debtorReferencePhones.get(id);
+  }
+
+  async createReferencePhone(phone: InsertDebtorReferencePhone): Promise<DebtorReferencePhone> {
+    const id = randomUUID();
+    const newPhone: DebtorReferencePhone = {
+      id,
+      organizationId: phone.organizationId,
+      referenceId: phone.referenceId,
+      value: phone.value,
+      label: phone.label ?? null,
+      isValid: phone.isValid ?? true,
+    };
+    this.debtorReferencePhones.set(id, newPhone);
+    return newPhone;
+  }
+
+  async updateReferencePhone(id: string, phone: Partial<InsertDebtorReferencePhone>): Promise<DebtorReferencePhone | undefined> {
+    const existing = this.debtorReferencePhones.get(id);
+    if (!existing) return undefined;
+    const updated: DebtorReferencePhone = { ...existing, ...phone };
+    this.debtorReferencePhones.set(id, updated);
+    return updated;
+  }
+
+  async deleteReferencePhone(id: string): Promise<boolean> {
+    return this.debtorReferencePhones.delete(id);
   }
 
   async getBankAccounts(debtorId: string): Promise<BankAccount[]> {

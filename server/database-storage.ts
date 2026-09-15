@@ -12,6 +12,7 @@ import {
   debtorContacts,
   employmentRecords,
   debtorReferences,
+  debtorReferencePhones,
   bankAccounts,
   paymentCards,
   payments,
@@ -64,6 +65,8 @@ import {
   type InsertEmploymentRecord,
   type DebtorReference,
   type InsertDebtorReference,
+  type DebtorReferencePhone,
+  type InsertDebtorReferencePhone,
   type BankAccount,
   type InsertBankAccount,
   type PaymentCard,
@@ -526,7 +529,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteDebtorReference(id: string): Promise<boolean> {
+    await db.delete(debtorReferencePhones).where(eq(debtorReferencePhones.referenceId, id));
     await db.delete(debtorReferences).where(eq(debtorReferences.id, id));
+    return true;
+  }
+
+  // Reference Phone Numbers
+  async getReferencePhones(referenceId: string): Promise<DebtorReferencePhone[]> {
+    return await this.database().select().from(debtorReferencePhones).where(eq(debtorReferencePhones.referenceId, referenceId));
+  }
+
+  async getReferencePhone(id: string): Promise<DebtorReferencePhone | undefined> {
+    const [phone] = await db.select().from(debtorReferencePhones).where(eq(debtorReferencePhones.id, id));
+    return phone;
+  }
+
+  async createReferencePhone(phone: InsertDebtorReferencePhone): Promise<DebtorReferencePhone> {
+    const id = randomUUID();
+    const [created] = await this.database().insert(debtorReferencePhones).values({ ...phone, id }).returning();
+    return created;
+  }
+
+  async updateReferencePhone(id: string, phone: Partial<InsertDebtorReferencePhone>): Promise<DebtorReferencePhone | undefined> {
+    const [updated] = await this.database().update(debtorReferencePhones).set(phone).where(eq(debtorReferencePhones.id, id)).returning();
+    return updated;
+  }
+
+  async deleteReferencePhone(id: string): Promise<boolean> {
+    await db.delete(debtorReferencePhones).where(eq(debtorReferencePhones.id, id));
     return true;
   }
 

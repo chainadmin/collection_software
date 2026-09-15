@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Receipt, Calendar, Download, DollarSign, FileText, Filter, User, Hash } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Portfolio, Client, Payment, Debtor } from "@shared/schema";
+import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
+import type { Portfolio, Client, Payment, Debtor, FeeSchedule } from "@shared/schema";
 
 export default function Remittance() {
   const [selectedClientId, setSelectedClientId] = useState("all");
@@ -39,6 +40,21 @@ export default function Remittance() {
   const { data: debtors = [], isLoading: debtorsLoading } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors"],
   });
+
+  const { data: feeSchedules = [], isLoading: feeSchedulesLoading } = useQuery<FeeSchedule[]>({
+    queryKey: ["/api/fee-schedules"],
+  });
+
+  // debtorId -> basis points of each payment owed back to the client per
+  // that debtor's portfolio placement fee. A portfolio with no fee schedule
+  // owes the client nothing extra here -- unchanged from before this existed,
+  // where the full gross amount was (incorrectly) treated as fully retained.
+  const feeRateByDebtorId = useMemo(
+    () => buildDebtorFeeRateMap(debtors, portfolios, feeSchedules),
+    [debtors, portfolios, feeSchedules],
+  );
+  const remittanceDueFor = (payment: Payment) =>
+    splitAmountByFee(Number(payment.amount), feeRateByDebtorId.get(payment.debtorId) ?? 0).clientAmount;
 
   const filteredPortfolios = useMemo(() => {
     if (selectedClientId === "all") return portfolios;
@@ -88,28 +104,38 @@ export default function Remittance() {
         debtor,
         portfolio,
         client,
+        remittanceDue: remittanceDueFor(payment),
       };
     }).sort((a, b) => {
       if (!a.paymentDate || !b.paymentDate) return 0;
       return b.paymentDate.localeCompare(a.paymentDate);
     });
-  }, [filteredPayments, debtors, portfolios, clients]);
+  }, [filteredPayments, debtors, portfolios, clients, feeRateByDebtorId]);
 
   const totalCollected = useMemo(() => {
     return filteredPayments.reduce((sum, p) => sum + Number(p.amount), 0);
   }, [filteredPayments]);
 
+  // What's actually owed back to clients for this period -- each payment's
+  // portfolio placement fee share, not the raw gross collected. A portfolio
+  // with no fee schedule owes nothing here, so this is 0 unless fee
+  // schedules are in use.
+  const totalRemittanceDue = useMemo(() => {
+    return paymentsWithDetails.reduce((sum, p) => sum + p.remittanceDue, 0);
+  }, [paymentsWithDetails]);
+
   const summaryByClient = useMemo(() => {
-    const summary: Record<string, { clientName: string; total: number; count: number }> = {};
-    
+    const summary: Record<string, { clientName: string; total: number; remittanceDue: number; count: number }> = {};
+
     for (const payment of paymentsWithDetails) {
       const clientId = payment.client?.id || "unknown";
       const clientName = payment.client?.name || "Unknown Client";
-      
+
       if (!summary[clientId]) {
-        summary[clientId] = { clientName, total: 0, count: 0 };
+        summary[clientId] = { clientName, total: 0, remittanceDue: 0, count: 0 };
       }
       summary[clientId].total += Number(payment.amount);
+      summary[clientId].remittanceDue += payment.remittanceDue;
       summary[clientId].count += 1;
     }
 
@@ -120,17 +146,18 @@ export default function Remittance() {
   }, [paymentsWithDetails]);
 
   const summaryByPortfolio = useMemo(() => {
-    const summary: Record<string, { portfolioName: string; clientName: string; total: number; count: number }> = {};
-    
+    const summary: Record<string, { portfolioName: string; clientName: string; total: number; remittanceDue: number; count: number }> = {};
+
     for (const payment of paymentsWithDetails) {
       const portfolioId = payment.portfolio?.id || "unknown";
       const portfolioName = payment.portfolio?.name || "Unknown Portfolio";
       const clientName = payment.client?.name || "Unknown Client";
-      
+
       if (!summary[portfolioId]) {
-        summary[portfolioId] = { portfolioName, clientName, total: 0, count: 0 };
+        summary[portfolioId] = { portfolioName, clientName, total: 0, remittanceDue: 0, count: 0 };
       }
       summary[portfolioId].total += Number(payment.amount);
+      summary[portfolioId].remittanceDue += payment.remittanceDue;
       summary[portfolioId].count += 1;
     }
 
@@ -141,7 +168,7 @@ export default function Remittance() {
   }, [paymentsWithDetails]);
 
   const handleExportCSV = () => {
-    const headers = ["Date", "Account #", "Debtor Name", "Client", "Portfolio", "Amount", "Method", "Confirmation"];
+    const headers = ["Date", "Account #", "Debtor Name", "Client", "Portfolio", "Amount", "Remittance Due", "Method", "Confirmation"];
     const rows = paymentsWithDetails.map((p) => [
       p.paymentDate || "",
       p.debtor?.accountNumber || "",
@@ -149,6 +176,7 @@ export default function Remittance() {
       p.client?.name || "",
       p.portfolio?.name || "",
       (Number(p.amount) / 100).toFixed(2),
+      (p.remittanceDue / 100).toFixed(2),
       p.paymentMethod || "",
       p.referenceNumber || "",
     ]);
@@ -163,7 +191,7 @@ export default function Remittance() {
     URL.revokeObjectURL(url);
   };
 
-  const isLoading = portfoliosLoading || clientsLoading || paymentsLoading || debtorsLoading;
+  const isLoading = portfoliosLoading || clientsLoading || paymentsLoading || debtorsLoading || feeSchedulesLoading;
 
   return (
     <div className="p-6 space-y-6">
@@ -237,7 +265,7 @@ export default function Remittance() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -260,6 +288,19 @@ export default function Remittance() {
               <div>
                 <p className="text-2xl font-bold">{formatCurrency(totalCollected)}</p>
                 <p className="text-sm text-muted-foreground">Total Collected</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-lg bg-amber-500/10">
+                <DollarSign className="h-6 w-6 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold" data-testid="text-total-remittance-due">{formatCurrency(totalRemittanceDue)}</p>
+                <p className="text-sm text-muted-foreground">Remittance Due to Clients</p>
               </div>
             </div>
           </CardContent>
@@ -333,6 +374,7 @@ export default function Remittance() {
                         <th className="text-left p-3 font-medium text-sm">Client</th>
                         <th className="text-left p-3 font-medium text-sm">Portfolio</th>
                         <th className="text-right p-3 font-medium text-sm">Amount</th>
+                        <th className="text-right p-3 font-medium text-sm">Remittance Due</th>
                         <th className="text-center p-3 font-medium text-sm">Method</th>
                         <th className="text-left p-3 font-medium text-sm">Reference #</th>
                       </tr>
@@ -362,6 +404,11 @@ export default function Remittance() {
                               {formatCurrency(Number(payment.amount))}
                             </span>
                           </td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-amber-600 dark:text-amber-400">
+                              {formatCurrency(payment.remittanceDue)}
+                            </span>
+                          </td>
                           <td className="p-3 text-center">
                             <Badge variant="secondary">{payment.paymentMethod || "-"}</Badge>
                           </td>
@@ -376,6 +423,9 @@ export default function Remittance() {
                         <td colSpan={5} className="p-3 text-right font-medium">Total:</td>
                         <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
                           {formatCurrency(totalCollected)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(totalRemittanceDue)}
                         </td>
                         <td colSpan={2}></td>
                       </tr>
@@ -412,6 +462,7 @@ export default function Remittance() {
                         <th className="text-left p-3 font-medium text-sm">Client</th>
                         <th className="text-center p-3 font-medium text-sm">Payment Count</th>
                         <th className="text-right p-3 font-medium text-sm">Total Collected</th>
+                        <th className="text-right p-3 font-medium text-sm">Remittance Due</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -424,6 +475,11 @@ export default function Remittance() {
                               {formatCurrency(row.total)}
                             </span>
                           </td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-amber-600 dark:text-amber-400">
+                              {formatCurrency(row.remittanceDue)}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -433,6 +489,9 @@ export default function Remittance() {
                         <td className="p-3 text-center font-medium">{filteredPayments.length}</td>
                         <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
                           {formatCurrency(totalCollected)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(totalRemittanceDue)}
                         </td>
                       </tr>
                     </tfoot>
@@ -469,6 +528,7 @@ export default function Remittance() {
                         <th className="text-left p-3 font-medium text-sm">Client</th>
                         <th className="text-center p-3 font-medium text-sm">Payment Count</th>
                         <th className="text-right p-3 font-medium text-sm">Total Collected</th>
+                        <th className="text-right p-3 font-medium text-sm">Remittance Due</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -482,6 +542,11 @@ export default function Remittance() {
                               {formatCurrency(row.total)}
                             </span>
                           </td>
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-medium text-amber-600 dark:text-amber-400">
+                              {formatCurrency(row.remittanceDue)}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -491,6 +556,9 @@ export default function Remittance() {
                         <td className="p-3 text-center font-medium">{filteredPayments.length}</td>
                         <td className="p-3 text-right font-mono font-bold text-green-600 dark:text-green-400">
                           {formatCurrency(totalCollected)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(totalRemittanceDue)}
                         </td>
                       </tr>
                     </tfoot>
