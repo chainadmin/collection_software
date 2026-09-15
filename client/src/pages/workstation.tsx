@@ -741,6 +741,7 @@ export default function Workstation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaign-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "notes"] });
       setMessageDialog(null);
       setSelectedTemplateId("");
       setCustomSubject("");

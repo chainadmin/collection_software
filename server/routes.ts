@@ -5780,6 +5780,23 @@ export async function registerRoutes(
         responseText: results[index].error || null,
       })));
 
+      const channelLabel = campaignChannel === "email" ? "Email" : "Text message";
+      const noteCreatedDate = new Date().toISOString().split("T")[0];
+      await Promise.all(items.map((item, index) => {
+        const result = results[index];
+        const content = result.success
+          ? `${channelLabel} campaign "${campaignName}" sent to ${item.contactValue} using template "${template.name}".`
+          : `${channelLabel} campaign "${campaignName}" using template "${template.name}" failed to send to ${item.contactValue}: ${result.error || "Unknown error"}`;
+        return storage.createNote({
+          organizationId: orgId,
+          debtorId: item.debtorId,
+          collectorId,
+          content,
+          noteType: "message",
+          createdDate: noteCreatedDate,
+        });
+      }));
+
       res.json({ success: status !== "failed", campaignLogId: campaignLog.id, totalSent, totalFailed });
     } catch (error) {
       res.status(500).json({ error: "Failed to send campaign" });
@@ -5830,6 +5847,7 @@ export async function registerRoutes(
       let rawSubject: string;
       let rawBody: string;
       let usedTemplateId: string | null = null;
+      let usedTemplateName: string | null = null;
 
       if (templateId) {
         const template = await storage.getEmailTemplate(templateId);
@@ -5845,6 +5863,7 @@ export async function registerRoutes(
         rawSubject = template.subject ?? "";
         rawBody = template.body;
         usedTemplateId = template.id;
+        usedTemplateName = template.name;
       } else {
         channel = contactType === "email" ? "email" : "sms";
         if (channel === "email" && !(subject && subject.trim())) {
@@ -5924,15 +5943,34 @@ export async function registerRoutes(
         body: payload.accounts[0].renderedBody,
         externalId: item.id,
       });
+      const channelLabel = channel === "email" ? "Email" : "Text message";
+      const templateSuffix = usedTemplateName ? ` using template "${usedTemplateName}"` : "";
+
       if (!chainResult.success) {
         const errorText = chainResult.error || "External send failed";
         await storage.updateCampaignLog(campaignLog.id, { status: "failed", errorMessage: errorText || "External send failed" });
         await storage.updateCampaignLogItem(item.id, { status: "failed", responseText: errorText || "External send failed" });
+        await storage.createNote({
+          organizationId: orgId,
+          debtorId: debtor.id,
+          collectorId: currentCollector.id,
+          content: `${channelLabel} to ${contactValue}${templateSuffix} failed: ${errorText}`,
+          noteType: "message",
+          createdDate: new Date().toISOString().split("T")[0],
+        });
         return res.status(502).json({ error: "External message send failed", details: errorText });
       }
 
       await storage.updateCampaignLog(campaignLog.id, { status: "sent", errorMessage: null });
       await storage.updateCampaignLogItem(item.id, { status: "sent", externalId: chainResult.externalId || null });
+      await storage.createNote({
+        organizationId: orgId,
+        debtorId: debtor.id,
+        collectorId: currentCollector.id,
+        content: `${channelLabel} sent to ${contactValue}${templateSuffix}.`,
+        noteType: "message",
+        createdDate: new Date().toISOString().split("T")[0],
+      });
       res.json({ success: true, campaignLogId: campaignLog.id });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });
