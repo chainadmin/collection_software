@@ -3,18 +3,27 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { AppRefreshHelp } from "@/components/app-refresh-help";
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  // Wherever the collector was actually headed before getting bounced here
+  // (e.g. Team Scoreboard opened in a new tab) - only ever an internal
+  // /app path, never an arbitrary redirect target.
+  const redirectTo = (() => {
+    const raw = new URLSearchParams(search).get("redirect");
+    return raw && raw.startsWith("/app") ? raw : "/app";
+  })();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +38,7 @@ export default function Login() {
         });
         // Small delay to allow React state to update before navigation
         await new Promise(resolve => setTimeout(resolve, 100));
-        setLocation("/app");
+        setLocation(redirectTo);
       } else {
         toast({
           title: "Login failed",

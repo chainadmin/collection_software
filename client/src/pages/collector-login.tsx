@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { AlertCircle, Headphones, Info } from "lucide-react";
@@ -50,6 +50,7 @@ function normalizeAgencyCodeInput(input: string): string {
 
 export default function CollectorLogin() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const { collectorLogin } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
@@ -57,6 +58,13 @@ export default function CollectorLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<LoginErrorState | null>(null);
+
+  // Wherever the collector was actually headed before getting bounced here -
+  // only ever an internal /app path, never an arbitrary redirect target.
+  const redirectTo = (() => {
+    const raw = new URLSearchParams(search).get("redirect");
+    return raw && raw.startsWith("/app") ? raw : "/app/workstation";
+  })();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +99,7 @@ export default function CollectorLogin() {
         description: "You have been logged in successfully.",
       });
       await new Promise((resolve) => setTimeout(resolve, 100));
-      setLocation("/app/workstation");
+      setLocation(redirectTo);
     } catch (error: any) {
       const code: string | undefined = error?.code;
       const title = (code && ERROR_TITLES[code]) || "Sign-in failed";
