@@ -36,6 +36,7 @@ import {
   Check,
   X,
   Loader2,
+  Star,
 } from "lucide-react";
 import { lookupBin, getCardTypeFromNumber, type BinLookupResult } from "@/lib/bin-lookup";
 import { formatCardNumber } from "@/lib/bin-lookup";
@@ -101,6 +102,7 @@ import type {
   PaymentCard,
   TimeClockEntry,
   DebtorReference,
+  DebtorReferencePhone,
   AccountStatus,
   EmailTemplate,
 } from "@shared/schema";
@@ -203,7 +205,8 @@ export default function Workstation() {
   const [showAddReferenceDialog, setShowAddReferenceDialog] = useState(false);
   const [editingEmployment, setEditingEmployment] = useState<EmploymentRecord | null>(null);
   const [editingReference, setEditingReference] = useState<DebtorReference | null>(null);
-  
+  const [newRefPhoneDrafts, setNewRefPhoneDrafts] = useState<Record<string, string>>({});
+
   // Employment form state
   const [empEmployerName, setEmpEmployerName] = useState("");
   const [empEmployerPhone, setEmpEmployerPhone] = useState("");
@@ -417,6 +420,11 @@ export default function Workstation() {
 
   const { data: references } = useQuery<DebtorReference[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "references"],
+    enabled: !!selectedDebtorId,
+  });
+
+  const { data: referencePhones } = useQuery<DebtorReferencePhone[]>({
+    queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"],
     enabled: !!selectedDebtorId,
   });
 
@@ -686,6 +694,15 @@ export default function Workstation() {
     onError: (error: Error) => toast({ title: "Unable to remove contact", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
+  const setPrimaryContactMutation = useMutation({
+    mutationFn: async (contactId: string) => apiRequest("POST", `/api/contacts/${contactId}/set-primary`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "contacts"] });
+      toast({ title: "Primary updated", description: "The primary contact was switched." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to set primary", description: error.message || "Please try again.", variant: "destructive" }),
+  });
+
   const availableMessageTemplates = messageTemplates.filter((t) =>
     t.isActive !== false && (messageDialog?.contactType === "email" ? t.templateType === "email" : t.templateType !== "email")
   );
@@ -800,6 +817,44 @@ export default function Workstation() {
       resetReferenceForm();
       toast({ title: "Reference updated", description: "Reference record updated." });
     },
+  });
+
+  const addReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { referenceId: string; value: string }) => {
+      return apiRequest("POST", `/api/references/${data.referenceId}/phones`, { value: data.value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+    onError: (error: Error) => toast({ title: "Unable to add number", description: error.message, variant: "destructive" }),
+  });
+
+  const updateReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { id: string; updates: Partial<DebtorReferencePhone> }) => {
+      return apiRequest("PATCH", `/api/reference-phones/${data.id}`, data.updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+  });
+
+  const removeReferencePhoneMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/reference-phones/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+  });
+
+  const setPrimaryReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { referenceId: string; value: string }) => {
+      return apiRequest("POST", `/api/references/${data.referenceId}/primary-phone`, { value: data.value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "references"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+      toast({ title: "Primary updated", description: "The reference's primary number was switched." });
+    },
+    onError: (error: Error) => toast({ title: "Unable to set primary", description: error.message || "Please try again.", variant: "destructive" }),
   });
 
   const resetEmploymentForm = () => {
@@ -1029,6 +1084,10 @@ export default function Workstation() {
       const matchingContact = contacts?.find((c) => c.type === "phone" && c.value === phone);
       if (matchingContact) {
         updateContactMutation.mutate({ contactId: matchingContact.id, updates: { isValid: false } });
+      }
+      const matchingRefPhone = referencePhones?.find((p) => p.value === phone);
+      if (matchingRefPhone) {
+        updateReferencePhoneMutation.mutate({ id: matchingRefPhone.id, updates: { isValid: false } });
       }
     }
 
@@ -1725,6 +1784,22 @@ export default function Workstation() {
                                   )}
                                 </Button>
                               )}
+                              {!contact.isPrimary && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPrimaryContactMutation.mutate(contact.id);
+                                  }}
+                                  aria-label={`Make ${contact.value} the primary ${contact.type}`}
+                                  title="Set as primary"
+                                  data-testid={`button-set-primary-contact-${contact.id}`}
+                                >
+                                  <Star className="h-3 w-3" />
+                                </Button>
+                              )}
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1870,38 +1945,127 @@ export default function Workstation() {
                         </div>
                         {references && references.length > 0 ? (
                           <div className="space-y-2">
-                            {references.map((ref) => (
-                              <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
-                                <div className="flex items-center justify-between">
-                                  <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
-                                  <div className="flex items-center gap-2">
-                                    {ref.relationship && (
-                                      <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
-                                    )}
+                            {references.map((ref) => {
+                              const extraPhones = (referencePhones || []).filter((p) => p.referenceId === ref.id);
+                              const draft = newRefPhoneDrafts[ref.id] || "";
+                              return (
+                                <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
+                                  <div className="flex items-center justify-between">
+                                    <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
+                                    <div className="flex items-center gap-2">
+                                      {ref.relationship && (
+                                        <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
+                                      )}
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6"
+                                        onClick={() => openEditReferenceDialog(ref)}
+                                        data-testid={`button-edit-reference-${ref.id}`}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <div className="mt-1 space-y-1">
+                                    {[ref.phone, ref.phone2, ref.phone3].map((phone, index) => phone && (
+                                      <div key={index} className="flex items-center gap-2">
+                                        <p
+                                          className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
+                                          onClick={() => {
+                                            setClickedPhone(phone);
+                                            setShowCallOutcomeDialog(true);
+                                          }}
+                                          data-testid={`text-reference-phone-${ref.id}-${index}`}
+                                        >
+                                          {phone}
+                                        </p>
+                                        {index === 0 ? (
+                                          <span className="text-[10px] text-muted-foreground">(Primary)</span>
+                                        ) : (
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-5 w-5"
+                                            onClick={() => setPrimaryReferencePhoneMutation.mutate({ referenceId: ref.id, value: phone })}
+                                            aria-label={`Make ${phone} the primary number`}
+                                            title="Set as primary"
+                                            data-testid={`button-set-primary-reference-phone-${ref.id}-${index}`}
+                                          >
+                                            <Star className="h-3 w-3" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {extraPhones.map((p) => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <p
+                                          className={`text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1 ${p.isValid === false ? "line-through text-muted-foreground" : ""}`}
+                                          onClick={() => {
+                                            setClickedPhone(p.value);
+                                            setShowCallOutcomeDialog(true);
+                                          }}
+                                          data-testid={`text-reference-extra-phone-${p.id}`}
+                                        >
+                                          {p.value}
+                                        </p>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5"
+                                          onClick={() => setPrimaryReferencePhoneMutation.mutate({ referenceId: ref.id, value: p.value })}
+                                          aria-label={`Make ${p.value} the primary number`}
+                                          title="Set as primary"
+                                          data-testid={`button-set-primary-reference-phone-${p.id}`}
+                                        >
+                                          <Star className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5"
+                                          onClick={() => removeReferencePhoneMutation.mutate(p.id)}
+                                          aria-label={`Remove ${p.value}`}
+                                          data-testid={`button-remove-reference-phone-${p.id}`}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <Input
+                                      value={draft}
+                                      onChange={(e) => setNewRefPhoneDrafts((prev) => ({ ...prev, [ref.id]: e.target.value }))}
+                                      placeholder="Add another number"
+                                      className="h-7 text-xs"
+                                      data-testid={`input-add-reference-phone-${ref.id}`}
+                                    />
                                     <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6"
-                                      onClick={() => openEditReferenceDialog(ref)}
-                                      data-testid={`button-edit-reference-${ref.id}`}
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7"
+                                      disabled={!draft.trim() || addReferencePhoneMutation.isPending}
+                                      onClick={() => {
+                                        addReferencePhoneMutation.mutate({ referenceId: ref.id, value: draft.trim() });
+                                        setNewRefPhoneDrafts((prev) => ({ ...prev, [ref.id]: "" }));
+                                      }}
+                                      data-testid={`button-add-reference-phone-${ref.id}`}
                                     >
-                                      <Pencil className="h-3 w-3" />
+                                      <Plus className="h-3 w-3" />
                                     </Button>
                                   </div>
+                                  {(ref.address || ref.city || ref.state) && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
+                                    </p>
+                                  )}
+                                  {ref.notes && (
+                                    <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>
+                                  )}
                                 </div>
-                                {[ref.phone, ref.phone2, ref.phone3].filter(Boolean).map((phone, index) => (
-                                  <p key={index} className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}-${index}`}>{phone}</p>
-                                ))}
-                                {(ref.address || ref.city || ref.state) && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
-                                  </p>
-                                )}
-                                {ref.notes && (
-                                  <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground">No references on file</p>
@@ -3358,7 +3522,25 @@ export default function Workstation() {
                         <p className="font-medium">{ref.name}</p>
                         {ref.relationship && <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>}
                       </div>
-                      {ref.phone && <p className="text-xs font-mono mt-1">{ref.phone}</p>}
+                      <div className="mt-1 space-y-1">
+                        {[
+                          ref.phone,
+                          ref.phone2,
+                          ref.phone3,
+                          ...(referencePhones || []).filter((p) => p.referenceId === ref.id).map((p) => p.value),
+                        ].filter(Boolean).map((phone, index) => (
+                          <p
+                            key={index}
+                            className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
+                            onClick={() => {
+                              setClickedPhone(phone as string);
+                              setShowCallOutcomeDialog(true);
+                            }}
+                          >
+                            {phone}
+                          </p>
+                        ))}
+                      </div>
                       {(ref.address || ref.city || ref.state) && (
                         <p className="text-xs text-muted-foreground mt-1">
                           {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
