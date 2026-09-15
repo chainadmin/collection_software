@@ -4124,7 +4124,11 @@ export async function registerRoutes(
         notes: `REVERSED: ${reason || "No reason provided"}${voidedWithGateway ? " (Voided with gateway)" : ""}`,
       });
 
-      // Cancel all future scheduled payments for this debtor
+      // Future scheduled payments made moot by this reversal never actually
+      // ran (no charge, no gateway call, nothing to reverse) - they're
+      // deleted outright rather than left behind as "cancelled" rows, so
+      // they don't get mistaken for real declines/reversals anywhere that
+      // counts payment outcomes.
       const allPayments = await storage.getPaymentsForDebtor(payment.debtorId);
       const futurePayments = allPayments.filter(
         (p) =>
@@ -4132,26 +4136,20 @@ export async function registerRoutes(
           p.status === "pending" &&
           new Date(p.paymentDate) > new Date()
       );
-      
-      for (const futurePayment of futurePayments) {
-        await storage.updatePayment(futurePayment.id, {
-          status: "cancelled",
-          notes: `Cancelled due to payment reversal on ${new Date().toISOString().split("T")[0]}`,
-        });
-      }
+      const deletedFuturePayments = await storage.deletePayments(futurePayments.map((p) => p.id), orgId);
 
       // Add note to debtor account
       await storage.createNote({
         debtorId: payment.debtorId,
         collectorId: payment.processedBy || "system",
-        content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${futurePayments.length} future payment(s) cancelled.`,
+        content: `Payment of $${(payment.amount / 100).toFixed(2)} REVERSED. Reason: ${reason || "No reason provided"}. ${deletedFuturePayments} future payment(s) deleted.`,
         noteType: "payment",
         createdDate: new Date().toISOString().split("T")[0],
         organizationId: orgId,
       });
 
       if (!updatedPayment) return res.status(404).json({ error: "Payment not found" });
-      res.json({ ...redactPayment(updatedPayment), cancelledPayments: futurePayments.length });
+      res.json({ ...redactPayment(updatedPayment), deletedPayments: deletedFuturePayments });
     } catch (error) {
       res.status(500).json({ error: "Failed to reverse payment" });
     }
