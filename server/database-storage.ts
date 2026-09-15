@@ -1498,6 +1498,24 @@ export class DatabaseStorage implements IStorage {
     return collector;
   }
 
+  async getCollectorByOrgAndChiamoEmail(organizationId: string, chiamoEmail: string): Promise<Collector | undefined> {
+    // Case-insensitive lookup, mirroring getCollectorByOrgAndUsername - used
+    // both to keep the link unique per org and to resolve an inbound Chiamo
+    // call-event to the collector it belongs to.
+    const normalized = String(chiamoEmail ?? "").trim().toLowerCase();
+    if (!normalized) return undefined;
+    const [collector] = await db
+      .select()
+      .from(collectors)
+      .where(
+        and(
+          eq(collectors.organizationId, organizationId),
+          sql`lower(${collectors.chiamoEmail}) = ${normalized}`,
+        ),
+      );
+    return collector;
+  }
+
   // Global Admins
   async getGlobalAdmins(): Promise<GlobalAdmin[]> {
     return await db.select().from(globalAdmins);
