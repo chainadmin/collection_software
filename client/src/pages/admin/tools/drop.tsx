@@ -33,6 +33,9 @@ export default function DropAccounts() {
   const { toast } = useToast();
   const [selectedPortfolio, setSelectedPortfolio] = useState<string>("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedState, setSelectedState] = useState<string>("all");
+  const [minBalance, setMinBalance] = useState<string>("");
+  const [maxBalance, setMaxBalance] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [selectedCollector, setSelectedCollector] = useState<string>("");
@@ -73,6 +76,13 @@ export default function DropAccounts() {
   // Admins (including the main/owner admin) can still work accounts directly
   // and must be selectable as a drop target and pull-back source.
   const activeCollectors = collectors.filter((c) => c.status === "active" && c.role !== "auditor");
+
+  const stateOptions = Array.from(
+    new Set(debtors.map((d) => (d.state || "").trim().toUpperCase()).filter(Boolean)),
+  ).sort();
+
+  const minBalanceCents = minBalance.trim() ? Math.round(parseFloat(minBalance) * 100) : null;
+  const maxBalanceCents = maxBalance.trim() ? Math.round(parseFloat(maxBalance) * 100) : null;
 
   const dropAccountsMutation = useMutation({
     mutationFn: async (data: {
@@ -140,12 +150,15 @@ export default function DropAccounts() {
   const filteredDebtors = debtors.filter((d) => {
     const matchesPortfolio = selectedPortfolio === "all" || !selectedPortfolio || d.portfolioId === selectedPortfolio;
     const matchesStatus = selectedStatus === "all" || d.status === selectedStatus;
-    const matchesSearch = !searchTerm || 
+    const matchesState = selectedState === "all" || (d.state || "").trim().toUpperCase() === selectedState;
+    const matchesMinBalance = minBalanceCents === null || d.currentBalance >= minBalanceCents;
+    const matchesMaxBalance = maxBalanceCents === null || d.currentBalance <= maxBalanceCents;
+    const matchesSearch = !searchTerm ||
       d.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.fileNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesPortfolio && matchesStatus && matchesSearch;
+    return matchesPortfolio && matchesStatus && matchesState && matchesMinBalance && matchesMaxBalance && matchesSearch;
   });
 
   const unassignedDebtors = filteredDebtors.filter((d) => !d.assignedCollectorId);
@@ -353,17 +366,49 @@ export default function DropAccounts() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="newbiz">New Business</SelectItem>
-                  <SelectItem value="1st_message">1st Message</SelectItem>
-                  <SelectItem value="final">Final</SelectItem>
-                  <SelectItem value="promise">Promise</SelectItem>
-                  <SelectItem value="payments_pending">Payments Pending</SelectItem>
-                  <SelectItem value="decline">Decline</SelectItem>
-                  <SelectItem value="nsf">NSF</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="in_payment">In Payment</SelectItem>
+                  {statusOptions.map((s) => (
+                    <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>State</Label>
+              <Select value={selectedState} onValueChange={setSelectedState}>
+                <SelectTrigger data-testid="select-state">
+                  <SelectValue placeholder="All States" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All States</SelectItem>
+                  {stateOptions.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Balance Range</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Min $"
+                  value={minBalance}
+                  onChange={(e) => setMinBalance(e.target.value)}
+                  data-testid="input-min-balance"
+                />
+                <span className="text-muted-foreground text-sm">to</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Max $"
+                  value={maxBalance}
+                  onChange={(e) => setMaxBalance(e.target.value)}
+                  data-testid="input-max-balance"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Search</Label>
