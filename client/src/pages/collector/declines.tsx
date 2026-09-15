@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { XCircle, AlertTriangle, CreditCard } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { isDeclinedPendingPayment } from "@shared/nsf";
 import type { Payment, Debtor, Collector } from "@shared/schema";
 
 export default function Declines() {
@@ -26,13 +27,13 @@ export default function Declines() {
 
   const myDeclines = payments.filter(
     (p) =>
-      (p.status === "failed" || p.status === "declined") &&
+      isDeclinedPendingPayment(p) &&
       p.paymentDate === today &&
       p.processedBy === currentCollector?.id
   );
 
   const allTodayDeclines = payments.filter(
-    (p) => (p.status === "failed" || p.status === "declined") && p.paymentDate === today
+    (p) => isDeclinedPendingPayment(p) && p.paymentDate === today
   );
 
   const formatCurrency = (cents: number) => {

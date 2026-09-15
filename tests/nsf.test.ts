@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Payment } from "@shared/schema";
-import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "../server/nsf";
+import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "@shared/nsf";
 
 function payment(overrides: Partial<Payment> = {}): Payment {
   return {

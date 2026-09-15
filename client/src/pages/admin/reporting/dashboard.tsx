@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight, XCircle, AlertTriangle } from "lucide-react";
 import { formatCurrency, isCollectiblePaymentStatus } from "@/lib/utils";
+import { isDeclinedPendingPayment } from "@shared/nsf";
 import { useState } from "react";
 import type { Payment, Debtor, Portfolio, Collector } from "@shared/schema";
 
@@ -45,7 +46,7 @@ export default function CompanyDashboard() {
   });
 
   const todaysDeclines = payments.filter(
-    (p) => (p.status === "failed" || p.status === "declined") && p.paymentDate === today
+    (p) => isDeclinedPendingPayment(p) && p.paymentDate === today
   );
 
   const totalDeclinedAmount = todaysDeclines.reduce((sum, p) => sum + p.amount, 0);
@@ -79,9 +80,15 @@ export default function CompanyDashboard() {
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const monthPayments = payments.filter(p => p.paymentDate?.startsWith(monthKey));
       const posted = monthPayments.filter(p => p.status === "posted").reduce((sum, p) => sum + p.amount, 0);
-      const pending = monthPayments.filter(p => p.status === "pending").reduce((sum, p) => sum + p.amount, 0);
+      // A decline never gets its own terminal status - the payment stays
+      // "pending" with a DECLINED note - so it has to be told apart from a
+      // payment still genuinely awaiting an attempt, or it would count as
+      // both pending money and (once detected) fallen-through money.
+      const pending = monthPayments
+        .filter(p => p.status === "pending" && !isDeclinedPendingPayment(p))
+        .reduce((sum, p) => sum + p.amount, 0);
       const fellThrough = monthPayments
-        .filter(p => p.status === "declined" || p.status === "reversed")
+        .filter(p => p.status === "reversed" || isDeclinedPendingPayment(p))
         .reduce((sum, p) => sum + p.amount, 0);
       months.push({
         month: d.toLocaleString("default", { month: "short", year: "2-digit" }),
@@ -119,7 +126,7 @@ export default function CompanyDashboard() {
   // Portfolio Performance's collection rate factors in all money that
   // hasn't fallen through -- posted (settled), pending (promised), and any
   // other in-flight status -- not just what's already posted.
-  const collectiblePayments = payments.filter((payment) => isCollectiblePaymentStatus(payment.status));
+  const collectiblePayments = payments.filter((payment) => isCollectiblePaymentStatus(payment));
 
   // Join payments through their debtor so each portfolio reports its own real totals.
   const portfolioPerformance = portfolios

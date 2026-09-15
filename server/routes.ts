@@ -47,6 +47,7 @@ import {
   debtors as debtorsTable,
   payments as paymentsTable,
   type CampaignIntegration,
+  type Payment,
 } from "@shared/schema";
 import { and, desc, eq } from "drizzle-orm";
 import {
@@ -62,7 +63,7 @@ import {
   previewReturn,
 } from "./enrichment-batches";
 import { getPaymentBusinessDate } from "./payment-date";
-import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf } from "./nsf";
+import { isEligibleForNsfDecision, paymentsToDeleteAfterNsf, isFellThroughPayment, isDeclinedPendingPayment } from "@shared/nsf";
 import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
 import {
   debtorMatchesImportIdentifier,
@@ -2013,6 +2014,14 @@ export async function registerRoutes(
           { gross: 0, company: 0 },
         );
 
+      // A decline never gets its own terminal status - the payment stays
+      // "pending" (with a DECLINED note) so an NSF/reverse decision can still
+      // act on it. For reporting, a payment that's actually still awaiting an
+      // attempt has to be told apart from one that was attempted and failed,
+      // or a decline would keep inflating "pending" money that was never
+      // coming in.
+      const isActivePending = (p: Payment) => p.status === 'pending' && !isDeclinedPendingPayment(p);
+
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
         const collectorPayments = orgPayments.filter(p => p.processedBy === collector.id);
@@ -2024,7 +2033,7 @@ export async function registerRoutes(
         // whose paymentDate falls in the current month belong to this
         // month's figures.
         const thisMonthPayments = collectorPayments.filter(p => {
-          if (!p.paymentDate || (p.status !== 'posted' && p.status !== 'pending')) return false;
+          if (!p.paymentDate || (p.status !== 'posted' && !isActivePending(p))) return false;
           const d = p.paymentDate.split('T')[0];
           return d >= currentMonthStart && d <= currentMonthEnd;
         });
@@ -2049,13 +2058,13 @@ export async function registerRoutes(
         // All-time posted/pending totals for this collector, independent of
         // the current-month scoping above -- used for lifetime collections,
         // wage/ROI, and liquidation figures elsewhere.
-        const currentPendingSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'pending'));
+        const currentPendingSums = sumGrossAndCompany(collectorPayments.filter(isActivePending));
         const currentPostedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'posted'));
         const currentPending = currentPendingSums.gross;
         const currentPosted = currentPostedSums.gross;
 
         // Declined and reversed (payments removed from pending/posted)
-        const totalDeclinedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'declined'));
+        const totalDeclinedSums = sumGrossAndCompany(collectorPayments.filter(isDeclinedPendingPayment));
         const totalReversedSums = sumGrossAndCompany(collectorPayments.filter(p => p.status === 'reversed'));
         const totalDeclined = totalDeclinedSums.gross;
         const totalReversed = totalReversedSums.gross;
@@ -2066,7 +2075,7 @@ export async function registerRoutes(
         // an ordinary one-time or arrangement pending payment.
         const nextMonthPendingSums = sumGrossAndCompany(
           collectorPayments
-            .filter(p => p.status === 'pending' && p.paymentDate)
+            .filter(p => isActivePending(p) && p.paymentDate)
             .filter(p => {
               const d = p.paymentDate!.split('T')[0];
               return d >= nextMonthStart && d <= nextMonthEnd;
@@ -2078,7 +2087,7 @@ export async function registerRoutes(
         const monthlyBreakdown = monthWindow.map(({ key, label }) => {
           const monthPayments = collectorPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(key));
           const postedSums = sumGrossAndCompany(monthPayments.filter(p => p.status === 'posted'));
-          const pendingSums = sumGrossAndCompany(monthPayments.filter(p => p.status === 'pending'));
+          const pendingSums = sumGrossAndCompany(monthPayments.filter(isActivePending));
           return {
             month: key,
             label,
