@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { isDeclinedPendingPayment } from "@shared/nsf";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -91,13 +92,19 @@ export function calculateLiquidationRate(collected: number, faceValue: number): 
   return Math.round((collected / faceValue) * 10000) / 100;
 }
 
-// Payment statuses that never became real money -- declined, reversed,
-// failed, or cancelled. Liquidation and collection-rate figures should
-// count everything else (posted, pending, and any other in-flight status),
-// not just payments that have already posted, since a pending arrangement
-// is still real collected value for that portfolio/collector.
-const NON_COLLECTIBLE_PAYMENT_STATUSES = new Set(["declined", "reversed", "failed", "cancelled"]);
+// Payment statuses that never became real money -- reversed or cancelled.
+// Liquidation and collection-rate figures should count everything else
+// (posted, pending, and any other in-flight status), not just payments that
+// have already posted, since a pending arrangement is still real collected
+// value for that portfolio/collector.
+const NON_COLLECTIBLE_PAYMENT_STATUSES = new Set(["reversed", "cancelled"]);
 
-export function isCollectiblePaymentStatus(status: string): boolean {
-  return !NON_COLLECTIBLE_PAYMENT_STATUSES.has(status);
+// A decline never gets its own terminal status - the payment stays "pending"
+// (with a DECLINED note) so an NSF/reverse decision can still act on it -
+// so payment.status alone can't tell a genuinely still-pending payment apart
+// from one that was attempted and failed. Accepts the full payment (rather
+// than a bare status string) for that reason.
+export function isCollectiblePaymentStatus(payment: Parameters<typeof isDeclinedPendingPayment>[0]): boolean {
+  if (NON_COLLECTIBLE_PAYMENT_STATUSES.has(payment.status)) return false;
+  return !isDeclinedPendingPayment(payment);
 }

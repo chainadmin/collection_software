@@ -41,7 +41,7 @@ export default function LiqRates() {
   // other in-flight status -- scoped to payments this specific collector
   // actually processed.
   const myPayments = payments.filter(
-    (p) => isCollectiblePaymentStatus(p.status) && p.processedBy === currentCollector?.id
+    (p) => isCollectiblePaymentStatus(p) && p.processedBy === currentCollector?.id
   );
 
   const totalOriginalBalance = myDebtors.reduce(

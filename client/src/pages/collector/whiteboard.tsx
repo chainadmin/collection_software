@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DollarSign, TrendingUp, Users, CheckCircle, Clock } from "lucide-react";
 import { buildDebtorFeeRateMap, splitAmountByFee } from "@shared/fee-split";
+import { isFellThroughPayment, isDeclinedPendingPayment } from "@shared/nsf";
 import type { Payment, Debtor, Collector, Portfolio, FeeSchedule } from "@shared/schema";
 
 export default function Whiteboard() {
@@ -55,6 +56,7 @@ export default function Whiteboard() {
   const postedToday = payments.filter((p) => p.paymentDate === today && p.status === "posted");
   const pendingToday = payments.filter((p) =>
     p.status === "pending" &&
+    !isDeclinedPendingPayment(p) &&
     String(p.createdAt).slice(0, 10) === today &&
     String(p.paymentDate).slice(0, 7) === currentMonth
   );
@@ -67,7 +69,7 @@ export default function Whiteboard() {
   // not repeat, money.
   const earliestRealPaymentDateByDebtor = new Map<string, string>();
   for (const p of payments) {
-    if (p.status === "declined" || p.status === "reversed") continue;
+    if (isFellThroughPayment(p)) continue;
     const recordDate = String(p.createdAt).slice(0, 10);
     const earliest = earliestRealPaymentDateByDebtor.get(p.debtorId);
     if (!earliest || recordDate < earliest) {

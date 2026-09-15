@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LayoutDashboard, TrendingUp, TrendingDown, DollarSign, Users, Target, Calendar, ArrowUpRight, ArrowDownRight, XCircle, AlertTriangle } from "lucide-react";
 import { formatCurrency, isCollectiblePaymentStatus } from "@/lib/utils";
+import { isDeclinedPendingPayment } from "@shared/nsf";
 import { useState } from "react";
 import type { Payment, Debtor, Portfolio, Collector } from "@shared/schema";
 
@@ -45,7 +46,7 @@ export default function CompanyDashboard() {
   });
 
   const todaysDeclines = payments.filter(
-    (p) => (p.status === "failed" || p.status === "declined") && p.paymentDate === today
+    (p) => isDeclinedPendingPayment(p) && p.paymentDate === today
   );
 
   const totalDeclinedAmount = todaysDeclines.reduce((sum, p) => sum + p.amount, 0);
@@ -79,9 +80,15 @@ export default function CompanyDashboard() {
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const monthPayments = payments.filter(p => p.paymentDate?.startsWith(monthKey));
       const posted = monthPayments.filter(p => p.status === "posted").reduce((sum, p) => sum + p.amount, 0);
-      const pending = monthPayments.filter(p => p.status === "pending").reduce((sum, p) => sum + p.amount, 0);
+      // A decline never gets its own terminal status - the payment stays
+      // "pending" with a DECLINED note - so it has to be told apart from a
+      // payment still genuinely awaiting an attempt, or it would count as
+      // both pending money and (once detected) fallen-through money.
+      const pending = monthPayments
+        .filter(p => p.status === "pending" && !isDeclinedPendingPayment(p))
+        .reduce((sum, p) => sum + p.amount, 0);
       const fellThrough = monthPayments
-        .filter(p => p.status === "declined" || p.status === "reversed")
+        .filter(p => p.status === "reversed" || isDeclinedPendingPayment(p))
         .reduce((sum, p) => sum + p.amount, 0);
       months.push({
         month: d.toLocaleString("default", { month: "short", year: "2-digit" }),
@@ -89,13 +96,12 @@ export default function CompanyDashboard() {
         pending,
         fellThrough,
         isCurrent: i === 0,
-        target: 1,
+        // Each bar is sized only from that month's own posted/pending/
+        // fell-through amounts -- never compared against any other month.
+        total: posted + pending + fellThrough,
       });
     }
-    // Bars are sized relative to the busiest month across all three
-    // categories, so the longest bar on the chart is always full-width.
-    const highestMonthlyTotal = Math.max(...months.map((month) => month.posted + month.pending + month.fellThrough), 1);
-    return months.map((month) => ({ ...month, target: highestMonthlyTotal }));
+    return months;
   })();
 
   const postedPayments = payments.filter((payment) => payment.status === "posted");
@@ -120,7 +126,7 @@ export default function CompanyDashboard() {
   // Portfolio Performance's collection rate factors in all money that
   // hasn't fallen through -- posted (settled), pending (promised), and any
   // other in-flight status -- not just what's already posted.
-  const collectiblePayments = payments.filter((payment) => isCollectiblePaymentStatus(payment.status));
+  const collectiblePayments = payments.filter((payment) => isCollectiblePaymentStatus(payment));
 
   // Join payments through their debtor so each portfolio reports its own real totals.
   const portfolioPerformance = portfolios
@@ -259,18 +265,22 @@ export default function CompanyDashboard() {
                     </div>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden flex">
-                    <div
-                      className="h-full bg-primary"
-                      style={{ width: `${(month.posted / month.target) * 100}%` }}
-                    />
-                    <div
-                      className="h-full bg-yellow-400/70"
-                      style={{ width: `${(month.pending / month.target) * 100}%` }}
-                    />
-                    <div
-                      className="h-full bg-red-500/70"
-                      style={{ width: `${(month.fellThrough / month.target) * 100}%` }}
-                    />
+                    {month.total > 0 && (
+                      <>
+                        <div
+                          className="h-full bg-primary"
+                          style={{ width: `${(month.posted / month.total) * 100}%` }}
+                        />
+                        <div
+                          className="h-full bg-yellow-400/70"
+                          style={{ width: `${(month.pending / month.total) * 100}%` }}
+                        />
+                        <div
+                          className="h-full bg-red-500/70"
+                          style={{ width: `${(month.fellThrough / month.total) * 100}%` }}
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
