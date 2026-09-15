@@ -101,6 +101,7 @@ import type {
   PaymentCard,
   TimeClockEntry,
   DebtorReference,
+  DebtorReferencePhone,
   AccountStatus,
   EmailTemplate,
 } from "@shared/schema";
@@ -203,7 +204,8 @@ export default function Workstation() {
   const [showAddReferenceDialog, setShowAddReferenceDialog] = useState(false);
   const [editingEmployment, setEditingEmployment] = useState<EmploymentRecord | null>(null);
   const [editingReference, setEditingReference] = useState<DebtorReference | null>(null);
-  
+  const [newRefPhoneDrafts, setNewRefPhoneDrafts] = useState<Record<string, string>>({});
+
   // Employment form state
   const [empEmployerName, setEmpEmployerName] = useState("");
   const [empEmployerPhone, setEmpEmployerPhone] = useState("");
@@ -417,6 +419,11 @@ export default function Workstation() {
 
   const { data: references } = useQuery<DebtorReference[]>({
     queryKey: ["/api/debtors", selectedDebtorId, "references"],
+    enabled: !!selectedDebtorId,
+  });
+
+  const { data: referencePhones } = useQuery<DebtorReferencePhone[]>({
+    queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"],
     enabled: !!selectedDebtorId,
   });
 
@@ -802,6 +809,32 @@ export default function Workstation() {
     },
   });
 
+  const addReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { referenceId: string; value: string }) => {
+      return apiRequest("POST", `/api/references/${data.referenceId}/phones`, { value: data.value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+    onError: (error: Error) => toast({ title: "Unable to add number", description: error.message, variant: "destructive" }),
+  });
+
+  const updateReferencePhoneMutation = useMutation({
+    mutationFn: async (data: { id: string; updates: Partial<DebtorReferencePhone> }) => {
+      return apiRequest("PATCH", `/api/reference-phones/${data.id}`, data.updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+  });
+
+  const removeReferencePhoneMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/reference-phones/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "reference-phones"] });
+    },
+  });
+
   const resetEmploymentForm = () => {
     setEmpEmployerName("");
     setEmpEmployerPhone("");
@@ -1029,6 +1062,10 @@ export default function Workstation() {
       const matchingContact = contacts?.find((c) => c.type === "phone" && c.value === phone);
       if (matchingContact) {
         updateContactMutation.mutate({ contactId: matchingContact.id, updates: { isValid: false } });
+      }
+      const matchingRefPhone = referencePhones?.find((p) => p.value === phone);
+      if (matchingRefPhone) {
+        updateReferencePhoneMutation.mutate({ id: matchingRefPhone.id, updates: { isValid: false } });
       }
     }
 
@@ -1870,38 +1907,100 @@ export default function Workstation() {
                         </div>
                         {references && references.length > 0 ? (
                           <div className="space-y-2">
-                            {references.map((ref) => (
-                              <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
-                                <div className="flex items-center justify-between">
-                                  <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
-                                  <div className="flex items-center gap-2">
-                                    {ref.relationship && (
-                                      <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
-                                    )}
+                            {references.map((ref) => {
+                              const extraPhones = (referencePhones || []).filter((p) => p.referenceId === ref.id);
+                              const draft = newRefPhoneDrafts[ref.id] || "";
+                              return (
+                                <div key={ref.id} className="p-3 rounded-md bg-muted/50" data-testid={`card-reference-${ref.id}`}>
+                                  <div className="flex items-center justify-between">
+                                    <p className="font-medium" data-testid={`text-reference-name-${ref.id}`}>{ref.name}</p>
+                                    <div className="flex items-center gap-2">
+                                      {ref.relationship && (
+                                        <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>
+                                      )}
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6"
+                                        onClick={() => openEditReferenceDialog(ref)}
+                                        data-testid={`button-edit-reference-${ref.id}`}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <div className="mt-1 space-y-1">
+                                    {[ref.phone, ref.phone2, ref.phone3].filter(Boolean).map((phone, index) => (
+                                      <p
+                                        key={index}
+                                        className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
+                                        onClick={() => {
+                                          setClickedPhone(phone as string);
+                                          setShowCallOutcomeDialog(true);
+                                        }}
+                                        data-testid={`text-reference-phone-${ref.id}-${index}`}
+                                      >
+                                        {phone}
+                                      </p>
+                                    ))}
+                                    {extraPhones.map((p) => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <p
+                                          className={`text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1 ${p.isValid === false ? "line-through text-muted-foreground" : ""}`}
+                                          onClick={() => {
+                                            setClickedPhone(p.value);
+                                            setShowCallOutcomeDialog(true);
+                                          }}
+                                          data-testid={`text-reference-extra-phone-${p.id}`}
+                                        >
+                                          {p.value}
+                                        </p>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5"
+                                          onClick={() => removeReferencePhoneMutation.mutate(p.id)}
+                                          aria-label={`Remove ${p.value}`}
+                                          data-testid={`button-remove-reference-phone-${p.id}`}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <Input
+                                      value={draft}
+                                      onChange={(e) => setNewRefPhoneDrafts((prev) => ({ ...prev, [ref.id]: e.target.value }))}
+                                      placeholder="Add another number"
+                                      className="h-7 text-xs"
+                                      data-testid={`input-add-reference-phone-${ref.id}`}
+                                    />
                                     <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6"
-                                      onClick={() => openEditReferenceDialog(ref)}
-                                      data-testid={`button-edit-reference-${ref.id}`}
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7"
+                                      disabled={!draft.trim() || addReferencePhoneMutation.isPending}
+                                      onClick={() => {
+                                        addReferencePhoneMutation.mutate({ referenceId: ref.id, value: draft.trim() });
+                                        setNewRefPhoneDrafts((prev) => ({ ...prev, [ref.id]: "" }));
+                                      }}
+                                      data-testid={`button-add-reference-phone-${ref.id}`}
                                     >
-                                      <Pencil className="h-3 w-3" />
+                                      <Plus className="h-3 w-3" />
                                     </Button>
                                   </div>
+                                  {(ref.address || ref.city || ref.state) && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
+                                    </p>
+                                  )}
+                                  {ref.notes && (
+                                    <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>
+                                  )}
                                 </div>
-                                {[ref.phone, ref.phone2, ref.phone3].filter(Boolean).map((phone, index) => (
-                                  <p key={index} className="text-xs font-mono mt-1" data-testid={`text-reference-phone-${ref.id}-${index}`}>{phone}</p>
-                                ))}
-                                {(ref.address || ref.city || ref.state) && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}
-                                  </p>
-                                )}
-                                {ref.notes && (
-                                  <p className="text-xs text-muted-foreground mt-1 italic">{ref.notes}</p>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground">No references on file</p>
@@ -3358,7 +3457,25 @@ export default function Workstation() {
                         <p className="font-medium">{ref.name}</p>
                         {ref.relationship && <Badge variant="secondary" className="text-xs">{ref.relationship}</Badge>}
                       </div>
-                      {ref.phone && <p className="text-xs font-mono mt-1">{ref.phone}</p>}
+                      <div className="mt-1 space-y-1">
+                        {[
+                          ref.phone,
+                          ref.phone2,
+                          ref.phone3,
+                          ...(referencePhones || []).filter((p) => p.referenceId === ref.id).map((p) => p.value),
+                        ].filter(Boolean).map((phone, index) => (
+                          <p
+                            key={index}
+                            className="text-xs font-mono cursor-pointer hover-elevate rounded-md inline-block px-1 -mx-1"
+                            onClick={() => {
+                              setClickedPhone(phone as string);
+                              setShowCallOutcomeDialog(true);
+                            }}
+                          >
+                            {phone}
+                          </p>
+                        ))}
+                      </div>
                       {(ref.address || ref.city || ref.state) && (
                         <p className="text-xs text-muted-foreground mt-1">
                           {[ref.address, ref.city, ref.state, ref.zipCode].filter(Boolean).join(", ")}

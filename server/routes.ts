@@ -2782,6 +2782,24 @@ export async function registerRoutes(
     }
   });
 
+  // Every additional phone number (beyond the built-in phone/phone2/phone3
+  // slots) for all of a debtor's references in one call, so the workstation
+  // doesn't need one request per reference to render the full number list.
+  app.get("/api/debtors/:id/reference-phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const debtor = await storage.getDebtor(req.params.id);
+      if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
+        return res.status(404).json({ error: "Debtor not found" });
+      }
+      const references = await storage.getDebtorReferences(req.params.id);
+      const phonesByReference = await Promise.all(references.map((r) => storage.getReferencePhones(r.id)));
+      res.json(phonesByReference.flat());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reference phone numbers" });
+    }
+  });
+
   app.post("/api/debtors/:id/references", async (req, res) => {
     try {
       const orgId = getOrgId(req);
@@ -2846,6 +2864,95 @@ export async function registerRoutes(
     } catch (error) {
       res.status(500).json({ error: "Failed to delete reference" });
     }
+  });
+
+  // Reference Phone Numbers — a reference's built-in phone/phone2/phone3
+  // columns stay fixed at three for CSV import and the account-slots API,
+  // but the workstation lets a collector attach unlimited additional
+  // numbers to a reference through these endpoints.
+  app.get("/api/references/:id/phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      const phones = await storage.getReferencePhones(req.params.id);
+      res.json(phones);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reference phone numbers" });
+    }
+  });
+
+  app.post("/api/references/:id/phones", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const reference = await storage.getDebtorReference(req.params.id);
+      if (!reference || !validateOrgOwnership(reference.organizationId, orgId)) {
+        return res.status(404).json({ error: "Reference not found" });
+      }
+      if (typeof req.body?.value !== "string" || !req.body.value.trim()) {
+        return res.status(400).json({ error: "A non-blank phone number is required" });
+      }
+      const phone = await storage.createReferencePhone({
+        value: req.body.value.trim(),
+        label: typeof req.body.label === "string" ? req.body.label.trim() || null : null,
+        isValid: req.body.isValid !== false,
+        referenceId: req.params.id,
+        organizationId: orgId,
+      });
+      res.status(201).json(phone);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add reference phone number" });
+    }
+  });
+
+  app.patch("/api/reference-phones/:id", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getReferencePhone(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Reference phone number not found" });
+      }
+      if (!validateOrgOwnership(existing.organizationId, orgId)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const body: any = {};
+      if (req.body?.value !== undefined) {
+        if (typeof req.body.value !== "string" || !req.body.value.trim()) {
+          return res.status(400).json({ error: "Phone number must be non-blank" });
+        }
+        body.value = req.body.value.trim();
+      }
+      if (req.body?.label !== undefined) {
+        if (req.body.label !== null && typeof req.body.label !== "string") {
+          return res.status(400).json({ error: "Label must be a string or null" });
+        }
+        body.label = typeof req.body.label === "string" ? req.body.label.trim() || null : null;
+      }
+      if (req.body?.isValid !== undefined) {
+        if (typeof req.body.isValid !== "boolean") {
+          return res.status(400).json({ error: "isValid must be true or false" });
+        }
+        body.isValid = req.body.isValid;
+      }
+      const phone = await storage.updateReferencePhone(req.params.id, body);
+      if (!phone) {
+        return res.status(404).json({ error: "Reference phone number not found" });
+      }
+      res.json(phone);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update reference phone number" });
+    }
+  });
+
+  app.delete("/api/reference-phones/:id", async (req: any, res) => {
+    const orgId = getOrgId(req);
+    const existing = await storage.getReferencePhone(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Reference phone number not found" });
+    if (!validateOrgOwnership(existing.organizationId, orgId)) return res.status(403).json({ error: "Access denied" });
+    await storage.deleteReferencePhone(req.params.id);
+    res.status(204).send();
   });
 
   app.get("/api/debtors/:id/bank-accounts", async (req: any, res) => {
