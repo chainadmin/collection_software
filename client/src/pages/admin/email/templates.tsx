@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { EmailTemplate, Debtor, DebtorContact } from "@shared/schema";
+import type { EmailTemplate, Debtor, DebtorContact, AccountStatus } from "@shared/schema";
 
 type MaskedCampaignIntegration = {
   id: string;
@@ -147,6 +147,20 @@ function renderWithSampleValues(text: string, custom: string[]): string {
 
 const blankForm = { name: "", subject: "", body: "", templateType: "email" };
 
+const SYSTEM_STATUS_OPTIONS = [
+  { code: "newbiz", label: "New Business" },
+  { code: "1st_message", label: "1st Message" },
+  { code: "final", label: "Final" },
+  { code: "promise", label: "Promise" },
+  { code: "payments_pending", label: "Payments Pending" },
+  { code: "decline", label: "Decline" },
+  { code: "open", label: "Open" },
+  { code: "in_payment", label: "In Payment" },
+  { code: "settled", label: "Settled" },
+  { code: "closed", label: "Closed" },
+  { code: "disputed", label: "Disputed" },
+];
+
 export default function EmailTemplates() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -164,6 +178,8 @@ export default function EmailTemplates() {
   const [sendCampaignName, setSendCampaignName] = useState("");
   const [selectedDebtorIds, setSelectedDebtorIds] = useState<Set<string>>(new Set());
   const [accountSearch, setAccountSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sendQuantity, setSendQuantity] = useState("");
 
   const { data: templates = [], isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["/api/email-templates"],
@@ -172,6 +188,18 @@ export default function EmailTemplates() {
   const { data: integrations = [] } = useQuery<MaskedCampaignIntegration[]>({
     queryKey: ["/api/campaign-integrations"],
   });
+
+  const { data: customStatuses = [] } = useQuery<AccountStatus[]>({
+    queryKey: ["/api/account-statuses"],
+    enabled: !!sendTemplate,
+  });
+
+  const statusOptions = [
+    ...SYSTEM_STATUS_OPTIONS,
+    ...customStatuses
+      .filter((cs) => !SYSTEM_STATUS_OPTIONS.some((s) => s.code === cs.code))
+      .map((cs) => ({ code: cs.code, label: cs.label })),
+  ];
 
   const filteredTemplates = templates.filter((t) =>
     t.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -279,26 +307,32 @@ export default function EmailTemplates() {
   const activeIntegrations = integrations.filter((i) => i.isActive);
   const sendIntegration = integrations.find((i) => i.id === sendIntegrationId);
 
-  const filteredDebtors = useMemo(() => {
+  const statusFilteredDebtors = useMemo(() => {
     const q = accountSearch.trim().toLowerCase();
-    return debtors
-      .filter((d) => {
-        if (!q) return true;
-        return (
-          `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) ||
-          (d.fileNumber || "").toLowerCase().includes(q) ||
-          d.accountNumber.toLowerCase().includes(q) ||
-          (d.email || "").toLowerCase().includes(q)
-        );
-      })
-      .slice(0, 200);
-  }, [debtors, accountSearch]);
+    return debtors.filter((d) => {
+      if (statusFilter !== "all" && d.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) ||
+        (d.fileNumber || "").toLowerCase().includes(q) ||
+        d.accountNumber.toLowerCase().includes(q) ||
+        (d.email || "").toLowerCase().includes(q)
+      );
+    });
+  }, [debtors, accountSearch, statusFilter]);
+
+  const filteredDebtors = useMemo(
+    () => statusFilteredDebtors.slice(0, 200),
+    [statusFilteredDebtors],
+  );
 
   const openSend = (t: EmailTemplate) => {
     setSendTemplate(t);
     setSendCampaignName(t.name);
     setSelectedDebtorIds(new Set());
     setAccountSearch("");
+    setStatusFilter("all");
+    setSendQuantity("");
     const match = integrations.find((i) => i.isActive);
     setSendIntegrationId(match?.id || "");
   };
@@ -310,6 +344,18 @@ export default function EmailTemplates() {
       else next.add(id);
       return next;
     });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedDebtorIds(new Set(statusFilteredDebtors.map((d) => d.id)));
+  };
+
+  const clearSelection = () => setSelectedDebtorIds(new Set());
+
+  const selectQuantity = () => {
+    const qty = parseInt(sendQuantity, 10) || 0;
+    if (qty <= 0) return;
+    setSelectedDebtorIds(new Set(statusFilteredDebtors.slice(0, qty).map((d) => d.id)));
   };
 
   const sendMutation = useMutation({
@@ -665,16 +711,67 @@ export default function EmailTemplates() {
                   <strong>{sendChannel === "email" ? "email address" : "phone number"}</strong>.
                 </div>
 
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search accounts..."
-                    value={accountSearch}
-                    onChange={(e) => setAccountSearch(e.target.value)}
-                    className="pl-9"
-                    data-testid="input-account-search"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search accounts..."
+                      value={accountSearch}
+                      onChange={(e) => setAccountSearch(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-account-search"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger data-testid="select-status-filter">
+                        <SelectValue placeholder="All Statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        {statusOptions.map((s) => (
+                          <SelectItem key={s.code} value={s.code}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    placeholder="# of accounts to select"
+                    value={sendQuantity}
+                    onChange={(e) => setSendQuantity(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-send-quantity"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={selectQuantity}
+                    disabled={!sendQuantity || parseInt(sendQuantity, 10) <= 0}
+                    data-testid="button-select-quantity"
+                  >
+                    Select
+                  </Button>
+                  <Button type="button" variant="outline" onClick={selectAllFiltered} data-testid="button-select-all-filtered">
+                    Select All {statusFilter !== "all" ? "Matching" : ""}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={clearSelection} data-testid="button-clear-selection">
+                    Clear
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {statusFilteredDebtors.length} account(s) match this filter
+                  {statusFilteredDebtors.length > filteredDebtors.length
+                    ? ` (showing first ${filteredDebtors.length})`
+                    : ""}
+                  . Selecting a quantity picks the first N from the filtered list.
+                </p>
 
                 <div className="border rounded-lg max-h-[260px] overflow-y-auto divide-y">
                   {filteredDebtors.map((d) => (
