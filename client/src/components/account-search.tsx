@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDebounce } from "@/hooks/use-debounce";
+import { getAppContext } from "@/lib/app-context";
 import type { Debtor } from "@shared/schema";
 
 interface AccountSearchProps {
@@ -30,6 +31,7 @@ export function AccountSearch({ onSelect, buttonVariant = "outline" }: AccountSe
     queryFn: async () => {
       const response = await fetch(`/api/debtors/search?q=${encodeURIComponent(debouncedSearchTerm)}`, {
         credentials: "include",
+        headers: { "X-App-Context": getAppContext() },
       });
       if (!response.ok) throw new Error("Failed to search accounts");
       return response.json();

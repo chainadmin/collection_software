@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { authStorageKey } from "@/lib/app-context";
 import { 
   CreditCard, 
   Building2, 
@@ -18,8 +19,6 @@ import {
   Mail,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const AUTH_STORAGE_KEY = "debtmanager_auth";
 
 const PLANS = [
   {
@@ -55,7 +54,7 @@ export default function Subscribe() {
   const [selectedPlan, setSelectedPlan] = useState("growth");
   const [verifying, setVerifying] = useState(false);
 
-  const auth = localStorage.getItem(AUTH_STORAGE_KEY);
+  const auth = localStorage.getItem(authStorageKey());
   const user = auth ? JSON.parse(auth) : null;
 
   const { data: subscription, isLoading: subLoading } = useQuery<{

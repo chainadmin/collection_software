@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { getAppContext } from "./app-context";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -28,7 +29,11 @@ export async function apiRequest(
   try {
     res = await fetch(url, {
       method,
-      headers: { ...(data ? { "Content-Type": "application/json" } : {}), ...(options?.headers ?? {}) },
+      headers: {
+        ...(data ? { "Content-Type": "application/json" } : {}),
+        "X-App-Context": getAppContext(),
+        ...(options?.headers ?? {}),
+      },
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
       signal: controller?.signal,
@@ -54,6 +59,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: { "X-App-Context": getAppContext() },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

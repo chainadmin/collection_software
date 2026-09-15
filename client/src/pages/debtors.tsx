@@ -93,8 +93,7 @@ export default function Debtors() {
   const { data: searchResults, isLoading: isSearching } = useQuery<Debtor[]>({
     queryKey: ["/api/debtors/search", debouncedSearchQuery],
     queryFn: async () => {
-      const res = await fetch(`/api/debtors/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
-      if (!res.ok) throw new Error("Search failed");
+      const res = await apiRequest("GET", `/api/debtors/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
       return res.json();
     },
     enabled: debouncedSearchQuery.length > 0,

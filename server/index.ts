@@ -35,6 +35,25 @@ declare module "express-session" {
   }
 }
 
+// The admin/office app and the collector workstation app are installed as
+// two separate PWAs specifically so the same computer can be signed into an
+// admin account and a collector account at the same time. That only holds up
+// if they don't share one session cookie, so each context gets its own
+// cookie name and session store; which one applies to a given request is
+// picked below by the X-App-Context header the client sends (see
+// client/src/lib/app-context.ts / queryClient.ts) rather than by the shared
+// `connect.sid` cookie every request used to carry.
+declare global {
+  namespace Express {
+    interface Request {
+      sessionCookieName?: string;
+    }
+  }
+}
+
+const ADMIN_COOKIE_NAME = "admin.sid";
+const COLLECTOR_COOKIE_NAME = "collector.sid";
+
 // In production the server must never fall back to a predictable session
 // secret — forgeable sessions would defeat all authentication.
 function getSessionSecret(): string {
@@ -48,12 +67,13 @@ function getSessionSecret(): string {
   return "dev-secret-change-in-production";
 }
 
-app.use(
-  session({
+function makeSessionMiddleware(cookieName: string, pruneInterval: number) {
+  return session({
+    name: cookieName,
     store: new PgSessionStore({
       pool: pool,
       tableName: "user_sessions",
-      pruneInterval: 900,
+      pruneInterval,
     }),
     secret: getSessionSecret(),
     resave: false,
@@ -64,8 +84,23 @@ app.use(
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: "lax",
     },
-  })
-);
+  });
+}
+
+// Two independent session stores backed by the same table — only one of the
+// two middlewares below ever runs for a given request, so there is no
+// interaction between them (no shared mutable state, no clobbered cookies).
+const adminSessionMiddleware = makeSessionMiddleware(ADMIN_COOKIE_NAME, 900);
+// Both stores prune the same shared table; only one of them needs to run the
+// sweep.
+const collectorSessionMiddleware = makeSessionMiddleware(COLLECTOR_COOKIE_NAME, 0);
+
+app.use((req, res, next) => {
+  const isCollectorContext = req.get("x-app-context") === "collector";
+  req.sessionCookieName = isCollectorContext ? COLLECTOR_COOKIE_NAME : ADMIN_COOKIE_NAME;
+  const middleware = isCollectorContext ? collectorSessionMiddleware : adminSessionMiddleware;
+  middleware(req, res, next);
+});
 
 declare module "http" {
   interface IncomingMessage {
