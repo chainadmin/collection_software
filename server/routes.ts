@@ -1022,7 +1022,7 @@ export async function registerRoutes(
       if (err) {
         return res.status(500).json({ error: "Logout failed" });
       }
-      res.clearCookie("connect.sid");
+      res.clearCookie(req.sessionCookieName || "connect.sid");
       res.json({ message: "Logged out successfully" });
     });
   });

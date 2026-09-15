@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { getAppContext, setAppContext, authStorageKey } from "./app-context";
 
 interface AuthUser {
   id: string;
@@ -20,7 +21,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTH_STORAGE_KEY = "debtmanager_auth";
 // sessionStorage key that marks an active PWA session. sessionStorage is
 // cleared when the PWA process is fully terminated (icon closed), but survives
 // in-app page navigations and device lock/unlock — so it correctly
@@ -46,26 +46,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem(PWA_SESSION_KEY, "1");
         // Invalidate the server session silently.
         try {
-          await fetch("/api/auth/logout", { method: "POST" });
+          await fetch("/api/auth/logout", {
+            method: "POST",
+            headers: { "X-App-Context": getAppContext() },
+          });
         } catch {
           // Ignore network errors — the local state clear below is what matters.
         }
         // Clear only the auth hint; preserve appMode (needed for routing to the
         // correct login page) and collector_agency_code (pre-fills the form).
-        localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(authStorageKey());
         setUser(null);
         setIsLoading(false);
         return;
       }
 
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      const stored = localStorage.getItem(authStorageKey());
       if (!stored) {
         setIsLoading(false);
         return;
       }
 
       try {
-        const response = await fetch("/api/auth/session");
+        const response = await fetch("/api/auth/session", {
+          headers: { "X-App-Context": getAppContext() },
+        });
         const data = await response.json();
 
         if (data.type === "collector" && data.collector) {
@@ -77,16 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             organizationId: data.collector.organizationId,
           };
           setUser(authUser);
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+          localStorage.setItem(authStorageKey(), JSON.stringify(authUser));
         } else if (data.type === "globalAdmin" && data.admin) {
           const parsed = JSON.parse(stored);
           setUser(parsed);
         } else {
-          localStorage.removeItem(AUTH_STORAGE_KEY);
+          localStorage.removeItem(authStorageKey());
           setUser(null);
         }
       } catch (e) {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(authStorageKey());
         setUser(null);
       }
 
@@ -98,9 +103,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      // This window is now the admin app, regardless of what it inferred
+      // from the URL — pins it before the request so the login call itself
+      // (and everything after it) uses the admin session cookie.
+      setAppContext("admin");
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-App-Context": "admin" },
         body: JSON.stringify({ email, password }),
       });
 
@@ -114,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           organizationId: data.organizationId,
         };
         setUser(authUser);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+        localStorage.setItem(authStorageKey(), JSON.stringify(authUser));
         // Admin login clears any leftover collector mode flag from a
         // previous collector session on this browser, so the admin app
         // doesn't get redirected to the collector workstation.
@@ -130,9 +139,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const collectorLogin = async (username: string, password: string, agencyCode: string): Promise<boolean> => {
+    // This window is now the collector app — pins it before the request so
+    // the login call itself (and everything after it) uses the collector
+    // session cookie, independent of any admin session on this computer.
+    setAppContext("collector");
     const response = await fetch("/api/auth/collector-login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-App-Context": "collector" },
       body: JSON.stringify({ username, password, agencyCode }),
     });
 
@@ -146,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizationId: data.organizationId,
       };
       setUser(authUser);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+      localStorage.setItem(authStorageKey(), JSON.stringify(authUser));
       localStorage.setItem("appMode", "collector");
       return true;
     }
@@ -168,11 +181,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "X-App-Context": getAppContext() },
+      });
     } catch (e) {
     }
     setUser(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem(authStorageKey());
     // Keep appMode across logout. It identifies which installed app initiated
     // the session, so AppContent can return a collector to the collector login
     // instead of briefly redirecting them through the admin login. A
@@ -181,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setAuthUser = (authUser: AuthUser) => {
     setUser(authUser);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+    localStorage.setItem(authStorageKey(), JSON.stringify(authUser));
   };
 
   return (
