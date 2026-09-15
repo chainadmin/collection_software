@@ -75,10 +75,19 @@ function LogoutButton() {
   );
 }
 
+interface NavItem {
+  title: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  // Opens in a new browser tab instead of navigating the SPA, so the admin's
+  // current page stays open and usable while this one runs alongside it.
+  openInNewTab?: boolean;
+}
+
 interface NavSection {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
-  items: { title: string; url: string; icon: React.ComponentType<{ className?: string }> }[];
+  items: NavItem[];
 }
 
 const adminSections: NavSection[] = [
@@ -110,7 +119,7 @@ const adminSections: NavSection[] = [
       { title: "Collector Reporting", url: "/app/admin/reporting/collectors", icon: Users },
       { title: "Time Clock", url: "/app/admin/reporting/time-clock", icon: Clock },
       { title: "Liquidation Rates", url: "/app/liquidation", icon: TrendingUp },
-      { title: "Team Scoreboard", url: "/app/tv-board", icon: Tv },
+      { title: "Team Scoreboard", url: "/app/tv-board", icon: Tv, openInNewTab: true },
     ],
   },
   {
@@ -223,13 +232,20 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
                           <SidebarMenuSubItem key={item.title}>
                             <SidebarMenuSubButton
                               asChild
-                              isActive={location === item.url}
+                              isActive={!item.openInNewTab && location === item.url}
                               data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
                             >
-                              <Link href={item.url}>
-                                <item.icon className="h-3 w-3" />
-                                <span>{item.title}</span>
-                              </Link>
+                              {item.openInNewTab ? (
+                                <a href={item.url} target="_blank" rel="noopener noreferrer">
+                                  <item.icon className="h-3 w-3" />
+                                  <span>{item.title}</span>
+                                </a>
+                              ) : (
+                                <Link href={item.url}>
+                                  <item.icon className="h-3 w-3" />
+                                  <span>{item.title}</span>
+                                </Link>
+                              )}
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
                         ))}
