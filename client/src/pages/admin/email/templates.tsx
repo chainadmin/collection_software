@@ -180,6 +180,7 @@ export default function EmailTemplates() {
   const [accountSearch, setAccountSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sendQuantity, setSendQuantity] = useState("");
+  const [contactsPerDebtor, setContactsPerDebtor] = useState("1");
 
   const { data: templates = [], isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["/api/email-templates"],
@@ -333,6 +334,7 @@ export default function EmailTemplates() {
     setAccountSearch("");
     setStatusFilter("all");
     setSendQuantity("");
+    setContactsPerDebtor("1");
     const match = integrations.find((i) => i.isActive);
     setSendIntegrationId(match?.id || "");
   };
@@ -367,23 +369,29 @@ export default function EmailTemplates() {
 
       const selected = debtors.filter((d) => selectedDebtorIds.has(d.id));
       const accounts: Array<{ debtorId: string; contactValue: string; contactType: string }> = [];
+      const maxPerDebtor = contactsPerDebtor === "all" ? Infinity : parseInt(contactsPerDebtor, 10) || 1;
 
       for (const debtor of selected) {
-        let contactValue = "";
-        if (wantType === "email") {
-          contactValue = debtor.email || "";
+        const res = await apiRequest("GET", `/api/debtors/${debtor.id}/contacts`);
+        const contacts = (await res.json()) as DebtorContact[];
+        const candidates: Array<{ value: string; isPrimary: boolean | null }> = contacts
+          .filter((c) => c.type === wantType)
+          .map((c) => ({ value: c.value, isPrimary: c.isPrimary }));
+        if (wantType === "email" && debtor.email && !candidates.some((c) => c.value === debtor.email)) {
+          candidates.unshift({ value: debtor.email, isPrimary: true });
         }
-        if (!contactValue) {
-          // Look up contacts for a matching phone/email
-          const res = await apiRequest("GET", `/api/debtors/${debtor.id}/contacts`);
-          const contacts = (await res.json()) as DebtorContact[];
-          const match =
-            contacts.find((c) => c.type === wantType && c.isPrimary) ||
-            contacts.find((c) => c.type === wantType);
-          contactValue = match?.value || "";
-        }
-        if (contactValue) {
-          accounts.push({ debtorId: debtor.id, contactValue, contactType: wantType });
+        // Primary numbers/addresses go out first when a debtor has more
+        // candidates on file than the selected per-account limit.
+        candidates.sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0));
+
+        const seen = new Set<string>();
+        let countForDebtor = 0;
+        for (const contact of candidates) {
+          if (countForDebtor >= maxPerDebtor) break;
+          if (!contact.value || seen.has(contact.value)) continue;
+          seen.add(contact.value);
+          countForDebtor++;
+          accounts.push({ debtorId: debtor.id, contactValue: contact.value, contactType: wantType });
         }
       }
 
@@ -711,6 +719,26 @@ export default function EmailTemplates() {
                   <strong>{sendChannel === "email" ? "email address" : "phone number"}</strong>.
                 </div>
 
+                <div className="space-y-2">
+                  <Label>{sendChannel === "email" ? "Email addresses" : "Phone numbers"} to message per account</Label>
+                  <Select value={contactsPerDebtor} onValueChange={setContactsPerDebtor}>
+                    <SelectTrigger data-testid="select-contacts-per-debtor">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 (primary only)</SelectItem>
+                      <SelectItem value="2">Up to 2</SelectItem>
+                      <SelectItem value="3">Up to 3</SelectItem>
+                      <SelectItem value="5">Up to 5</SelectItem>
+                      <SelectItem value="all">All on file</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    When an account has more than one {sendChannel === "email" ? "email" : "phone number"} on file, the
+                    primary is sent first, then others up to this limit.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -802,6 +830,9 @@ export default function EmailTemplates() {
                 </div>
                 <p className="text-xs text-muted-foreground" data-testid="text-selected-count">
                   {selectedDebtorIds.size} account(s) selected
+                  {contactsPerDebtor !== "1"
+                    ? ` — up to ${contactsPerDebtor === "all" ? "all" : contactsPerDebtor} message(s) will be sent per account`
+                    : ""}
                 </p>
               </>
             )}
