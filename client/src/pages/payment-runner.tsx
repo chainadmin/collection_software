@@ -40,7 +40,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
-import { calendarDateFromYmd, easternBusinessDate, localCalendarYmd } from "@shared/business-date";
+import { easternBusinessCalendarDate, easternBusinessDate, localCalendarYmd } from "@shared/business-date";
 import { isEligibleForNsfDecision, isDeclinedPendingPayment, REVERSAL_ELIGIBLE_AFTER_DAYS } from "@shared/nsf";
 
 interface PaymentWithDebtor extends Payment {
@@ -53,9 +53,7 @@ export default function PaymentRunner() {
   // Start on the organization's Eastern business day. Date-only values need
   // to be converted to local midnight so the calendar does not shift a day
   // for users west of UTC.
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() =>
-    calendarDateFromYmd(easternBusinessDate())
-  );
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(easternBusinessCalendarDate);
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
