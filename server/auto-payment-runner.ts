@@ -124,18 +124,20 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
     if (staleCount > 0) {
       console.warn(`[Auto Runner] Moved ${staleCount} incomplete processing attempt(s) to needs_review`);
     }
-    // A scheduled run is date-exact. An explicit Run Now is the only bulk
-    // action allowed to pull pending payments from other scheduled dates.
+    // Both a scheduled run and an explicit Run Now are bounded to what's due
+    // by today - Run Now additionally sweeps up anything still pending from
+    // an earlier date, but neither may reach forward and charge a payment
+    // scheduled for a later date.
     const pendingPayments = manualTrigger
-      ? await storage.getPendingPayments(singleOrgId)
+      ? await storage.getPendingPaymentsDueByDate(today)
       : await storage.getPaymentsScheduledForRun(today, includeDeclined);
 
     if (pendingPayments.length === 0) {
-      console.log(`[Auto Runner] No pending payments ${manualTrigger ? "in the queue" : `scheduled for ${today}`}`);
+      console.log(`[Auto Runner] No pending payments due by ${today}`);
       return result;
     }
 
-    console.log(`[Auto Runner] Found ${pendingPayments.length} pending payments ${manualTrigger ? "for a manual run" : `scheduled for ${today}`}`);
+    console.log(`[Auto Runner] Found ${pendingPayments.length} pending payments ${manualTrigger ? `due by ${today}` : `scheduled for ${today}`}`);
 
     const byOrg: Record<string, Payment[]> = {};
     for (const p of pendingPayments) {
@@ -213,7 +215,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
           // Claim immediately before the provider call. A simultaneous manual
           // run or runner instance sees zero rows returned and must not charge.
           const claimed = manualTrigger
-            ? await claimPendingPaymentForManualRun(payment.id, orgId)
+            ? await claimPendingPaymentForManualRun(payment.id, orgId, today)
             : await claimScheduledPaymentForProcessing(payment.id, orgId, today, includeDeclined);
           if (!claimed) {
             result.totalSkipped++;

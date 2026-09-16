@@ -45,8 +45,12 @@ export function calculateDashboardStats(
   // inflating the figure with unrelated past and future periods. Pending
   // is bounded by periodEnd (the actual end of the period), not endDate
   // (always "today"), so a payment due later this same month still counts.
+  // A pending payment counts regardless of whether it was previously
+  // attempted (completedAt set on an earlier decline before being reset back
+  // to pending) - status is the single source of truth, same as the
+  // payment queue itself (server/database-storage.ts getPendingPayments).
   const pending = payments.filter((payment) =>
-    payment.status === "pending" && !payment.completedAt &&
+    payment.status === "pending" &&
     payment.paymentDate >= startDate && payment.paymentDate <= periodEnd);
   const inRange = posted.filter((payment) => payment.paymentDate >= startDate && payment.paymentDate <= endDate);
   const portfolioFaceValue = portfolios.reduce((sum, portfolio) => sum + Number(portfolio.totalFaceValue || 0), 0);

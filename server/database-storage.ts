@@ -690,6 +690,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payments).where(eq(payments.status, "pending"));
   }
 
+  async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+    // Bounds a manual bulk run to what's actually due - unlike
+    // getPendingPayments (the full queue for display), this must never pull
+    // in a payment scheduled for a later date just because it's pending.
+    return await db.select().from(payments).where(
+      and(eq(payments.status, "pending"), lte(payments.paymentDate, maxDate))
+    );
+  }
+
   async getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]> {
     // Both daily runs are date-exact. The first selects pending only; the
     // second also retries payments that declined during the day.

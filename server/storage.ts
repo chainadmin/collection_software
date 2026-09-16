@@ -226,6 +226,7 @@ export interface IStorage {
   getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
   getRecentPayments(limit?: number, organizationId?: string): Promise<Payment[]>;
   getPendingPayments(organizationId?: string): Promise<Payment[]>;
+  getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]>;
   getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]>;
   deletePayments(ids: string[], organizationId: string): Promise<number>;
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -1840,6 +1841,12 @@ export class MemStorage implements IStorage {
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
       .filter((p) => p.status === "pending" && (!organizationId || p.organizationId === organizationId))
+      .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+  }
+
+  async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+    return Array.from(this.payments.values())
+      .filter((p) => p.status === "pending" && p.paymentDate <= maxDate)
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 
