@@ -74,6 +74,36 @@ export function canEditPaymentsRecord(
 }
 
 /**
+ * An auditor is read-only everywhere except debtors (view/edit/notes), and
+ * can optionally be locked to a single client's data. Returns null for
+ * every other role (no auditor restriction applies at all). For an
+ * auditor, clientId is the client to scope to, or null when the org left
+ * them unrestricted (they see the whole org, e.g. an internal/QA auditor).
+ */
+export function auditorScopeRecord(
+  sessionCollector: { id?: string } | undefined,
+  live: {
+    id?: string;
+    status?: string;
+    organizationId?: string;
+    role?: string;
+    assignedClientId?: string | null;
+  } | undefined,
+  orgId: string,
+): { clientId: string | null } | null {
+  const isLiveAuditor = !!(
+    sessionCollector?.id &&
+    live &&
+    live.id === sessionCollector.id &&
+    live.status === "active" &&
+    live.organizationId === orgId &&
+    live.role === "auditor"
+  );
+  if (!isLiveAuditor) return null;
+  return { clientId: live!.assignedClientId ?? null };
+}
+
+/**
  * Allows viewing company financials: employee hourly wages, wage-cost/ROI
  * profitability reporting, and portfolio ROI. Deliberately NOT granted by
  * role=admin/manager alone - unlike every other permission here, this one

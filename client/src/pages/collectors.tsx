@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import QRCode from "qrcode";
+import { useWatch } from "react-hook-form";
 import type { Control, FieldValues } from "react-hook-form";
 import {
   Search,
@@ -77,7 +78,15 @@ import { formatCurrency, getInitials } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
-import type { Collector } from "@shared/schema";
+import type { Collector, Client } from "@shared/schema";
+
+// An auditor doesn't collect payments and isn't tracked for profitability,
+// so unlike every other role they don't need an hourly wage on file.
+function requireHourlyWageUnlessAuditor(data: { role?: string; hourlyWage: number }, ctx: z.RefinementCtx) {
+  if (data.role !== "auditor" && (!data.hourlyWage || data.hourlyWage < 1)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Hourly wage is required", path: ["hourlyWage"] });
+  }
+}
 
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -87,7 +96,7 @@ const addCollectorSchema = z.object({
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
-  hourlyWage: z.number().min(1, "Hourly wage is required"),
+  hourlyWage: z.number().min(0).default(0),
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
@@ -95,7 +104,11 @@ const addCollectorSchema = z.object({
   canViewFinancials: z.boolean().default(false),
   extension: z.string().optional().or(z.literal("")),
   chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-});
+  // Locks an auditor to one client's portfolios/debtors/remittance/
+  // liquidation data. "" means unrestricted (sees the whole org). Ignored
+  // for every other role.
+  assignedClientId: z.string().optional().or(z.literal("")),
+}).superRefine(requireHourlyWageUnlessAuditor);
 
 const editCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -105,7 +118,7 @@ const editCollectorSchema = z.object({
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
-  hourlyWage: z.number().min(1, "Hourly wage is required"),
+  hourlyWage: z.number().min(0).default(0),
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
@@ -113,7 +126,8 @@ const editCollectorSchema = z.object({
   canViewFinancials: z.boolean().default(false),
   extension: z.string().optional().or(z.literal("")),
   chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-});
+  assignedClientId: z.string().optional().or(z.literal("")),
+}).superRefine(requireHourlyWageUnlessAuditor);
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
 type EditCollectorForm = z.infer<typeof editCollectorSchema>;
@@ -125,6 +139,8 @@ interface CollectorFormFieldsProps {
 }
 
 function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormFieldsProps) {
+  const role = useWatch({ control, name: "role" });
+  const { data: clients } = useQuery<Client[]>({ queryKey: ["/api/clients"] });
   return (
     <>
       <FormField
@@ -140,7 +156,7 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           </FormItem>
         )}
       />
-      {showFinancials && (
+      {showFinancials && role !== "auditor" && (
         <FormField
           control={control}
           name="hourlyWage"
@@ -259,6 +275,34 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           )}
         />
       </div>
+      {role === "auditor" && (
+        <FormField
+          control={control}
+          name="assignedClientId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Client (optional)</FormLabel>
+              <Select onValueChange={(value) => field.onChange(value === "none" ? "" : value)} value={field.value || "none"}>
+                <FormControl>
+                  <SelectTrigger data-testid="select-collector-assigned-client">
+                    <SelectValue placeholder="No restriction" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="none">No restriction (sees the whole org)</SelectItem>
+                  {clients?.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Locks this auditor to only that client's portfolios, debtors, remittance, and liquidation data.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
       <FormField
         control={control}
         name="goal"
@@ -281,6 +325,7 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           </FormItem>
         )}
       />
+      {role !== "auditor" && (
       <div className="space-y-3 pt-2">
         <FormLabel className="text-sm font-medium">Workstation Permissions</FormLabel>
         <div className="space-y-2">
@@ -363,6 +408,7 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           )}
         </div>
       </div>
+      )}
       <div className="space-y-3 pt-2">
         <FormLabel className="text-sm font-medium flex items-center gap-2">
           <Phone className="h-4 w-4 text-muted-foreground" />
@@ -433,6 +479,7 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
       canViewFinancials: false,
       extension: "",
       chiamoEmail: "",
+      assignedClientId: "",
     },
   });
 
@@ -441,6 +488,7 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
       return apiRequest("POST", "/api/collectors", {
         ...data,
         avatarInitials: getInitials(data.name),
+        assignedClientId: data.assignedClientId || null,
       });
     },
     onSuccess: () => {
@@ -518,6 +566,7 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
       canViewFinancials: false,
       extension: "",
       chiamoEmail: "",
+      assignedClientId: "",
     },
   });
 
@@ -543,6 +592,7 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
         canViewFinancials: collector.canViewFinancials ?? false,
         extension: collector.extension || "",
         chiamoEmail: collector.chiamoEmail || "",
+        assignedClientId: collector.assignedClientId || "",
       });
     }
   }, [collector?.id]);
@@ -564,6 +614,7 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
         avatarInitials: getInitials(data.name),
         extension: data.extension || null,
         chiamoEmail: data.chiamoEmail || null,
+        assignedClientId: data.assignedClientId || null,
       };
       // Both fields are hidden from anyone without financial visibility, and
       // their form values are only placeholders in that case - never send

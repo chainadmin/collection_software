@@ -62,6 +62,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCurrency, formatCurrencyCompact, formatDate } from "@/lib/utils";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import type { Portfolio, Collector, Client, FeeSchedule } from "@shared/schema";
 import { parseImportFile, autoMapColumns, systemFields } from "@/lib/csv-import";
 
@@ -108,6 +109,7 @@ type EditPortfolioForm = z.infer<typeof editPortfolioSchema>;
 
 export default function Portfolios() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -150,6 +152,9 @@ export default function Portfolios() {
   const { data: feeSchedules } = useQuery<FeeSchedule[]>({
     queryKey: ["/api/fee-schedules"],
   });
+
+  const currentCollector = collectors?.find((collector) => collector.id === user?.id);
+  const isAuditor = currentCollector?.role === "auditor";
 
   const editForm = useForm<EditPortfolioForm>({
     resolver: zodResolver(editPortfolioSchema),
@@ -468,10 +473,12 @@ export default function Portfolios() {
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
-          <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-portfolio">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Portfolio
-          </Button>
+          {!isAuditor && (
+            <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-portfolio">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Portfolio
+            </Button>
+          )}
         </div>
       </div>
 
@@ -570,15 +577,17 @@ export default function Portfolios() {
                       </td>
                       <td className="py-3">
                         <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditDialog(portfolio)}
-                            data-testid={`button-edit-portfolio-${portfolio.id}`}
-                            title="Edit portfolio"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          {!isAuditor && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEditDialog(portfolio)}
+                              data-testid={`button-edit-portfolio-${portfolio.id}`}
+                              title="Edit portfolio"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" data-testid={`portfolio-menu-${portfolio.id}`}>
@@ -586,11 +595,13 @@ export default function Portfolios() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEditDialog(portfolio)} data-testid={`menu-edit-portfolio-${portfolio.id}`}>
-                                Edit Portfolio
-                              </DropdownMenuItem>
+                              {!isAuditor && (
+                                <DropdownMenuItem onClick={() => openEditDialog(portfolio)} data-testid={`menu-edit-portfolio-${portfolio.id}`}>
+                                  Edit Portfolio
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem>View Details</DropdownMenuItem>
-                              <DropdownMenuItem>Assign Collectors</DropdownMenuItem>
+                              {!isAuditor && <DropdownMenuItem>Assign Collectors</DropdownMenuItem>}
                               <DropdownMenuItem>View Accounts</DropdownMenuItem>
                               <DropdownMenuItem>Export Report</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -613,7 +624,7 @@ export default function Portfolios() {
                   ? "Try adjusting your search or filters"
                   : "Get started by adding your first portfolio"}
               </p>
-              {!searchQuery && statusFilter === "all" && (
+              {!isAuditor && !searchQuery && statusFilter === "all" && (
                 <Button onClick={() => setShowAddDialog(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Portfolio
