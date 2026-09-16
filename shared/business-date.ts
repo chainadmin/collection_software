@@ -16,6 +16,11 @@ export function calendarDateFromYmd(value: string): Date {
   return new Date(year, month - 1, day);
 }
 
+/** Returns today's Eastern business date as a local-midnight calendar value. */
+export function easternBusinessCalendarDate(now: Date = new Date()): Date {
+  return calendarDateFromYmd(easternBusinessDate(now));
+}
+
 /** Serializes the day a browser calendar visibly selected, never UTC instant date. */
 export function localCalendarYmd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
