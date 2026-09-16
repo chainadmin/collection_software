@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import QRCode from "qrcode";
+import { useWatch } from "react-hook-form";
 import type { Control, FieldValues } from "react-hook-form";
 import {
   Search,
@@ -79,6 +80,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import type { Collector } from "@shared/schema";
 
+// An auditor doesn't collect payments and isn't tracked for profitability,
+// so unlike every other role they don't need an hourly wage on file.
+function requireHourlyWageUnlessAuditor(data: { role?: string; hourlyWage: number }, ctx: z.RefinementCtx) {
+  if (data.role !== "auditor" && (!data.hourlyWage || data.hourlyWage < 1)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Hourly wage is required", path: ["hourlyWage"] });
+  }
+}
+
 const addCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Valid email is required").optional().or(z.literal("")),
@@ -87,7 +96,7 @@ const addCollectorSchema = z.object({
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
-  hourlyWage: z.number().min(1, "Hourly wage is required"),
+  hourlyWage: z.number().min(0).default(0),
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
@@ -95,7 +104,7 @@ const addCollectorSchema = z.object({
   canViewFinancials: z.boolean().default(false),
   extension: z.string().optional().or(z.literal("")),
   chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-});
+}).superRefine(requireHourlyWageUnlessAuditor);
 
 const editCollectorSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -105,7 +114,7 @@ const editCollectorSchema = z.object({
   role: z.string().default("collector"),
   status: z.string().default("active"),
   goal: z.number().min(0).default(0),
-  hourlyWage: z.number().min(1, "Hourly wage is required"),
+  hourlyWage: z.number().min(0).default(0),
   canViewDashboard: z.boolean().default(false),
   canViewEmail: z.boolean().default(false),
   canViewPaymentRunner: z.boolean().default(false),
@@ -113,7 +122,7 @@ const editCollectorSchema = z.object({
   canViewFinancials: z.boolean().default(false),
   extension: z.string().optional().or(z.literal("")),
   chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-});
+}).superRefine(requireHourlyWageUnlessAuditor);
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
 type EditCollectorForm = z.infer<typeof editCollectorSchema>;
@@ -125,6 +134,7 @@ interface CollectorFormFieldsProps {
 }
 
 function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormFieldsProps) {
+  const role = useWatch({ control, name: "role" });
   return (
     <>
       <FormField
@@ -140,7 +150,7 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           </FormItem>
         )}
       />
-      {showFinancials && (
+      {showFinancials && role !== "auditor" && (
         <FormField
           control={control}
           name="hourlyWage"
