@@ -160,6 +160,21 @@ export default function DebtorDetail() {
     setMessageDialog({ contactType, contactValue });
   };
 
+  const clickToDialMutation = useMutation({
+    mutationFn: async (phoneNumber: string) => {
+      return apiRequest("POST", "/api/collector/click-to-dial", {
+        phoneNumber,
+        fileNumber: debtor?.fileNumber,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Calling...", description: "Chiamo is placing the call in your softphone tab." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Call failed", description: e?.message || "Failed to place the call.", variant: "destructive" });
+    },
+  });
+
   const getCollectorName = (collectorId: string) => {
     const collector = collectors?.find((c) => c.id === collectorId);
     return collector ? `${collector.name} (@${collector.username})` : "Unknown";
@@ -403,6 +418,16 @@ export default function DebtorDetail() {
                           {contact.isPrimary && (
                             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={clickToDialMutation.isPending}
+                            onClick={() => clickToDialMutation.mutate(contact.value)}
+                            title="Call via Chiamo"
+                            data-testid={`call-${contact.id}`}
+                          >
+                            <Phone className="h-4 w-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => openContactEditor(contact)} aria-label={`Edit ${contact.label || "phone"}`}><Edit className="h-4 w-4" /></Button>
                           <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Remove ${contact.value}?`)) removeContactMutation.mutate(contact.id); }} aria-label={`Remove ${contact.label || "phone"}`}><XCircle className="h-4 w-4" /></Button>
                           <Button

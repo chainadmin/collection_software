@@ -2440,28 +2440,44 @@ export async function registerRoutes(
   // this collector has linked (see collectors.chiamoEmail). The pickup
   // itself happens entirely on Chain's side; this just relays the request
   // with this org's stored Chiamo connection (Settings > Chiamo Connection).
+  // Shared by the parked-call pickup and click-to-dial routes: resolves the
+  // logged-in collector's own Chiamo link and this org's Chiamo Connection
+  // settings, or a ready-to-send error response if either is missing.
+  async function resolveChiamoConnection(req: any, res: any): Promise<
+    { collector: any; chiamoApiUrl: string; chiamoApiKey: string } | null
+  > {
+    const orgId = req.session.collector.organizationId;
+    const collector = await storage.getCollector(req.session.collector.id);
+    if (!collector || collector.organizationId !== orgId) {
+      res.status(404).json({ error: "Collector not found" });
+      return null;
+    }
+    if (!collector.chiamoEmail) {
+      res.status(400).json({ error: "Link your Chiamo login email in Collectors settings first" });
+      return null;
+    }
+
+    const organization = await storage.getOrganization(orgId);
+    const chiamoApiUrl = (organization as any)?.chiamoApiUrl;
+    const chiamoApiKey = (organization as any)?.chiamoApiKey;
+    if (!chiamoApiUrl || !chiamoApiKey) {
+      res.status(400).json({ error: "Chiamo Connection is not configured in Settings" });
+      return null;
+    }
+
+    return { collector, chiamoApiUrl, chiamoApiKey };
+  }
+
   app.post("/api/collector/parked-calls/:id/pickup", requireCollectorAuth, async (req: any, res) => {
     try {
-      const orgId = req.session.collector.organizationId;
-      const collector = await storage.getCollector(req.session.collector.id);
-      if (!collector || collector.organizationId !== orgId) {
-        return res.status(404).json({ error: "Collector not found" });
-      }
-      if (!collector.chiamoEmail) {
-        return res.status(400).json({ error: "Link your Chiamo login email in Collectors settings before picking up parked calls" });
-      }
-
-      const organization = await storage.getOrganization(orgId);
-      const chiamoApiUrl = (organization as any)?.chiamoApiUrl;
-      const chiamoApiKey = (organization as any)?.chiamoApiKey;
-      if (!chiamoApiUrl || !chiamoApiKey) {
-        return res.status(400).json({ error: "Chiamo Connection is not configured in Settings" });
-      }
+      const resolved = await resolveChiamoConnection(req, res);
+      if (!resolved) return;
+      const { collector, chiamoApiUrl, chiamoApiKey } = resolved;
 
       const { pickupParkedCall } = await import("./chiamoService");
       const result = await pickupParkedCall(
         { chiamoApiUrl, chiamoApiKey },
-        { parkedCallId: req.params.id, chiamoEmail: collector.chiamoEmail },
+        { parkedCallId: req.params.id, chiamoEmail: collector.chiamoEmail! },
       );
       if (!result.success) {
         return res.status(502).json({ error: result.error || "Chain could not complete the pickup" });
@@ -2469,6 +2485,34 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to pick up parked call" });
+    }
+  });
+
+  // Click-to-dial: places an outbound call from the collector's own Chiamo
+  // softphone tab. See server/chiamoService.ts and chain-admin's
+  // /api/v2/click_to_dial for why this can't be a pure server-side action.
+  app.post("/api/collector/click-to-dial", requireCollectorAuth, async (req: any, res) => {
+    try {
+      const { phoneNumber, fileNumber } = req.body || {};
+      if (typeof phoneNumber !== "string" || !phoneNumber.trim()) {
+        return res.status(400).json({ error: "phoneNumber is required" });
+      }
+
+      const resolved = await resolveChiamoConnection(req, res);
+      if (!resolved) return;
+      const { collector, chiamoApiUrl, chiamoApiKey } = resolved;
+
+      const { triggerClickToDial } = await import("./chiamoService");
+      const result = await triggerClickToDial(
+        { chiamoApiUrl, chiamoApiKey },
+        { chiamoEmail: collector.chiamoEmail!, phoneNumber: phoneNumber.trim(), fileNumber },
+      );
+      if (!result.success) {
+        return res.status(502).json({ error: result.error || "Chain could not place the call" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to trigger call" });
     }
   });
 
