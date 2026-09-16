@@ -28,6 +28,13 @@ export const organizations = pgTable("organizations", {
   ipRestrictionEnabled: boolean("ip_restriction_enabled").default(false), // Enable IP whitelist for collector login
   autoRunnerEnabled: boolean("auto_runner_enabled").default(false), // Enable automatic payment processing
   autoRunnerHours: text("auto_runner_hours").default("7,18"), // Comma-separated 0-23 ET hours when auto-runner fires (e.g. "7,18")
+  // Chiamo (chain-admin) connection, for DMP-initiated calls back into
+  // Chain - e.g. triggering pickup of a call parked in Chiamo. Distinct
+  // from campaignIntegrations (a generic multi-provider table for bulk
+  // SMS/email sends): this is the one fixed connection back to this org's
+  // own Chain tenant, not one of several interchangeable providers.
+  chiamoApiUrl: text("chiamo_api_url"),
+  chiamoApiKey: text("chiamo_api_key"),
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true });
@@ -89,7 +96,20 @@ export const collectors = pgTable("collectors", {
   // any collector with this flag set, and it's hidden from the manageable
   // collectors list.
   isSystemAccount: boolean("is_system_account").default(false),
-});
+  // Phone extension for the CTI integration with Chiamo (chain-admin's phone
+  // system). Purely informational on DMP's side - Chiamo owns call routing.
+  extension: text("extension"),
+  // The email this collector logs into Chiamo/chain-admin with. Chain-admin
+  // identifies its users by email (it has no username field), while DMP
+  // identifies collectors by username - this is the link between the two,
+  // set once by an org admin when provisioning a collector, so an inbound
+  // Chiamo call-event can be matched back to the right DMP collector.
+  chiamoEmail: text("chiamo_email"),
+}, (table) => ({
+  // Looked up on every inbound Chiamo call-event webhook to find which
+  // collector's live connection to push the screen-pop to.
+  chiamoEmailIdx: index("collectors_org_chiamo_email_idx").on(table.organizationId, table.chiamoEmail),
+}));
 
 export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: true });
 export type InsertCollector = z.infer<typeof insertCollectorSchema>;

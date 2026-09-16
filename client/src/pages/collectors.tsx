@@ -19,6 +19,7 @@ import {
   Copy,
   QrCode,
   Download,
+  Phone,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,8 @@ const addCollectorSchema = z.object({
   canViewPaymentRunner: z.boolean().default(false),
   canEditPayments: z.boolean().default(false),
   canViewFinancials: z.boolean().default(false),
+  extension: z.string().optional().or(z.literal("")),
+  chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
 });
 
 const editCollectorSchema = z.object({
@@ -108,6 +111,8 @@ const editCollectorSchema = z.object({
   canViewPaymentRunner: z.boolean().default(false),
   canEditPayments: z.boolean().default(false),
   canViewFinancials: z.boolean().default(false),
+  extension: z.string().optional().or(z.literal("")),
+  chiamoEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
 });
 
 type AddCollectorForm = z.infer<typeof addCollectorSchema>;
@@ -358,6 +363,41 @@ function CollectorFormFields({ control, isEdit, showFinancials }: CollectorFormF
           )}
         </div>
       </div>
+      <div className="space-y-3 pt-2">
+        <FormLabel className="text-sm font-medium flex items-center gap-2">
+          <Phone className="h-4 w-4 text-muted-foreground" />
+          Phone Integration (Chiamo)
+        </FormLabel>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={control}
+            name="extension"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Extension</FormLabel>
+                <FormControl>
+                  <Input placeholder="101" {...field} data-testid="input-collector-extension" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="chiamoEmail"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Chiamo Login Email</FormLabel>
+                <FormControl>
+                  <Input type="email" placeholder="jsmith@company.com" {...field} data-testid="input-collector-chiamo-email" />
+                </FormControl>
+                <FormDescription>The email this collector logs into Chiamo with — links an incoming call to their DMP account.</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      </div>
     </>
   );
 }
@@ -391,6 +431,8 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
       canViewPaymentRunner: false,
       canEditPayments: false,
       canViewFinancials: false,
+      extension: "",
+      chiamoEmail: "",
     },
   });
 
@@ -474,6 +516,8 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
       canViewPaymentRunner: false,
       canEditPayments: false,
       canViewFinancials: false,
+      extension: "",
+      chiamoEmail: "",
     },
   });
 
@@ -497,6 +541,8 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
         canViewPaymentRunner: collector.canViewPaymentRunner ?? false,
         canEditPayments: collector.canEditPayments ?? false,
         canViewFinancials: collector.canViewFinancials ?? false,
+        extension: collector.extension || "",
+        chiamoEmail: collector.chiamoEmail || "",
       });
     }
   }, [collector?.id]);
@@ -516,6 +562,8 @@ function EditCollectorDialog({ collector, onClose, showFinancials }: EditCollect
         canViewPaymentRunner: data.canViewPaymentRunner,
         canEditPayments: data.canEditPayments,
         avatarInitials: getInitials(data.name),
+        extension: data.extension || null,
+        chiamoEmail: data.chiamoEmail || null,
       };
       // Both fields are hidden from anyone without financial visibility, and
       // their form values are only placeholders in that case - never send

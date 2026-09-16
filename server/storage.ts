@@ -380,6 +380,7 @@ export interface IStorage {
   getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined>;
   getCollectorByUsername(username: string): Promise<Collector | undefined>;
   getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined>;
+  getCollectorByOrgAndChiamoEmail(organizationId: string, chiamoEmail: string): Promise<Collector | undefined>;
 
   // Global Admins
   getGlobalAdmins(): Promise<GlobalAdmin[]>;
@@ -2908,6 +2909,14 @@ export class MemStorage implements IStorage {
     if (!normalized) return undefined;
     return Array.from(this.collectors.values()).find(
       (c) => c.organizationId === organizationId && c.username.toLowerCase() === normalized
+    );
+  }
+
+  async getCollectorByOrgAndChiamoEmail(organizationId: string, chiamoEmail: string): Promise<Collector | undefined> {
+    const normalized = String(chiamoEmail ?? "").trim().toLowerCase();
+    if (!normalized) return undefined;
+    return Array.from(this.collectors.values()).find(
+      (c) => c.organizationId === organizationId && (c.chiamoEmail ?? "").toLowerCase() === normalized
     );
   }
 
