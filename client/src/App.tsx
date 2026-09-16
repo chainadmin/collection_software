@@ -229,7 +229,46 @@ function AppLayout() {
     }
   }, [handleAccountSelect]);
 
-  useSoftphoneRealtime(currentCollector?.id, handleIncomingCallAnswered);
+  // Parked calls in Chiamo are tenant-wide there (any collector with
+  // softphone access can pick one up), so DMP mirrors that as an org-wide
+  // list rather than targeting one collector - see server/chiamoService.ts.
+  const [parkedCalls, setParkedCalls] = useState<{ parkedCallId: string; callerName: string; callerNumber: string }[]>([]);
+  const [pickingUpParkedCallId, setPickingUpParkedCallId] = useState<string | null>(null);
+
+  const handleCallParked = useCallback((call: { parkedCallId: string; callerName: string; callerNumber: string }) => {
+    setParkedCalls((current) => current.some((c) => c.parkedCallId === call.parkedCallId)
+      ? current
+      : [...current, call]);
+  }, []);
+
+  const handleCallUnparked = useCallback((parkedCallId: string) => {
+    setParkedCalls((current) => current.filter((c) => c.parkedCallId !== parkedCallId));
+  }, []);
+
+  const handlePickupParkedCall = useCallback(async (parkedCallId: string) => {
+    setPickingUpParkedCallId(parkedCallId);
+    try {
+      const res = await apiRequest("POST", `/api/collector/parked-calls/${encodeURIComponent(parkedCallId)}/pickup`);
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Pickup failed");
+      }
+      // The call-unparked broadcast will also remove it, but don't wait on
+      // that round trip to reflect the click.
+      setParkedCalls((current) => current.filter((c) => c.parkedCallId !== parkedCallId));
+    } catch (error) {
+      console.error("Failed to pick up parked call:", error);
+      alert(error instanceof Error ? error.message : "Failed to pick up parked call");
+    } finally {
+      setPickingUpParkedCallId(null);
+    }
+  }, []);
+
+  useSoftphoneRealtime(currentCollector?.id, {
+    onIncomingCallAnswered: handleIncomingCallAnswered,
+    onCallParked: handleCallParked,
+    onCallUnparked: handleCallUnparked,
+  });
 
   const style = {
     "--sidebar-width": "16rem",
@@ -290,6 +329,29 @@ function AppLayout() {
               <ThemeToggle />
             </div>
           </header>
+          {parkedCalls.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 dark:bg-amber-950/40 sm:px-5" data-testid="banner-parked-calls">
+              <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Parked in Chiamo:</span>
+              {parkedCalls.map((call) => (
+                <div
+                  key={call.parkedCallId}
+                  className="flex items-center gap-2 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm dark:border-amber-800 dark:bg-background"
+                >
+                  <span>{call.callerName || call.callerNumber || "Unknown caller"}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pickingUpParkedCallId === call.parkedCallId}
+                    onClick={() => handlePickupParkedCall(call.parkedCallId)}
+                    data-testid={`button-pickup-parked-call-${call.parkedCallId}`}
+                  >
+                    {pickingUpParkedCallId === call.parkedCallId ? "Picking up..." : "Pick Up"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
           <main className="app-scroll-area flex-1 overflow-auto bg-background">
             <AppRouter />
           </main>

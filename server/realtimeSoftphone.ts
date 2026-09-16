@@ -20,6 +20,11 @@ const pendingTokens = new Map<string, PendingToken>();
 // maps to a set of live sockets rather than a single one.
 const collectorSockets = new Map<string, Set<WebSocket>>();
 
+// Parked-call events are org-wide (any collector with softphone access can
+// see and pick one up, mirroring Chiamo's own tenant-wide parked-calls
+// list), so sockets are also tracked per organization for broadcast.
+const orgSockets = new Map<string, Set<WebSocket>>();
+
 export function mintRealtimeToken(collectorId: string, organizationId: string): string {
   const token = randomUUID();
   pendingTokens.set(token, { collectorId, organizationId, expiresAt: Date.now() + TOKEN_TTL_MS });
@@ -56,12 +61,27 @@ export function initRealtimeSoftphone(httpServer: Server): void {
     }
     sockets.add(ws);
 
+    let orgSet = orgSockets.get(identity.organizationId);
+    if (!orgSet) {
+      orgSet = new Set();
+      orgSockets.set(identity.organizationId, orgSet);
+    }
+    orgSet.add(ws);
+
     ws.on("close", () => {
       const current = collectorSockets.get(identity.collectorId);
-      if (!current) return;
-      current.delete(ws);
-      if (current.size === 0) {
-        collectorSockets.delete(identity.collectorId);
+      if (current) {
+        current.delete(ws);
+        if (current.size === 0) {
+          collectorSockets.delete(identity.collectorId);
+        }
+      }
+      const currentOrgSet = orgSockets.get(identity.organizationId);
+      if (currentOrgSet) {
+        currentOrgSet.delete(ws);
+        if (currentOrgSet.size === 0) {
+          orgSockets.delete(identity.organizationId);
+        }
       }
     });
 
@@ -99,6 +119,22 @@ export function pushToCollector(collectorId: string, message: unknown): boolean 
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(payload);
       sent = true;
+    }
+  }
+  return sent;
+}
+
+/** Broadcasts to every connected collector in the org. Returns how many sockets received it. */
+export function pushToOrg(organizationId: string, message: unknown): number {
+  const sockets = orgSockets.get(organizationId);
+  if (!sockets || sockets.size === 0) return 0;
+
+  const payload = JSON.stringify(message);
+  let sent = 0;
+  for (const ws of Array.from(sockets)) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+      sent += 1;
     }
   }
   return sent;

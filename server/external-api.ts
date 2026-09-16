@@ -1252,25 +1252,38 @@ export function registerExternalApiRoutes(app: Express) {
   });
 
   // POST /api/v2/softphone/call-event - Chiamo (chain-admin) reports a call
-  // event for a specific collector (identified by the Chiamo email linked on
-  // their collector profile). Today only "answered" drives anything: the
-  // matching account is resolved the same way the softphone search bar
-  // already does, and pushed to that collector's live connection so their
-  // screen can navigate there without them touching anything.
+  // event. "answered" targets one collector (identified by the Chiamo email
+  // linked on their collector profile): the matching account is resolved
+  // the same way the softphone search bar already does, and pushed to that
+  // collector's live connection so their screen can navigate there without
+  // them touching anything. "parked"/"unparked" are org-wide broadcasts -
+  // parked calls in Chiamo are tenant-wide (any collector with softphone
+  // access can see and pick one up), so there's no single collector to
+  // target.
   app.post("/api/v2/softphone/call-event", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { event, chiamoEmail, phoneNumber } = req.body;
+      const { event, chiamoEmail, phoneNumber, parkedCallId, callerName, callerNumber } = req.body;
       const orgId = req.apiToken?.organizationId;
 
-      if (!chiamoEmail || !phoneNumber) {
-        return res.status(400).json({ error: "chiamoEmail and phoneNumber are required" });
+      if (event === "parked" || event === "unparked") {
+        if (typeof parkedCallId !== "string" || !parkedCallId.trim()) {
+          return res.status(400).json({ error: "parkedCallId is required" });
+        }
+        const { pushToOrg } = await import("./realtimeSoftphone");
+        const pushed = pushToOrg(orgId!, event === "parked"
+          ? { type: "call-parked", parkedCallId, callerName: callerName || "", callerNumber: callerNumber || "" }
+          : { type: "call-unparked", parkedCallId });
+        return res.json({ success: true, pushed: pushed > 0 });
       }
 
       if (event !== "answered") {
-        // Other event types (e.g. a future "parked") aren't acted on yet -
-        // acknowledge so Chain doesn't need to know what DMP currently
-        // supports.
+        // Other event types aren't acted on yet - acknowledge so Chain
+        // doesn't need to know what DMP currently supports.
         return res.json({ success: true, pushed: false });
+      }
+
+      if (!chiamoEmail || !phoneNumber) {
+        return res.status(400).json({ error: "chiamoEmail and phoneNumber are required" });
       }
 
       const collector = await storage.getCollectorByOrgAndChiamoEmail(orgId!, chiamoEmail);

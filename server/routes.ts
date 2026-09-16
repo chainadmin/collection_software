@@ -2436,6 +2436,42 @@ export async function registerRoutes(
     res.json({ token });
   });
 
+  // Picks up a call parked in Chiamo, ringing it to whichever Chiamo login
+  // this collector has linked (see collectors.chiamoEmail). The pickup
+  // itself happens entirely on Chain's side; this just relays the request
+  // with this org's stored Chiamo connection (Settings > Chiamo Connection).
+  app.post("/api/collector/parked-calls/:id/pickup", requireCollectorAuth, async (req: any, res) => {
+    try {
+      const orgId = req.session.collector.organizationId;
+      const collector = await storage.getCollector(req.session.collector.id);
+      if (!collector || collector.organizationId !== orgId) {
+        return res.status(404).json({ error: "Collector not found" });
+      }
+      if (!collector.chiamoEmail) {
+        return res.status(400).json({ error: "Link your Chiamo login email in Collectors settings before picking up parked calls" });
+      }
+
+      const organization = await storage.getOrganization(orgId);
+      const chiamoApiUrl = (organization as any)?.chiamoApiUrl;
+      const chiamoApiKey = (organization as any)?.chiamoApiKey;
+      if (!chiamoApiUrl || !chiamoApiKey) {
+        return res.status(400).json({ error: "Chiamo Connection is not configured in Settings" });
+      }
+
+      const { pickupParkedCall } = await import("./chiamoService");
+      const result = await pickupParkedCall(
+        { chiamoApiUrl, chiamoApiKey },
+        { parkedCallId: req.params.id, chiamoEmail: collector.chiamoEmail },
+      );
+      if (!result.success) {
+        return res.status(502).json({ error: result.error || "Chain could not complete the pickup" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to pick up parked call" });
+    }
+  });
+
   app.get("/api/exports/accounts", requireCollectorAuth, async (req: any, res) => {
     try {
       const orgId = req.session.collector.organizationId;

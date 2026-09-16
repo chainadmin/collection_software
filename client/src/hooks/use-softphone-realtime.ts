@@ -7,19 +7,43 @@ interface IncomingCallAnsweredMessage {
   matchCount: number;
 }
 
+interface CallParkedMessage {
+  type: "call-parked";
+  parkedCallId: string;
+  callerName: string;
+  callerNumber: string;
+}
+
+interface CallUnparkedMessage {
+  type: "call-unparked";
+  parkedCallId: string;
+}
+
+type SoftphoneRealtimeMessage =
+  | IncomingCallAnsweredMessage
+  | CallParkedMessage
+  | CallUnparkedMessage
+  | { type: string };
+
+interface SoftphoneRealtimeCallbacks {
+  onIncomingCallAnswered?: (fileNumber: string) => void;
+  onCallParked?: (call: { parkedCallId: string; callerName: string; callerNumber: string }) => void;
+  onCallUnparked?: (parkedCallId: string) => void;
+}
+
 /**
  * Opens the softphone WebSocket connection for a logged-in collector and
- * calls onIncomingCallAnswered when Chiamo reports a call was answered and
- * resolves to this collector's account. Reconnects on drop (network blip,
- * server restart) with a short fixed backoff - this is a convenience
- * channel, not a critical one, so a simple retry is enough.
+ * dispatches to the given callbacks when Chiamo reports a call event.
+ * Reconnects on drop (network blip, server restart) with a short fixed
+ * backoff - this is a convenience channel, not a critical one, so a simple
+ * retry is enough.
  */
 export function useSoftphoneRealtime(
   collectorId: string | undefined,
-  onIncomingCallAnswered: (fileNumber: string) => void,
+  callbacks: SoftphoneRealtimeCallbacks,
 ) {
-  const onIncomingCallAnsweredRef = useRef(onIncomingCallAnswered);
-  onIncomingCallAnsweredRef.current = onIncomingCallAnswered;
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
 
   useEffect(() => {
     if (!collectorId) return;
@@ -40,9 +64,18 @@ export function useSoftphoneRealtime(
 
         socket.onmessage = (event) => {
           try {
-            const message = JSON.parse(event.data) as IncomingCallAnsweredMessage | { type: string };
+            const message = JSON.parse(event.data) as SoftphoneRealtimeMessage;
             if (message.type === "incoming-call-answered") {
-              onIncomingCallAnsweredRef.current((message as IncomingCallAnsweredMessage).fileNumber);
+              callbacksRef.current.onIncomingCallAnswered?.((message as IncomingCallAnsweredMessage).fileNumber);
+            } else if (message.type === "call-parked") {
+              const parked = message as CallParkedMessage;
+              callbacksRef.current.onCallParked?.({
+                parkedCallId: parked.parkedCallId,
+                callerName: parked.callerName,
+                callerNumber: parked.callerNumber,
+              });
+            } else if (message.type === "call-unparked") {
+              callbacksRef.current.onCallUnparked?.((message as CallUnparkedMessage).parkedCallId);
             }
           } catch {
             // Ignore malformed messages rather than crash the connection.

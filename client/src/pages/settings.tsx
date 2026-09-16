@@ -39,6 +39,9 @@ import {
   Copy,
   ExternalLink,
   CreditCard,
+  Phone,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +138,8 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const { organization, organizationId } = useOrganization();
   const [orgForm, setOrgForm] = useState<OrganizationFormState>(blankOrganizationForm);
+  const [chiamoForm, setChiamoForm] = useState({ apiUrl: "", apiKey: "" });
+  const [showChiamoApiKey, setShowChiamoApiKey] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [paymentAutomation, setPaymentAutomation] = useState<PaymentMessageAutomationSettings>(blankPaymentAutomation);
   const [uploadingLogoFilename, setUploadingLogoFilename] = useState<string | null>(null);
@@ -165,6 +170,10 @@ export default function Settings() {
         state: organization.state || "",
         zipCode: organization.zipCode || "",
       });
+      setChiamoForm({
+        apiUrl: (organization as any).chiamoApiUrl || "",
+        apiKey: (organization as any).chiamoApiKey || "",
+      });
     }
   }, [organization]);
 
@@ -188,6 +197,27 @@ export default function Settings() {
       return;
     }
     saveOrganizationMutation.mutate(orgForm);
+  };
+
+  const saveChiamoConnectionMutation = useMutation({
+    mutationFn: async (payload: { chiamoApiUrl: string; chiamoApiKey: string }) => {
+      const res = await apiRequest("PATCH", `/api/organizations/${organizationId}`, payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", organizationId] });
+      toast({ title: "Chiamo Connection Saved", description: "Call-parking pickup will use this connection." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err?.message || "Failed to save the Chiamo connection.", variant: "destructive" });
+    },
+  });
+
+  const handleSaveChiamoConnection = () => {
+    saveChiamoConnectionMutation.mutate({
+      chiamoApiUrl: chiamoForm.apiUrl.trim(),
+      chiamoApiKey: chiamoForm.apiKey.trim(),
+    });
   };
 
   const savePaymentAutomationMutation = useMutation({
@@ -445,6 +475,60 @@ export default function Settings() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Phone className="h-5 w-5" />
+                Chiamo Connection
+              </CardTitle>
+              <CardDescription>
+                Lets this DMP org trigger call-parking pickup in Chiamo (your Chain tenant's softphone).
+                Get the API URL and key from Chain admin's Settings page under "Chain API Key".
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="chiamoApiUrl">Chain API URL</Label>
+                <Input
+                  id="chiamoApiUrl"
+                  placeholder="https://your-tenant.chainsoftwaregroup.com"
+                  data-testid="input-chiamo-api-url"
+                  value={chiamoForm.apiUrl}
+                  onChange={(e) => setChiamoForm((current) => ({ ...current, apiUrl: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="chiamoApiKey">Chain API Key</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="chiamoApiKey"
+                    type={showChiamoApiKey ? "text" : "password"}
+                    placeholder="Paste the key generated in Chain admin"
+                    data-testid="input-chiamo-api-key"
+                    value={chiamoForm.apiKey}
+                    onChange={(e) => setChiamoForm((current) => ({ ...current, apiKey: e.target.value }))}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowChiamoApiKey((prev) => !prev)}
+                  >
+                    {showChiamoApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="pt-2">
+                <Button
+                  data-testid="button-save-chiamo-connection"
+                  onClick={handleSaveChiamoConnection}
+                  disabled={saveChiamoConnectionMutation.isPending}
+                >
+                  {saveChiamoConnectionMutation.isPending ? "Saving..." : "Save Connection"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

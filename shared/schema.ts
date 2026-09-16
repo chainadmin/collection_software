@@ -28,6 +28,13 @@ export const organizations = pgTable("organizations", {
   ipRestrictionEnabled: boolean("ip_restriction_enabled").default(false), // Enable IP whitelist for collector login
   autoRunnerEnabled: boolean("auto_runner_enabled").default(false), // Enable automatic payment processing
   autoRunnerHours: text("auto_runner_hours").default("7,18"), // Comma-separated 0-23 ET hours when auto-runner fires (e.g. "7,18")
+  // Chiamo (chain-admin) connection, for DMP-initiated calls back into
+  // Chain - e.g. triggering pickup of a call parked in Chiamo. Distinct
+  // from campaignIntegrations (a generic multi-provider table for bulk
+  // SMS/email sends): this is the one fixed connection back to this org's
+  // own Chain tenant, not one of several interchangeable providers.
+  chiamoApiUrl: text("chiamo_api_url"),
+  chiamoApiKey: text("chiamo_api_key"),
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true });
