@@ -8,6 +8,10 @@ export interface CallStateMessage {
   phoneNumber: string;
   callerName?: string;
   fileNumber?: string;
+  // Identifies which of the collector's open Chiamo tabs this call is on -
+  // pass it back on any call-control command so Chain can target that one
+  // tab instead of broadcasting to every tab this collector has open.
+  connectionId?: string;
 }
 
 interface CallParkedMessage {

@@ -2597,7 +2597,7 @@ export async function registerRoutes(
   // server-side action.
   app.post("/api/collector/call-control", requireCollectorAuth, async (req: any, res) => {
     try {
-      const { action } = req.body || {};
+      const { action, connectionId } = req.body || {};
       if (!CALL_CONTROL_ACTIONS.includes(action)) {
         return res.status(400).json({ error: `action must be one of: ${CALL_CONTROL_ACTIONS.join(", ")}` });
       }
@@ -2609,7 +2609,7 @@ export async function registerRoutes(
       const { triggerCallControl } = await import("./chiamoService");
       const result = await triggerCallControl(
         { chiamoApiUrl, chiamoApiKey },
-        { chiamoEmail: collector.chiamoEmail!, action },
+        { chiamoEmail: collector.chiamoEmail!, action, connectionId: typeof connectionId === "string" ? connectionId : undefined },
       );
       if (!result.success) {
         return res.status(502).json({ error: result.error || "Chain could not complete the call control request" });

@@ -250,6 +250,10 @@ function AppLayout() {
     fileNumber?: string;
     muted: boolean;
     connectedAt: number | null;
+    // Which of the collector's open Chiamo tabs this call is on. Sent back
+    // on every call-control command so Chain can target that one tab
+    // instead of every tab this collector has open.
+    connectionId?: string;
   }
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [callControlPending, setCallControlPending] = useState(false);
@@ -267,6 +271,7 @@ function AppLayout() {
     phoneNumber: string;
     callerName?: string;
     fileNumber?: string;
+    connectionId?: string;
   }) => {
     if (state.status === "ended" || state.status === "missed") {
       setActiveCall(null);
@@ -286,6 +291,7 @@ function AppLayout() {
       connectedAt: state.status === "connected"
         ? (current?.phase === "connected" ? current.connectedAt : Date.now())
         : null,
+      connectionId: state.connectionId ?? current?.connectionId,
     }));
     if (state.status === "connected" && state.direction === "inbound" && state.fileNumber) {
       void screenPopToFileNumber(state.fileNumber);
@@ -295,7 +301,7 @@ function AppLayout() {
   const sendCallControl = useCallback(async (action: "answer" | "decline" | "hangup" | "mute" | "unmute" | "hold" | "resume") => {
     setCallControlPending(true);
     try {
-      const res = await apiRequest("POST", "/api/collector/call-control", { action });
+      const res = await apiRequest("POST", "/api/collector/call-control", { action, connectionId: activeCall?.connectionId });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || "Command failed");
       // decline/hangup optimistically clear the panel rather than waiting on
@@ -308,7 +314,7 @@ function AppLayout() {
     } finally {
       setCallControlPending(false);
     }
-  }, []);
+  }, [activeCall?.connectionId]);
 
   // Parked calls in Chiamo are tenant-wide there (any collector with
   // softphone access can pick one up), so DMP mirrors that as an org-wide

@@ -69,10 +69,15 @@ export type CallControlAction = "answer" | "decline" | "hangup" | "mute" | "unmu
 /** Ask Chain to answer/decline/hang up/mute/hold the call in progress for the collector identified by chiamoEmail. */
 export async function triggerCallControl(
   connection: { chiamoApiUrl: string; chiamoApiKey: string },
-  args: { chiamoEmail: string; action: CallControlAction },
+  args: { chiamoEmail: string; action: CallControlAction; connectionId?: string },
 ): Promise<ChiamoActionResult> {
   return callChiamo(connection, "/api/v2/call_control", {
     chiamoEmail: args.chiamoEmail,
     action: args.action,
+    // Identifies which of the collector's open Chiamo tabs the call is on,
+    // so Chain can target that one tab rather than every tab this
+    // collector has open. Omitted (rather than sent as undefined-in-JSON)
+    // when DMP never got one - the arg is optional for exactly that case.
+    connectionId: args.connectionId,
   });
 }

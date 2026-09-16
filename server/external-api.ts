@@ -1262,7 +1262,7 @@ export function registerExternalApiRoutes(app: Express) {
   // no single collector to target.
   app.post("/api/v2/softphone/call-event", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { event, chiamoEmail, status, direction, phoneNumber, callerName, parkedCallId, callerNumber } = req.body;
+      const { event, chiamoEmail, status, direction, phoneNumber, callerName, parkedCallId, callerNumber, connectionId } = req.body;
       const orgId = req.apiToken?.organizationId;
 
       if (event === "parked" || event === "unparked") {
@@ -1314,6 +1314,10 @@ export function registerExternalApiRoutes(app: Express) {
         phoneNumber,
         callerName: callerName || undefined,
         fileNumber,
+        // Identifies which of the collector's open Chiamo tabs this call is
+        // on, so a call-control command DMP sends later can target that one
+        // tab instead of every tab this collector has open.
+        connectionId: typeof connectionId === "string" ? connectionId : undefined,
       });
 
       res.json({ success: true, pushed });
