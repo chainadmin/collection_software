@@ -91,14 +91,20 @@ export async function claimScheduledPaymentForProcessing(
   return result.rows[0];
 }
 
-/** Claims any pending payment after an operator explicitly clicks Run. */
-export async function claimPendingPaymentForManualRun(paymentId: string, organizationId: string) {
+/**
+ * Claims any pending payment after an operator explicitly clicks Run.
+ * maxDate bounds a bulk run (e.g. "Run Now") to what's actually due so it
+ * can't charge a payment scheduled for a later date; omit it for a
+ * single-payment action where the operator is looking right at that row.
+ */
+export async function claimPendingPaymentForManualRun(paymentId: string, organizationId: string, maxDate?: string) {
   const result = await pool.query(
     `UPDATE payments SET processing_started_at = NOW()
      WHERE id = $1 AND organization_id = $2
        AND status = 'pending' AND processing_started_at IS NULL
+       AND ($3::text IS NULL OR payment_date <= $3)
      RETURNING *`,
-    [paymentId, organizationId],
+    [paymentId, organizationId, maxDate ?? null],
   );
   return result.rows[0];
 }
