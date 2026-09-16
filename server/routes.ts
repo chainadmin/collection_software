@@ -433,9 +433,27 @@ export async function registerRoutes(
     "/organizations/", // Allow org lookup by ID/slug for initial page load
   ];
 
+  // Fresh-authentication endpoints: submitting credentials to log into a
+  // (possibly different) account, or logging out. These must never be
+  // gated by a leftover session cookie's org - e.g. a stale collector
+  // session whose organization has IP restriction enabled would otherwise
+  // block every /api call from that browser, including attempts to log in
+  // as someone else (a different collector, or super admin) or to log out.
+  const freshAuthPaths = [
+    "/auth/login",
+    "/auth/collector-login",
+    "/auth/logout",
+    "/auth/signup",
+    "/super-admin/login",
+  ];
+
   // Global authentication middleware for /api routes (except public paths)
   app.use("/api", async (req: any, res: any, next: any) => {
     const path = req.path;
+
+    if (freshAuthPaths.some(p => path === p || path.startsWith(p + "/"))) {
+      return next();
+    }
 
     // A global administrator is outside company tenancy and is never subject to
     // an organization's whitelist.

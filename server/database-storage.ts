@@ -269,7 +269,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCollectorByEmail(email: string): Promise<Collector | undefined> {
-    const [collector] = await db.select().from(collectors).where(eq(collectors.email, email));
+    // Case-insensitive lookup, mirroring getCollectorByOrgAndUsername - login
+    // must succeed regardless of how the email's casing was typed or stored.
+    const normalized = String(email ?? "").trim().toLowerCase();
+    if (!normalized) return undefined;
+    const [collector] = await db
+      .select()
+      .from(collectors)
+      .where(sql`lower(${collectors.email}) = ${normalized}`);
     return collector;
   }
 
