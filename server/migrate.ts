@@ -989,6 +989,139 @@ export async function runMigrations() {
       );
     }
 
+    // Chiamo (chain-admin) CTI integration columns. These back the fields in
+    // shared/schema.ts and were previously only captured in the standalone
+    // migrations/0009_collector_chiamo_link.sql and
+    // migrations/0010_chiamo_org_connection.sql files, which nothing runs at
+    // startup - only this function does. That gap meant deployments that
+    // rely on runMigrations() (e.g. Railway) never actually got these
+    // columns, so every query selecting from organizations/collectors
+    // (including the ones on the login path) failed with
+    // "column organizations.chiamo_api_url does not exist".
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'chiamo_api_url') THEN
+          ALTER TABLE organizations ADD COLUMN chiamo_api_url text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'chiamo_api_key') THEN
+          ALTER TABLE organizations ADD COLUMN chiamo_api_key text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'collectors' AND column_name = 'extension') THEN
+          ALTER TABLE collectors ADD COLUMN extension text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'collectors' AND column_name = 'chiamo_email') THEN
+          ALTER TABLE collectors ADD COLUMN chiamo_email text;
+        END IF;
+      END $$;
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "collectors_org_chiamo_email_idx"
+      ON "collectors" ("organization_id", "chiamo_email")
+    `);
+
+    // Enrichment batches (bulk skip-trace/address-enrichment review workflow).
+    // Same gap as the Chiamo columns above: these tables only existed in the
+    // standalone migrations/0001_safe_enrichment_batches.sql file, which
+    // nothing runs at startup, so a deployment that relies solely on
+    // runMigrations() never got them and every enrichment-batch route failed
+    // with "relation enrichment_batches does not exist".
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "enrichment_batches" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "created_by" varchar NOT NULL,
+        "created_at" timestamptz NOT NULL DEFAULT now(),
+        "name" text NOT NULL,
+        "source_type" text NOT NULL CHECK ("source_type" IN ('MANUAL_SELECTION','FILE_GROUP','PORTFOLIO','FILTERED_SET','OTHER')),
+        "source_reference" varchar,
+        "account_count" integer NOT NULL DEFAULT 0,
+        "status" text NOT NULL DEFAULT 'CREATED',
+        "exported_at" timestamptz,
+        "returned_at" timestamptz,
+        "processed_at" timestamptz,
+        "return_file_hash" text,
+        "notes" text
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "enrichment_batches_org_idx" ON "enrichment_batches" ("organization_id")
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "enrichment_batch_members" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "batch_id" varchar NOT NULL REFERENCES "enrichment_batches"("id") ON DELETE CASCADE,
+        "organization_id" varchar NOT NULL,
+        "debtor_id" varchar NOT NULL REFERENCES "debtors"("id"),
+        "existing_file_number" text,
+        "existing_account_number" text NOT NULL,
+        "added_at" timestamptz NOT NULL DEFAULT now(),
+        UNIQUE("batch_id", "debtor_id")
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "enrichment_members_debtor_idx" ON "enrichment_batch_members" ("organization_id", "debtor_id")
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "enrichment_batch_results" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "batch_id" varchar NOT NULL REFERENCES "enrichment_batches"("id") ON DELETE CASCADE,
+        "organization_id" varchar NOT NULL,
+        "row_number" integer NOT NULL,
+        "row_hash" text NOT NULL,
+        "debtor_id" varchar REFERENCES "debtors"("id"),
+        "match_method" text,
+        "status" text NOT NULL,
+        "input_data" text NOT NULL,
+        "preview_data" text,
+        "error" text,
+        "processed_by" varchar,
+        "processed_at" timestamptz,
+        "manual_override" boolean DEFAULT false,
+        UNIQUE("batch_id", "row_hash")
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "enrichment_results_review_idx" ON "enrichment_batch_results" ("organization_id", "batch_id", "status")
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "debtor_addresses" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "debtor_id" varchar NOT NULL REFERENCES "debtors"("id"),
+        "address" text NOT NULL,
+        "city" text,
+        "state" text,
+        "zip_code" text,
+        "source" text,
+        "source_batch_id" varchar REFERENCES "enrichment_batches"("id"),
+        "added_at" timestamptz DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "debtor_addresses_debtor_idx" ON "debtor_addresses" ("organization_id", "debtor_id")
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "enrichment_audit_log" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "batch_id" varchar NOT NULL REFERENCES "enrichment_batches"("id"),
+        "debtor_id" varchar NOT NULL REFERENCES "debtors"("id"),
+        "result_id" varchar,
+        "actor_id" varchar NOT NULL,
+        "action" text NOT NULL,
+        "field" text,
+        "previous_value" text,
+        "new_value" text,
+        "match_method" text,
+        "manual_override" boolean DEFAULT false,
+        "created_at" timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "enrichment_audit_debtor_idx" ON "enrichment_audit_log" ("organization_id", "debtor_id")
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password
