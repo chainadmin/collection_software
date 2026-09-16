@@ -5,6 +5,7 @@ import {
   users,
   clients,
   collectors,
+  collectorAlerts,
   globalAdmins,
   portfolios,
   portfolioAssignments,
@@ -51,6 +52,8 @@ import {
   type InsertClient,
   type Collector,
   type InsertCollector,
+  type CollectorAlert,
+  type InsertCollectorAlert,
   type GlobalAdmin,
   type InsertGlobalAdmin,
   type Portfolio,
@@ -677,19 +680,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
+    // completedAt is set the moment a run attempt finishes, success or
+    // decline - a declined payment stays status "pending" (so it can be
+    // re-run) but must not keep showing up as an untouched pending payment
+    // alongside its own entry in the declined list.
     if (organizationId) {
       return await db.select().from(payments).where(
-        and(eq(payments.status, "pending"), eq(payments.organizationId, organizationId))
+        and(eq(payments.status, "pending"), isNull(payments.completedAt), eq(payments.organizationId, organizationId))
       );
     }
-    return await db.select().from(payments).where(eq(payments.status, "pending"));
+    return await db.select().from(payments).where(and(eq(payments.status, "pending"), isNull(payments.completedAt)));
   }
 
   async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+    // A never-attempted payment ("pending") must not already have a
+    // completedAt; a declined payment always has one and stays retriable
+    // regardless - only "reversed" is a hard stop.
     return await db.select().from(payments).where(
       and(
-        eq(payments.status, "pending"),
-        isNull(payments.completedAt),
+        or(
+          and(eq(payments.status, "pending"), isNull(payments.completedAt)),
+          eq(payments.status, "declined"),
+        ),
         lte(payments.paymentDate, maxDate)
       )
     );
@@ -1551,6 +1563,28 @@ export class DatabaseStorage implements IStorage {
         ),
       );
     return collector;
+  }
+
+  async createCollectorAlert(alert: InsertCollectorAlert): Promise<CollectorAlert> {
+    const id = randomUUID();
+    const [created] = await db.insert(collectorAlerts).values({ ...alert, id }).returning();
+    return created;
+  }
+
+  /** Atomically claims every due, undelivered alert for this collector so a second poll or tab never re-shows it. */
+  async claimDueCollectorAlerts(toCollectorId: string, organizationId: string): Promise<CollectorAlert[]> {
+    return await db
+      .update(collectorAlerts)
+      .set({ deliveredAt: sql`now()` })
+      .where(
+        and(
+          eq(collectorAlerts.toCollectorId, toCollectorId),
+          eq(collectorAlerts.organizationId, organizationId),
+          isNull(collectorAlerts.deliveredAt),
+          or(isNull(collectorAlerts.remindAt), lte(collectorAlerts.remindAt, sql`now()`)),
+        ),
+      )
+      .returning();
   }
 
   // Global Admins

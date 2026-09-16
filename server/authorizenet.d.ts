@@ -45,13 +45,19 @@ declare module 'authorizenet' {
     class CustomerDataType {
       setEmail(email: string): void;
     }
-    
+
+    class CustomerAddressType {
+      setFirstName(firstName: string): void;
+      setLastName(lastName: string): void;
+    }
+
     class TransactionRequestType {
       setTransactionType(type: any): void;
       setPayment(payment: PaymentType): void;
       setAmount(amount: number): void;
       setOrder(order: OrderType): void;
       setCustomer(customer: CustomerDataType): void;
+      setBillTo(billTo: CustomerAddressType): void;
       setRefTransId(id: string): void;
     }
     

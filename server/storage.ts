@@ -7,6 +7,8 @@ import {
   type InsertClient,
   type Collector,
   type InsertCollector,
+  type CollectorAlert,
+  type InsertCollectorAlert,
   type GlobalAdmin,
   type InsertGlobalAdmin,
   type Portfolio,
@@ -382,6 +384,10 @@ export interface IStorage {
   getCollectorByOrgAndUsername(organizationId: string, username: string): Promise<Collector | undefined>;
   getCollectorByOrgAndChiamoEmail(organizationId: string, chiamoEmail: string): Promise<Collector | undefined>;
 
+  // Collector Alerts
+  createCollectorAlert(alert: InsertCollectorAlert): Promise<CollectorAlert>;
+  claimDueCollectorAlerts(toCollectorId: string, organizationId: string): Promise<CollectorAlert[]>;
+
   // Global Admins
   getGlobalAdmins(): Promise<GlobalAdmin[]>;
   getGlobalAdmin(id: string): Promise<GlobalAdmin | undefined>;
@@ -429,6 +435,7 @@ export class MemStorage implements IStorage {
   private clients: Map<string, Client>;
   private feeSchedules: Map<string, FeeSchedule>;
   private collectors: Map<string, Collector>;
+  private collectorAlerts: Map<string, CollectorAlert>;
   private portfolios: Map<string, Portfolio>;
   private portfolioAssignments: Map<string, PortfolioAssignment>;
   private debtors: Map<string, Debtor>;
@@ -472,6 +479,7 @@ export class MemStorage implements IStorage {
     this.clients = new Map();
     this.feeSchedules = new Map();
     this.collectors = new Map();
+    this.collectorAlerts = new Map();
     this.portfolios = new Map();
     this.portfolioAssignments = new Map();
     this.debtors = new Map();
@@ -1831,13 +1839,16 @@ export class MemStorage implements IStorage {
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending" && (!organizationId || p.organizationId === organizationId))
+      .filter((p) => p.status === "pending" && !p.completedAt && (!organizationId || p.organizationId === organizationId))
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 
   async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending" && !p.completedAt && p.paymentDate <= maxDate)
+      .filter((p) =>
+        ((p.status === "pending" && !p.completedAt) || p.status === "declined") &&
+        p.paymentDate <= maxDate
+      )
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 
@@ -2918,6 +2929,36 @@ export class MemStorage implements IStorage {
     return Array.from(this.collectors.values()).find(
       (c) => c.organizationId === organizationId && (c.chiamoEmail ?? "").toLowerCase() === normalized
     );
+  }
+
+  async createCollectorAlert(alert: InsertCollectorAlert): Promise<CollectorAlert> {
+    const id = randomUUID();
+    const created: CollectorAlert = {
+      id,
+      organizationId: alert.organizationId,
+      fromCollectorId: alert.fromCollectorId,
+      toCollectorId: alert.toCollectorId,
+      message: alert.message,
+      remindAt: alert.remindAt ?? null,
+      createdAt: new Date(),
+      deliveredAt: null,
+    };
+    this.collectorAlerts.set(id, created);
+    return created;
+  }
+
+  async claimDueCollectorAlerts(toCollectorId: string, organizationId: string): Promise<CollectorAlert[]> {
+    const now = new Date();
+    const due = Array.from(this.collectorAlerts.values()).filter((a) =>
+      a.toCollectorId === toCollectorId && a.organizationId === organizationId &&
+      !a.deliveredAt && (!a.remindAt || a.remindAt <= now)
+    );
+    const claimed = due.map((alert) => {
+      const updated = { ...alert, deliveredAt: now };
+      this.collectorAlerts.set(alert.id, updated);
+      return updated;
+    });
+    return claimed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
   // Global Admin methods

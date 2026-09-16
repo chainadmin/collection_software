@@ -232,7 +232,7 @@ test("USAePay saved-card duplicate response persists as needs_review", async () 
   }
 });
 
-test("a real gateway decline flags the account declined without touching the payment's pending status", async () => {
+test("a real gateway decline persists status declined and flags the account", async () => {
   const source = payment({ cardId: "card-1" });
   let persistedPayment: Partial<Payment> | undefined;
   let debtorUpdate: Partial<{ status: string }> | undefined;
@@ -254,10 +254,11 @@ test("a real gateway decline flags the account declined without touching the pay
 
     assert.equal(result.success, false);
     assert.equal(result.ambiguous, undefined);
-    // The payment itself stays pending - only an explicit, approved reverse
-    // or NSF action is allowed to delete/reverse it, never the auto runner.
-    assert.equal(persistedPayment?.status, "pending");
-    // But the account status does need to reflect the decline so staff see it.
+    // A real gateway decline persists its own status - still retriable by
+    // the auto-runner or a manual rerun, but no longer reads as "pending".
+    // Only an explicit reverse action is a hard stop.
+    assert.equal(persistedPayment?.status, "declined");
+    // The account status does need to reflect the decline too, so staff see it.
     assert.deepEqual(debtorUpdate, { status: "decline" });
   } finally {
     globalThis.fetch = originalFetch;

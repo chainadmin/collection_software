@@ -1122,6 +1122,22 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS "enrichment_audit_debtor_idx" ON "enrichment_audit_log" ("organization_id", "debtor_id")
     `);
 
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "collector_alerts" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        "organization_id" varchar NOT NULL,
+        "from_collector_id" varchar NOT NULL,
+        "to_collector_id" varchar NOT NULL,
+        "message" text NOT NULL,
+        "remind_at" timestamptz,
+        "created_at" timestamptz NOT NULL DEFAULT now(),
+        "delivered_at" timestamptz
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "collector_alerts_to_collector_idx" ON "collector_alerts" ("to_collector_id", "delivered_at")
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

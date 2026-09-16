@@ -6,6 +6,8 @@ import {
   XCircle,
   TrendingUp,
   LogOut,
+  LayoutDashboard,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { LeaveAlertButton } from "@/components/leave-alert-dialog";
 
 function LogoutButton() {
   const { logout } = useAuth();
@@ -52,12 +55,26 @@ const collectorNavItems = [
 ];
 
 interface CollectorSidebarProps {
-  currentCollector?: { name: string; role: string; avatarInitials: string | null; canViewPaymentRunner?: boolean | null } | null;
+  currentCollector?: {
+    name: string;
+    role: string;
+    avatarInitials: string | null;
+    canViewPaymentRunner?: boolean | null;
+    canViewDashboard?: boolean | null;
+  } | null;
 }
 
 export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
   const [location] = useLocation();
-  const navItems = collectorNavItems;
+  const navItems = [
+    ...(currentCollector?.canViewDashboard
+      ? [{ title: "Company Dashboard", url: "/app/admin/reporting/dashboard", icon: LayoutDashboard }]
+      : []),
+    ...collectorNavItems,
+    ...(currentCollector?.canViewPaymentRunner
+      ? [{ title: "Payment Runner", url: "/app/payment-runner", icon: CreditCard }]
+      : []),
+  ];
 
   return (
     <Sidebar>
@@ -110,7 +127,10 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
               </span>
             </div>
           </div>
-          <LogoutButton />
+          <div className="flex items-center">
+            <LeaveAlertButton />
+            <LogoutButton />
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>

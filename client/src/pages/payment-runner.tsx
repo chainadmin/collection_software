@@ -40,6 +40,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
+import { easternBusinessDate } from "@shared/business-date";
+import { isEligibleForNsfDecision, isDeclinedPendingPayment, REVERSAL_ELIGIBLE_AFTER_DAYS } from "@shared/nsf";
 
 interface PaymentWithDebtor extends Payment {
   debtor?: Debtor;
@@ -204,24 +206,6 @@ export default function PaymentRunner() {
     },
   });
 
-  const reverseDeclinedAccountMutation = useMutation({
-    mutationFn: async (paymentId: string) => {
-      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse-declined-account`, {
-        reason: "Declined payment reversed from payment dashboard",
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Account Marked NSF", description: `${data.deletedPayments} current/future pending payment(s) deleted.` });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to apply the NSF decision.", variant: "destructive" });
-    },
-  });
-
   const postPaymentMutation = useMutation({
     mutationFn: async ({ paymentId, manual }: { paymentId: string; manual: boolean }) => {
       const res = await apiRequest("POST", `/api/payments/${paymentId}/post`, {
@@ -371,13 +355,25 @@ export default function PaymentRunner() {
     return format(parseDisplayDate(p.paymentDate), "yyyy-MM-dd") < format(new Date(), "yyyy-MM-dd");
   }) || [];
 
-  const today = format(new Date(), "yyyy-MM-dd");
-  const isDeclinedPending = (p: PaymentWithDebtor) =>
-    p.status === "pending" && Boolean(p.completedAt) && String(p.notes || "").startsWith("DECLINED:");
-  // Scoped to today only - older unresolved declines are handled through the
-  // Past Due Payments card below, which drops each one the moment it's
-  // posted/reversed/NSF'd, so nothing lingers here indefinitely.
-  const declinedPayments = allPayments?.filter((p) => isDeclinedPending(p) && p.paymentDate === today) || [];
+  const businessToday = easternBusinessDate();
+  const isDeclinedPending = isDeclinedPendingPayment;
+  // A decline flags the account itself (debtor.status = "decline") so staff
+  // see it here. But once the account is moved, reassigned, or otherwise
+  // edited to a different status - resolved outside the payment record
+  // itself - it's no longer actively in decline and shouldn't keep showing
+  // here even though the old payment row is untouched.
+  // Not scoped to today - a decline stays declined (and shows here) for as
+  // long as it's unresolved, regardless of which day it happened on. Once
+  // it's sat unresolved past the reversal threshold it moves out of this
+  // list and into Needs Reversal below instead, so nothing shows in both.
+  const activelyDeclined = (p: PaymentWithDebtor) =>
+    isDeclinedPending(p) && getDebtor(p.debtorId)?.status === "decline";
+  const declinedPayments = allPayments?.filter((p) =>
+    activelyDeclined(p) && !isEligibleForNsfDecision(p, businessToday)
+  ) || [];
+  const needsReversalPayments = allPayments?.filter((p) =>
+    activelyDeclined(p) && isEligibleForNsfDecision(p, businessToday)
+  ) || [];
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
@@ -414,7 +410,10 @@ export default function PaymentRunner() {
     const isProcessing = processingPaymentId === payment.id;
     const isPosting = postPaymentMutation.isPending;
     const canInitialRun = payment.status === "pending" && !payment.completedAt && !isDeclined;
-    const canRerun = payment.status !== "posted" && payment.status !== "processing" && !canInitialRun;
+    // Reversed is a hard stop - it can never be rerun, only pending/declined/
+    // needs_review attempts can.
+    const canRerun = payment.status !== "posted" && payment.status !== "processing" &&
+      payment.status !== "reversed" && !canInitialRun;
     
     return (
       <div className="flex items-center gap-1">
@@ -764,11 +763,7 @@ export default function PaymentRunner() {
                       <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(payment.paymentDate)}</p>
                     </div>
-                    {renderPaymentActions(
-                      payment,
-                      Boolean(payment.completedAt) && String(payment.notes || "").startsWith("DECLINED:"),
-                      false,
-                    )}
+                    {renderPaymentActions(payment, isDeclinedPending(payment), false)}
                     <StatusBadge status={payment.status} size="sm" />
                   </div>
                 ))}
@@ -802,7 +797,9 @@ export default function PaymentRunner() {
                 <XCircle className="h-5 w-5" />
                 Declined Payments
               </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Today's declines. The account is flagged declined automatically; the payment itself is only reversed if you approve that separately below.</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                The account is flagged declined automatically. The payment itself keeps retrying (auto-runner and manual rerun both still pick it up) until it's edited - which resets it to pending - or it sits unresolved for {REVERSAL_ELIGIBLE_AFTER_DAYS} days and moves to Needs Reversal below.
+              </p>
             </div>
           </CardHeader>
           <CardContent>
@@ -825,6 +822,48 @@ export default function PaymentRunner() {
                   <div className="text-right">
                     <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-red-600 dark:text-red-400">{formatDate(payment.paymentDate)}</p>
+                  </div>
+                  {renderPaymentActions(payment, true, false)}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {needsReversalPayments.length > 0 && (
+        <Card className="border-red-300 dark:border-red-700">
+          <CardHeader className="pb-2">
+            <div>
+              <CardTitle className="text-lg font-medium flex items-center gap-2 text-red-700 dark:text-red-300">
+                <Undo2 className="h-5 w-5" />
+                Needs Reversal
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Declined {REVERSAL_ELIGIBLE_AFTER_DAYS}+ days ago and still unresolved. Reverse it to close it out, or edit it to give it a fresh attempt.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {needsReversalPayments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex items-center gap-3 p-3 rounded-md border border-red-300 dark:border-red-700 bg-red-100/60 dark:bg-red-950/40"
+                  data-testid={`needs-reversal-payment-${payment.id}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{getDebtorName(payment.debtorId)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {payment.paymentMethod === "ach" && "ACH Transfer"}
+                      {payment.paymentMethod === "card" && "Credit/Debit Card"}
+                      {payment.paymentMethod === "check" && "Check"}
+                      {payment.notes && ` • ${payment.notes}`}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
+                    <p className="text-xs text-red-700 dark:text-red-300">{formatDate(payment.paymentDate)}</p>
                   </div>
                   {renderPaymentActions(payment, true, false)}
                 </div>
@@ -862,33 +901,6 @@ export default function PaymentRunner() {
                     <p className="font-mono font-medium">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-amber-600 dark:text-amber-400">Due {formatDate(payment.paymentDate)}</p>
                   </div>
-                  {isDeclinedPending(payment) && canPostOrReverse && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm" data-testid={`button-reverse-declined-account-${payment.id}`}>
-                          NSF options
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Past-due declined payment</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Delete this payment and its future pending payments and select the NSF account category, or leave everything pending and make no changes.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel data-testid={`button-leave-pending-${payment.id}`}>Leave pending</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => reverseDeclinedAccountMutation.mutate(payment.id)}
-                            disabled={reverseDeclinedAccountMutation.isPending}
-                            data-testid={`button-delete-nsf-${payment.id}`}
-                          >
-                            Delete payments &amp; select NSF
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
                   {renderPaymentActions(payment, isDeclinedPending(payment), false)}
                 </div>
               ))}

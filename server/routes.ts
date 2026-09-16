@@ -2032,13 +2032,10 @@ export async function registerRoutes(
           { gross: 0, company: 0 },
         );
 
-      // A decline never gets its own terminal status - the payment stays
-      // "pending" (with a DECLINED note) so an NSF/reverse decision can still
-      // act on it. For reporting, a payment that's actually still awaiting an
-      // attempt has to be told apart from one that was attempted and failed,
-      // or a decline would keep inflating "pending" money that was never
-      // coming in.
-      const isActivePending = (p: Payment) => p.status === 'pending' && !isDeclinedPendingPayment(p);
+      // A declined payment has its own status ("declined"), so it can never
+      // match status === 'pending' here - this alias just names the intent:
+      // money that's genuinely still awaiting its first attempt.
+      const isActivePending = (p: Payment) => p.status === 'pending';
 
       const performanceData = collectors.map((collector) => {
         // Get payments processed by this collector
@@ -2191,6 +2188,63 @@ export async function registerRoutes(
       res.json(redactCollectorWage(collector, viewerId, viewerCanSeeFinancials));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch collector" });
+    }
+  });
+
+  // Collector Alerts - a free-form note or reminder any collector can leave
+  // for another collector in the same org (e.g. "call back at 3:00").
+  app.post("/api/alerts", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const fromCollectorId = req.session.collector.id;
+      const toCollectorId = String(req.body.toCollectorId || "");
+      const message = String(req.body.message || "").trim();
+      if (!toCollectorId || !message) {
+        return res.status(400).json({ error: "A recipient and a message are required" });
+      }
+      if (message.length > 1000) {
+        return res.status(400).json({ error: "Message is too long" });
+      }
+      const recipient = await storage.getCollector(toCollectorId);
+      if (!recipient || recipient.organizationId !== orgId || recipient.isSystemAccount) {
+        return res.status(404).json({ error: "Recipient not found" });
+      }
+      let remindAt: Date | null = null;
+      if (req.body.remindAt) {
+        const parsed = new Date(req.body.remindAt);
+        if (Number.isNaN(parsed.getTime())) {
+          return res.status(400).json({ error: "Invalid reminder time" });
+        }
+        remindAt = parsed;
+      }
+      const alert = await storage.createCollectorAlert({
+        organizationId: orgId,
+        fromCollectorId,
+        toCollectorId,
+        message,
+        remindAt,
+      });
+      res.status(201).json(alert);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create alert" });
+    }
+  });
+
+  // Polled by every signed-in collector to pick up alerts that are due for
+  // them right now. Atomically claims (marks delivered) whatever it returns,
+  // so a second poll or a second open tab never shows the same one twice.
+  app.get("/api/alerts/due", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const collectorId = req.session.collector.id;
+      const due = await storage.claimDueCollectorAlerts(collectorId, orgId);
+      if (due.length === 0) return res.json([]);
+      const senderIds = Array.from(new Set(due.map((a) => a.fromCollectorId)));
+      const senders = await Promise.all(senderIds.map((id) => storage.getCollector(id)));
+      const senderNames = new Map(senderIds.map((id, index) => [id, senders[index]?.name || "A collector"]));
+      res.json(due.map((a) => ({ ...a, fromCollectorName: senderNames.get(a.fromCollectorId) })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch due alerts" });
     }
   });
 
@@ -4091,8 +4145,8 @@ export async function registerRoutes(
       if (!payment || payment.organizationId !== orgId) {
         return res.status(404).json({ error: "Payment not found" });
       }
-      if (payment.status === "posted") {
-        return res.status(409).json({ error: "Posted payments cannot be edited" });
+      if (payment.status === "posted" || payment.status === "reversed") {
+        return res.status(409).json({ error: "Posted or reversed payments cannot be edited" });
       }
 
       const amount = Number(req.body.amount);
@@ -4108,7 +4162,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid payment method" });
       }
 
-      const updated = await storage.updatePayment(payment.id, { amount, paymentDate, paymentMethod });
+      // Editing a declined payment is treated as a fresh attempt - reset it
+      // to pending and clear the stale decline record so it's picked up
+      // normally next run instead of still reading as declined.
+      const resetForRetry = payment.status === "declined";
+      const updated = await storage.updatePayment(payment.id, {
+        amount, paymentDate, paymentMethod,
+        ...(resetForRetry ? { status: "pending", completedAt: null, notes: null } : {}),
+      });
       if (!updated) return res.status(404).json({ error: "Payment not found" });
       res.json(redactPayment(updated));
     } catch (error) {
@@ -4250,19 +4311,16 @@ export async function registerRoutes(
         notes: `REVERSED: ${reason || "No reason provided"}${voidedWithGateway ? " (Voided with gateway)" : ""}`,
       });
 
-      // Future scheduled payments made moot by this reversal never actually
-      // ran (no charge, no gateway call, nothing to reverse) - they're
-      // deleted outright rather than left behind as "cancelled" rows, so
-      // they don't get mistaken for real declines/reversals anywhere that
-      // counts payment outcomes.
+      // Other outstanding payments in the same arrangement made moot by this
+      // reversal - still-pending or still-declined, never actually ran (no
+      // charge, no gateway call, nothing to reverse) - are deleted outright
+      // rather than left behind as "cancelled" rows, so they don't get
+      // mistaken for real declines/reversals anywhere that counts payment
+      // outcomes.
       const allPayments = await storage.getPaymentsForDebtor(payment.debtorId);
-      const futurePayments = allPayments.filter(
-        (p) =>
-          validateOrgOwnership(p.organizationId, orgId) &&
-          p.status === "pending" &&
-          new Date(p.paymentDate) > new Date()
-      );
-      const deletedFuturePayments = await storage.deletePayments(futurePayments.map((p) => p.id), orgId);
+      const otherOutstandingPayments = paymentsToDeleteAfterNsf(allPayments, payment)
+        .filter((p) => p.id !== payment.id);
+      const deletedFuturePayments = await storage.deletePayments(otherOutstandingPayments.map((p) => p.id), orgId);
 
       // Add note to debtor account
       await storage.createNote({

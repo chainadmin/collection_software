@@ -193,7 +193,9 @@ async function processNmiCard(
   expDate: string,
   cvv: string,
   amount: number,
-  invoiceNumber?: string
+  invoiceNumber?: string,
+  firstName?: string,
+  lastName?: string,
 ): Promise<ProcessPaymentResult> {
   try {
     const baseUrl = "https://secure.nmi.com/api/transact.php";
@@ -208,6 +210,8 @@ async function processNmiCard(
       dup_seconds: "300",
     });
     if (invoiceNumber) params.set("orderid", invoiceNumber);
+    if (firstName) params.set("firstname", firstName);
+    if (lastName) params.set("lastname", lastName);
 
     const res = await fetch(baseUrl, {
       method: "POST",
@@ -297,7 +301,9 @@ async function processUsaepayCard(
   expDate: string,
   cvv: string,
   amount: number,
-  invoiceNumber?: string
+  invoiceNumber?: string,
+  firstName?: string,
+  lastName?: string,
 ): Promise<ProcessPaymentResult> {
   try {
     const baseUrl = "https://usaepay.com/api/v2/transactions";
@@ -312,6 +318,7 @@ async function processUsaepayCard(
       },
     };
     if (invoiceNumber) body.invoice = invoiceNumber;
+    if (firstName || lastName) body.billing_address = { firstname: firstName || "", lastname: lastName || "" };
 
     const res = await fetch(baseUrl, {
       method: "POST",
@@ -416,6 +423,8 @@ async function processViaGateway(
     cardNumber: string;
     expirationDate: string;
     cardCode: string;
+    firstName?: string;
+    lastName?: string;
   } | null,
   achData: {
     accountType: string;
@@ -528,7 +537,9 @@ async function processViaGateway(
         cardData.expirationDate,
         cardData.cardCode,
         amount,
-        invoiceNumber
+        invoiceNumber,
+        cardData.firstName,
+        cardData.lastName,
       );
     }
     if (paymentMethod === "ach" && achData) {
@@ -590,7 +601,9 @@ async function processViaGateway(
         cardData.expirationDate,
         cardData.cardCode,
         amount,
-        invoiceNumber
+        invoiceNumber,
+        cardData.firstName,
+        cardData.lastName,
       );
     }
     if (paymentMethod === "ach" && achData) {
@@ -652,7 +665,7 @@ export async function processPayment(
       declineReason: "Payment amount must be a positive whole number of cents",
     };
     const updatedPayment = await storage.updatePayment(payment.id, {
-      status: "pending",
+      status: "declined",
       completedAt: new Date(),
       notes: `DECLINED: ${result.declineReason}`,
     });
@@ -667,7 +680,7 @@ export async function processPayment(
       declineReason: "Account does not belong to the payment organization",
     };
     const updatedPayment = await storage.updatePayment(payment.id, {
-      status: "pending",
+      status: "declined",
       completedAt: new Date(),
       notes: `DECLINED: ${result.declineReason}`,
     });
@@ -694,6 +707,8 @@ export async function processPayment(
       cardNumber: string;
       expirationDate: string;
       cardCode: string;
+      firstName?: string;
+      lastName?: string;
     } | null = null;
     let achData: {
       accountType: string;
@@ -712,13 +727,17 @@ export async function processPayment(
           declineReason: "Direct card payments require the active USAePay merchant",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "pending",
+          status: "declined",
           completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
         return { ...result, updatedPayment };
       }
-      cardData = oneTimeCard;
+      cardData = {
+        ...oneTimeCard,
+        firstName: debtor?.firstName,
+        lastName: debtor?.lastName,
+      };
       gatewayPaymentToken = null;
     } else if (payment.paymentMethod === "card" && payment.cardId) {
       const card = savedCard;
@@ -730,6 +749,8 @@ export async function processPayment(
           // PCI DSS prohibits retaining CVV after authorization. Gateways can
           // process a card-on-file transaction without resubmitting it.
           cardCode: "",
+          firstName: debtor?.firstName,
+          lastName: debtor?.lastName,
         };
         gatewayPaymentToken = null;
       } else if (
@@ -751,7 +772,7 @@ export async function processPayment(
           declineReason: "Saved card is not available for this debtor and active processor",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "pending",
+          status: "declined",
           completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
@@ -781,7 +802,7 @@ export async function processPayment(
         declineReason: "A usable saved card is required",
       };
       const updatedPayment = await storage.updatePayment(payment.id, {
-        status: "pending",
+        status: "declined",
         completedAt: new Date(),
         notes: `DECLINED: ${result.declineReason}`,
       });
@@ -805,7 +826,7 @@ export async function processPayment(
           declineReason: "No bank account on file",
         };
         const updatedPayment = await storage.updatePayment(payment.id, {
-          status: "pending",
+          status: "declined",
           completedAt: new Date(),
           notes: `DECLINED: ${result.declineReason}`,
         });
@@ -846,7 +867,16 @@ export async function processPayment(
   }
 
   const updatedPayment = await storage.updatePayment(payment.id, {
-    status: result.success ? "processed" : result.ambiguous ? "needs_review" : "pending",
+    status: result.success
+      ? "processed"
+      : result.ambiguous
+        ? "needs_review"
+        // A configuration error is our own merchant setup being broken, not
+        // the debtor's card being declined - stays "pending" so it's quietly
+        // retried once fixed, without flagging the account declined.
+        : result.configurationError
+          ? "pending"
+          : "declined",
     providerTransactionId: result.transactionId,
     completedAt: new Date(),
     notes: result.success

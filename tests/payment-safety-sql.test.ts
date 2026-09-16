@@ -37,7 +37,7 @@ test("payment claims and recovery updates retain tenant and status guards", asyn
     assert.match(calls[1].sql, /notes LIKE 'DECLINED:%'/);
     assert.deepEqual(calls[1].params, ["payment-2", "org-1"]);
 
-    assert.match(calls[2].sql, /status NOT IN \('posted', 'processing'\)/);
+    assert.match(calls[2].sql, /status NOT IN \('posted', 'processing', 'reversed'\)/);
     assert.deepEqual(calls[2].params, ["payment-3", "org-1"]);
 
     assert.match(calls[3].sql, /status = 'processing'/);
