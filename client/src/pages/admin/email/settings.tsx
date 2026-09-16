@@ -106,8 +106,9 @@ export default function EmailSettings() {
                   rows={3}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Separate multiple addresses with commas. These addresses receive your company's
-                  notifications and reports. Save changes before sending a test email.
+                  Separate multiple addresses with commas or by putting each on its own line.
+                  These addresses receive your company's notifications and reports. Save changes
+                  before sending a test email.
                 </p>
               </div>
               <div className="flex justify-end gap-2">
