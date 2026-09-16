@@ -374,10 +374,17 @@ export default function PaymentRunner() {
   const today = format(new Date(), "yyyy-MM-dd");
   const isDeclinedPending = (p: PaymentWithDebtor) =>
     p.status === "pending" && Boolean(p.completedAt) && String(p.notes || "").startsWith("DECLINED:");
+  // A decline flags the account itself (debtor.status = "decline") so staff
+  // see it here. But once the account is moved, reassigned, or otherwise
+  // edited to a different status - resolved outside the payment record
+  // itself - it's no longer actively in decline and shouldn't keep showing
+  // here even though the old payment row is untouched.
   // Scoped to today only - older unresolved declines are handled through the
   // Past Due Payments card below, which drops each one the moment it's
   // posted/reversed/NSF'd, so nothing lingers here indefinitely.
-  const declinedPayments = allPayments?.filter((p) => isDeclinedPending(p) && p.paymentDate === today) || [];
+  const declinedPayments = allPayments?.filter((p) =>
+    isDeclinedPending(p) && p.paymentDate === today && getDebtor(p.debtorId)?.status === "decline"
+  ) || [];
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
