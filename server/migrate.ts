@@ -622,6 +622,10 @@ export async function runMigrations() {
     // Safe schema migrations for existing tables (ADD COLUMN IF NOT EXISTS)
     console.log("Running safe schema updates...");
 
+    await db.execute(sql`
+      ALTER TABLE debtors ADD COLUMN IF NOT EXISTS open_date text;
+    `);
+
     // Additive account-reference phone slots. `phone` deliberately remains
     // Phone 1 so existing data and integrations do not need a data rewrite.
     await db.execute(sql`

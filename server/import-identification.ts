@@ -1,7 +1,7 @@
-export const IMPORT_IDENTIFIER_FIELDS = new Set(["accountNumber", "ssn"]);
+export const IMPORT_IDENTIFIER_FIELDS = new Set(["fileNumber", "accountNumber", "ssn"]);
 
 export const ACCEPTED_DEBTOR_IMPORT_FIELDS = new Set([
-  "accountNumber", "firstName", "lastName", "dateOfBirth", "ssn", "ssnLast4",
+  "fileNumber", "accountNumber", "firstName", "lastName", "dateOfBirth", "openDate", "ssn", "ssnLast4",
   "address", "city", "state", "zipCode", "originalBalance", "currentBalance",
   "originalCreditor", "clientName", "status", "lastContactDate", "nextFollowUpDate",
   "chargeOffDate",
@@ -43,11 +43,13 @@ export function normalizeImportText(value: unknown): string | null {
 }
 
 export function debtorMatchesImportIdentifier(
-  debtor: { accountNumber?: string | null; ssn?: string | null },
-  imported: { accountNumber?: unknown; ssn?: unknown },
+  debtor: { fileNumber?: string | null; accountNumber?: string | null; ssn?: string | null },
+  imported: { fileNumber?: unknown; accountNumber?: unknown; ssn?: unknown },
 ): boolean {
+  const fileNumber = normalizeImportText(imported.fileNumber);
   const accountNumber = normalizeImportText(imported.accountNumber);
   const ssn = normalizeImportSsn(imported.ssn);
-  return Boolean((accountNumber && debtor.accountNumber === accountNumber) ||
+  return Boolean((fileNumber && debtor.fileNumber === fileNumber) ||
+    (accountNumber && debtor.accountNumber === accountNumber) ||
     (ssn && normalizeImportSsn(debtor.ssn) === ssn));
 }

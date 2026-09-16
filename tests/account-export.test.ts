@@ -4,12 +4,15 @@ import ExcelJS from "exceljs";
 import type { Client, Debtor, DebtorContact, Portfolio } from "../shared/schema";
 import {
   accountExportFilename,
+  batchExportFilename,
   escapeCsvCell,
   selectAccountExportRows,
+  selectBatchExportRows,
   serializeAccountExport,
   serializeAccountRowsToCsv,
   serializeAccountRowsToJson,
   serializeAccountRowsToXlsx,
+  serializeBatchExport,
 } from "../server/account-export";
 
 const portfolio = {
@@ -208,4 +211,21 @@ test("format metadata and generated filenames are download-safe", async () => {
   );
   assert.equal(accountExportFilename("csv", new Date("2025-02-03T12:00:00Z")), "accounts-export-2025-02-03.csv");
   assert.doesNotMatch(accountExportFilename("json"), /[\\/"\r\n]/);
+});
+
+test("portfolio batch export is scoped, import-ready, and includes requested identity fields", async () => {
+  const rows = selectBatchExportRows({
+    organizationId: "org-a",
+    debtors: [{ ...debtor, dateOfBirth: "1980-02-03", openDate: "2024-01-15" }, secondDebtor, foreignDebtor],
+    portfolios: [portfolio, secondPortfolio, foreignPortfolio],
+    clients: [client], contacts, portfolioId: portfolio.id,
+  });
+  assert.deepEqual(rows, [{
+    fileNumber: "FILE-1", firstName: "Jane", lastName: "Doe", address: "1 Main St",
+    city: "Austin", state: "TX", zipCode: "78701", dateOfBirth: "1980-02-03",
+    ssn: "123-45-6789", openDate: "2024-01-15",
+  }]);
+  const exported = await serializeBatchExport(rows, "csv");
+  assert.match(String(exported.body), /^File Number,First Name,Last Name,Address,City,State,ZIP Code,Date of Birth,Social,Open Date/);
+  assert.equal(batchExportFilename("xlsx", new Date("2025-02-03T12:00:00Z")), "portfolio-batch-2025-02-03.xlsx");
 });
