@@ -690,10 +690,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+    // A never-attempted payment ("pending") must not already have a
+    // completedAt; a declined payment always has one and stays retriable
+    // regardless - only "reversed" is a hard stop.
     return await db.select().from(payments).where(
       and(
-        eq(payments.status, "pending"),
-        isNull(payments.completedAt),
+        or(
+          and(eq(payments.status, "pending"), isNull(payments.completedAt)),
+          eq(payments.status, "declined"),
+        ),
         lte(payments.paymentDate, maxDate)
       )
     );

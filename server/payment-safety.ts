@@ -61,10 +61,15 @@ export async function postPaymentAtomically(
 
 /** Claims a payment before the provider call; only one worker can win. */
 export async function claimPaymentForProcessing(paymentId: string, organizationId: string, dueByDate: string) {
+  // A never-attempted payment ("pending") must not already have a
+  // completed_at; a declined payment always has one (that's how it got
+  // declined) and stays retriable regardless - only "reversed" is a hard
+  // stop on ever running again.
   const result = await pool.query(
     `UPDATE payments SET status = 'processing', processing_started_at = NOW()
-     WHERE id = $1 AND organization_id = $2 AND status = 'pending'
-       AND completed_at IS NULL AND payment_date <= $3
+     WHERE id = $1 AND organization_id = $2
+       AND ((status = 'pending' AND completed_at IS NULL) OR status = 'declined')
+       AND payment_date <= $3
      RETURNING *`,
     [paymentId, organizationId, dueByDate],
   );
@@ -88,7 +93,7 @@ export async function claimDeclinedPaymentForRerun(paymentId: string, organizati
   return result.rows[0];
 }
 
-/** Claims any completed/failed local attempt for an explicit operator rerun. */
+/** Claims any completed/failed local attempt for an explicit operator rerun. Reversed payments are a hard stop and can never be reclaimed here. */
 export async function claimPaymentForManualRerun(paymentId: string, organizationId: string) {
   const result = await pool.query(
     `UPDATE payments
@@ -97,7 +102,7 @@ export async function claimPaymentForManualRerun(paymentId: string, organization
             completed_at = NULL,
             provider_transaction_id = NULL
       WHERE id = $1 AND organization_id = $2
-        AND status NOT IN ('posted', 'processing')
+        AND status NOT IN ('posted', 'processing', 'reversed')
       RETURNING *`,
     [paymentId, organizationId],
   );

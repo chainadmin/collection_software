@@ -1837,7 +1837,10 @@ export class MemStorage implements IStorage {
 
   async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending" && !p.completedAt && p.paymentDate <= maxDate)
+      .filter((p) =>
+        ((p.status === "pending" && !p.completedAt) || p.status === "declined") &&
+        p.paymentDate <= maxDate
+      )
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 

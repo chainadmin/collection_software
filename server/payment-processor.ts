@@ -867,7 +867,16 @@ export async function processPayment(
   }
 
   const updatedPayment = await storage.updatePayment(payment.id, {
-    status: result.success ? "processed" : result.ambiguous ? "needs_review" : "pending",
+    status: result.success
+      ? "processed"
+      : result.ambiguous
+        ? "needs_review"
+        // A configuration error is our own merchant setup being broken, not
+        // the debtor's card being declined - stays "pending" so it's quietly
+        // retried once fixed, without flagging the account declined.
+        : result.configurationError
+          ? "pending"
+          : "declined",
     providerTransactionId: result.transactionId,
     completedAt: new Date(),
     notes: result.success
