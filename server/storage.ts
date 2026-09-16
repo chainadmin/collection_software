@@ -226,7 +226,7 @@ export interface IStorage {
   getPaymentsForDebtor(debtorId: string): Promise<Payment[]>;
   getRecentPayments(limit?: number, organizationId?: string): Promise<Payment[]>;
   getPendingPayments(organizationId?: string): Promise<Payment[]>;
-  getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]>;
+  getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]>;
   deletePayments(ids: string[], organizationId: string): Promise<number>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   getPaymentArrangement(organizationId: string, debtorId: string, arrangementId: string): Promise<Payment[]>;
@@ -1839,15 +1839,15 @@ export class MemStorage implements IStorage {
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending" && !p.completedAt && (!organizationId || p.organizationId === organizationId))
+      .filter((p) => p.status === "pending" && (!organizationId || p.organizationId === organizationId))
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 
-  async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
+  async getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]> {
     return Array.from(this.payments.values())
       .filter((p) =>
-        ((p.status === "pending" && !p.completedAt) || p.status === "declined") &&
-        p.paymentDate <= maxDate
+        (p.status === "pending" || (includeDeclined && p.status === "declined")) &&
+        p.paymentDate === date
       )
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
@@ -1934,7 +1934,7 @@ export class MemStorage implements IStorage {
     }
     const total = input.rows.reduce((sum, row) => sum + row.amount, 0);
     const outstanding = Array.from(this.payments.values()).reduce((sum, payment) =>
-      payment.debtorId === input.debtorId && ["pending", "processing", "needs_review"].includes(payment.status)
+      payment.debtorId === input.debtorId && ["pending", "declined"].includes(payment.status)
         ? sum + payment.amount : sum, 0);
     if (outstanding + total > debtor.currentBalance) {
         throw Object.assign(new Error("Payment total plus outstanding scheduled payments cannot exceed the current balance"), { status: 400 });
@@ -2034,7 +2034,7 @@ export class MemStorage implements IStorage {
       if (!debtor || debtor.organizationId !== input.organizationId) throw Object.assign(new Error("Debtor not found"), { status: 404 });
       const otherOutstanding = Array.from(this.payments.values()).reduce((sum, payment) =>
         payment.debtorId === input.debtorId && !pending.some(item => item.id === payment.id) &&
-        ["pending", "processing", "needs_review"].includes(payment.status) ? sum + payment.amount : sum, 0);
+        ["pending", "declined"].includes(payment.status) ? sum + payment.amount : sum, 0);
       const revisedTotal = input.rows.reduce((sum, row) => sum + row.amount, 0);
       if (otherOutstanding + revisedTotal > debtor.currentBalance) {
         throw Object.assign(new Error("Updated payments plus other outstanding payments cannot exceed the current balance"), { status: 400 });
@@ -2044,7 +2044,7 @@ export class MemStorage implements IStorage {
         this.payments.set(row.id, { ...current, amount: row.amount, paymentDate: row.paymentDate, ...(input.cardId !== undefined ? { cardId: input.cardId } : {}) });
       });
     } else {
-      pending.forEach(payment => this.payments.set(payment.id, { ...payment, status: "cancelled" }));
+      pending.forEach(payment => this.payments.set(payment.id, { ...payment, status: "reversed" }));
     }
     const result = await this.getPaymentArrangement(input.organizationId, input.debtorId, input.arrangementId);
     this.paymentArrangementMutations.set(mutationKey, { signature, payments: result });
@@ -2064,7 +2064,7 @@ export class MemStorage implements IStorage {
     // critical section before another JavaScript task can observe the row.
     const existing = this.payments.get(id);
     if (!existing || existing.organizationId !== organizationId ||
-      existing.status !== "needs_review" || existing.cardId !== null) {
+      existing.status !== "pending" || existing.cardId !== null) {
       return undefined;
     }
     const promoted = { ...existing, cardId, status: "pending" };

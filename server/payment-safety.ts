@@ -61,17 +61,44 @@ export async function postPaymentAtomically(
 
 /** Claims a payment before the provider call; only one worker can win. */
 export async function claimPaymentForProcessing(paymentId: string, organizationId: string, dueByDate: string) {
-  // A never-attempted payment ("pending") must not already have a
-  // completed_at; a declined payment always has one (that's how it got
-  // declined) and stays retriable regardless - only "reversed" is a hard
-  // stop on ever running again.
   const result = await pool.query(
-    `UPDATE payments SET status = 'processing', processing_started_at = NOW()
+    `UPDATE payments SET processing_started_at = NOW()
      WHERE id = $1 AND organization_id = $2
-       AND ((status = 'pending' AND completed_at IS NULL) OR status = 'declined')
+       AND status = 'pending' AND processing_started_at IS NULL
        AND payment_date <= $3
      RETURNING *`,
     [paymentId, organizationId, dueByDate],
+  );
+  return result.rows[0];
+}
+
+/** Claims a pending payment for an automatic run on its exact scheduled day. */
+export async function claimScheduledPaymentForProcessing(
+  paymentId: string,
+  organizationId: string,
+  scheduledDate: string,
+  includeDeclined: boolean,
+) {
+  const result = await pool.query(
+    `UPDATE payments SET processing_started_at = NOW()
+     WHERE id = $1 AND organization_id = $2
+       AND (status = 'pending' OR ($4 = TRUE AND status = 'declined'))
+       AND processing_started_at IS NULL
+       AND payment_date = $3
+     RETURNING *`,
+    [paymentId, organizationId, scheduledDate, includeDeclined],
+  );
+  return result.rows[0];
+}
+
+/** Claims any pending payment after an operator explicitly clicks Run. */
+export async function claimPendingPaymentForManualRun(paymentId: string, organizationId: string) {
+  const result = await pool.query(
+    `UPDATE payments SET processing_started_at = NOW()
+     WHERE id = $1 AND organization_id = $2
+       AND status = 'pending' AND processing_started_at IS NULL
+     RETURNING *`,
+    [paymentId, organizationId],
   );
   return result.rows[0];
 }
@@ -80,11 +107,11 @@ export async function claimPaymentForProcessing(paymentId: string, organizationI
 export async function claimDeclinedPaymentForRerun(paymentId: string, organizationId: string) {
   const result = await pool.query(
     `UPDATE payments
-        SET status = 'processing',
-            processing_started_at = NOW(),
+        SET processing_started_at = NOW(),
             completed_at = NULL,
             provider_transaction_id = NULL
       WHERE id = $1 AND organization_id = $2 AND status = 'pending'
+        AND processing_started_at IS NULL
         AND completed_at IS NOT NULL
         AND notes LIKE 'DECLINED:%'
       RETURNING *`,
@@ -93,16 +120,16 @@ export async function claimDeclinedPaymentForRerun(paymentId: string, organizati
   return result.rows[0];
 }
 
-/** Claims any completed/failed local attempt for an explicit operator rerun. Reversed payments are a hard stop and can never be reclaimed here. */
+/** Claims any nonterminal payment for an explicit operator rerun. */
 export async function claimPaymentForManualRerun(paymentId: string, organizationId: string) {
   const result = await pool.query(
     `UPDATE payments
-        SET status = 'processing',
-            processing_started_at = NOW(),
+        SET processing_started_at = NOW(),
             completed_at = NULL,
             provider_transaction_id = NULL
       WHERE id = $1 AND organization_id = $2
-        AND status NOT IN ('posted', 'processing', 'reversed')
+        AND status NOT IN ('posted', 'processed', 'reversed')
+        AND processing_started_at IS NULL
       RETURNING *`,
     [paymentId, organizationId],
   );
@@ -110,7 +137,7 @@ export async function claimPaymentForManualRerun(paymentId: string, organization
 }
 
 const INCOMPLETE_PROCESSING_NOTE =
-  "NEEDS REVIEW: Processing attempt did not complete; verify the gateway outcome before retrying.";
+  "DECLINED: Processing attempt did not complete; verify the gateway outcome before retrying.";
 
 /**
  * Preserve an uncertain gateway attempt for manual reconciliation. The status
@@ -120,13 +147,15 @@ const INCOMPLETE_PROCESSING_NOTE =
 export async function markPaymentNeedsReviewIfProcessing(paymentId: string, organizationId: string) {
   const result = await pool.query(
     `UPDATE payments
-        SET status = 'needs_review',
+        SET status = 'declined',
             completed_at = NOW(),
+            processing_started_at = NULL,
             notes = CASE
               WHEN notes IS NULL OR notes = '' THEN $3
               ELSE notes || ' ' || $3
             END
-      WHERE id = $1 AND organization_id = $2 AND status = 'processing'
+      WHERE id = $1 AND organization_id = $2
+        AND status IN ('pending', 'declined') AND processing_started_at IS NOT NULL
       RETURNING *`,
     [paymentId, organizationId, INCOMPLETE_PROCESSING_NOTE],
   );
@@ -146,14 +175,14 @@ export async function markStaleProcessingPaymentsNeedsReview(
     : 30;
   const result = await pool.query(
     `UPDATE payments
-        SET status = 'needs_review',
+        SET status = 'declined',
             completed_at = NOW(),
+            processing_started_at = NULL,
             notes = CASE
               WHEN notes IS NULL OR notes = '' THEN $3
               ELSE notes || ' ' || $3
             END
-      WHERE status = 'processing'
-        AND processing_started_at IS NOT NULL
+      WHERE status IN ('pending', 'declined') AND processing_started_at IS NOT NULL
         AND processing_started_at < NOW() - make_interval(mins => $1)
         AND ($2::text IS NULL OR organization_id = $2)
       RETURNING id`,

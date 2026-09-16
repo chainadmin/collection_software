@@ -680,29 +680,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
-    // completedAt is set the moment a run attempt finishes, success or
-    // decline - a declined payment stays status "pending" (so it can be
-    // re-run) but must not keep showing up as an untouched pending payment
-    // alongside its own entry in the declined list.
+    // "Pending" is the complete queue. Do not apply hidden eligibility rules
+    // based on completedAt: if the row's status is pending, it belongs here.
     if (organizationId) {
       return await db.select().from(payments).where(
-        and(eq(payments.status, "pending"), isNull(payments.completedAt), eq(payments.organizationId, organizationId))
+        and(eq(payments.status, "pending"), eq(payments.organizationId, organizationId))
       );
     }
-    return await db.select().from(payments).where(and(eq(payments.status, "pending"), isNull(payments.completedAt)));
+    return await db.select().from(payments).where(eq(payments.status, "pending"));
   }
 
-  async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
-    // A never-attempted payment ("pending") must not already have a
-    // completedAt; a declined payment always has one and stays retriable
-    // regardless - only "reversed" is a hard stop.
+  async getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]> {
+    // Both daily runs are date-exact. The first selects pending only; the
+    // second also retries payments that declined during the day.
     return await db.select().from(payments).where(
       and(
-        or(
-          and(eq(payments.status, "pending"), isNull(payments.completedAt)),
-          eq(payments.status, "declined"),
-        ),
-        lte(payments.paymentDate, maxDate)
+        includeDeclined
+          ? or(eq(payments.status, "pending"), eq(payments.status, "declined"))
+          : eq(payments.status, "pending"),
+        eq(payments.paymentDate, date),
       )
     );
   }
@@ -754,7 +750,7 @@ export class DatabaseStorage implements IStorage {
       const total = input.rows.reduce((sum, row) => sum + row.amount, 0);
       const outstandingRows = await tx.select({ amount: payments.amount }).from(payments).where(and(
         eq(payments.debtorId, input.debtorId),
-        sql`${payments.status} IN ('pending', 'processing', 'needs_review')`,
+        sql`${payments.status} IN ('pending', 'declined')`,
         sql`(${payments.arrangementId} IS NULL OR ${payments.arrangementId} <> ${input.arrangementId})`,
       ));
       const outstanding = outstandingRows.reduce((sum, payment) => sum + payment.amount, 0);
@@ -872,7 +868,7 @@ export class DatabaseStorage implements IStorage {
         }
         const otherOutstandingRows = await tx.select({ amount: payments.amount }).from(payments).where(and(
           eq(payments.debtorId, input.debtorId),
-          sql`${payments.status} IN ('pending', 'processing', 'needs_review')`,
+          sql`${payments.status} IN ('pending', 'declined')`,
           sql`${payments.id} NOT IN (${sql.join(pending.map(payment => sql`${payment.id}`), sql`, `)})`,
         ));
         const otherOutstanding = otherOutstandingRows.reduce((sum, payment) => sum + payment.amount, 0);
@@ -889,7 +885,7 @@ export class DatabaseStorage implements IStorage {
           if (!updated) throw Object.assign(new Error("A payment began processing while the arrangement was being changed"), { status: 409 });
         }
       } else {
-        await tx.update(payments).set({ status: "cancelled" }).where(and(
+        await tx.update(payments).set({ status: "reversed" }).where(and(
           eq(payments.organizationId, input.organizationId),
           eq(payments.debtorId, input.debtorId),
           eq(payments.arrangementId, input.arrangementId),
@@ -930,7 +926,7 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(payments.id, id),
         eq(payments.organizationId, organizationId),
-        eq(payments.status, "needs_review"),
+        eq(payments.status, "pending"),
         sql`${payments.cardId} IS NULL`,
       ))
       .returning();

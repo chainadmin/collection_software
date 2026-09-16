@@ -51,6 +51,7 @@ import {
 } from "@shared/schema";
 import { and, desc, eq } from "drizzle-orm";
 import {
+  claimPendingPaymentForManualRun,
   claimPaymentForManualRerun,
   claimPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
@@ -3434,7 +3435,7 @@ export async function registerRoutes(
         const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
         if (!claimed) return res.status(409).json({ error: "Payment is already being processed" });
         const claimedPayment = await storage.getPayment(payment.id);
-        if (!claimedPayment || claimedPayment.status !== "processing") {
+        if (!claimedPayment || !claimedPayment.processingStartedAt) {
           return res.status(409).json({ error: "Payment is no longer available for processing" });
         }
         const result = await processPayment(claimedPayment, storage, orgId, oneTimeCard);
@@ -3622,8 +3623,8 @@ export async function registerRoutes(
   app.get("/api/payment-runner/auto-status", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!await isActiveAdminOrManager(req, orgId)) {
-        return res.status(403).json({ error: "Admin or manager access required" });
+      if (!(await canRunPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
       }
       const org = await storage.getOrganization(orgId);
       const status = getAutoRunnerStatus(orgId);
@@ -3642,8 +3643,8 @@ export async function registerRoutes(
   app.post("/api/payment-runner/auto-trigger", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      if (!await isActiveAdminOrManager(req, orgId)) {
-        return res.status(403).json({ error: "Admin or manager access required" });
+      if (!(await canRunPayments(req, orgId))) {
+        return res.status(403).json({ error: "Payment Runner permission required" });
       }
       const collector = req.session.collector!;
       console.log(`[Auto Runner] Manual trigger by ${collector.name} (org: ${orgId})`);
@@ -4196,11 +4197,11 @@ export async function registerRoutes(
       if (["processed", "posted"].includes(payment.status)) {
         return res.json(redactPayment(payment));
       }
-      const claimed = await claimPaymentForProcessing(payment.id, orgId, getPaymentBusinessDate());
-      if (!claimed) return res.status(409).json({ error: "Payment is not due or is already being processed" });
+      const claimed = await claimPendingPaymentForManualRun(payment.id, orgId);
+      if (!claimed) return res.status(409).json({ error: "Payment is not pending or is already being processed" });
       claimedContext = { paymentId: payment.id, organizationId: orgId };
       const claimedPayment = await storage.getPayment(payment.id);
-      if (!claimedPayment || claimedPayment.status !== "processing") {
+      if (!claimedPayment || !claimedPayment.processingStartedAt) {
         return res.status(409).json({ error: "Payment is no longer available for processing" });
       }
       const result = await processPayment(claimedPayment, storage, orgId);
@@ -4236,8 +4237,8 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Payment does not belong to this organization" });
       }
 
-      if (payment.status === "posted") {
-        return res.status(409).json({ error: "Posted payments cannot be re-run" });
+      if (["posted", "processed", "reversed"].includes(payment.status)) {
+        return res.status(409).json({ error: "Posted, processed, or reversed payments cannot be re-run" });
       }
       const claimed = await claimPaymentForManualRerun(payment.id, orgId);
       if (!claimed) {
@@ -4245,7 +4246,7 @@ export async function registerRoutes(
       }
       claimedContext = { paymentId: payment.id, organizationId: orgId };
       const claimedPayment = await storage.getPayment(payment.id);
-      if (!claimedPayment || claimedPayment.status !== "processing") {
+      if (!claimedPayment || !claimedPayment.processingStartedAt) {
         return res.status(409).json({ error: "Payment is no longer available for processing" });
       }
       const result = await processPayment(claimedPayment, storage, orgId);

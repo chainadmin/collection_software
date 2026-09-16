@@ -1454,7 +1454,7 @@ export function registerExternalApiRoutes(app: Express) {
             }
           } else if (current.status === "declined") {
             outcomes.push({ index: item.index, outcome: "declined" as const, message: "Payment was declined", payment: presentExternalPayment(current) });
-          } else if (current.status === "needs_review" || current.status === "vault_failed") {
+          } else if (current.status === "pending" || current.status === "vault_failed") {
             outcomes.push({ index: item.index, outcome: "needs_review" as const, message: "Payment reservation requires review", payment: presentExternalPayment(current) });
           } else {
             // pending/processing/posted are all owned or completed by the
@@ -1485,7 +1485,7 @@ export function registerExternalApiRoutes(app: Express) {
           return;
         }
         const claimedPayment = await storage.getPayment(payment.id);
-        if (!claimedPayment || claimedPayment.status !== "processing") {
+        if (!claimedPayment || !claimedPayment.processingStartedAt) {
           outcomes.push({ index: item.index, outcome: "duplicate" as const, payment: presentExternalPayment(claimedPayment || payment) });
           return;
         }
@@ -1549,9 +1549,9 @@ export function registerExternalApiRoutes(app: Express) {
             } else if (!postedReplay && !card) {
               outcomes.push({ index: item.index, outcome: "needs_review", message: "Payment reservation is already in progress" });
             } else if (!postedReplay && card?.vaultStatus === "vaulted" && card.processorToken &&
-              existing.status === "needs_review") {
+              existing.status === "pending") {
               await finishReadyPayment(item, existing, card.id);
-            } else if (!postedReplay && card?.vaultStatus === "vault_failed" && existing.status === "needs_review") {
+            } else if (!postedReplay && card?.vaultStatus === "vault_failed" && existing.status === "pending") {
               outcomes.push({ index: item.index, outcome: "needs_review", message: "Card preparation requires review" });
             } else {
               outcomes.push({ index: item.index, outcome: "duplicate", payment: presentExternalPayment(existing) });
@@ -1623,7 +1623,7 @@ export function registerExternalApiRoutes(app: Express) {
           try {
             payment = await storage.createPayment({
               organizationId: orgId, debtorId: debtor.id, amount: item.amountCents,
-              paymentDate: item.paymentDate, paymentMethod: "card", status: "needs_review",
+              paymentDate: item.paymentDate, paymentMethod: "card", status: "pending",
               referenceNumber: item.invoice, paymentToken: null, idempotencyKey: identity,
               notes: null, frequency: item.arrangementType || "one_time", isRecurring: false,
             });

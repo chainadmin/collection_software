@@ -97,7 +97,7 @@ export function calculateLiquidationRate(collected: number, faceValue: number): 
 // (posted, pending, and any other in-flight status), not just payments that
 // have already posted, since a pending arrangement is still real collected
 // value for that portfolio/collector.
-const NON_COLLECTIBLE_PAYMENT_STATUSES = new Set(["reversed", "cancelled"]);
+const NON_COLLECTIBLE_PAYMENT_STATUSES = new Set(["reversed"]);
 
 // A decline never gets its own terminal status - the payment stays "pending"
 // (with a DECLINED note) so an NSF/reverse decision can still act on it -

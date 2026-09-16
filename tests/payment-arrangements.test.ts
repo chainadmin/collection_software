@@ -105,7 +105,7 @@ test("arrangement mutations change only pending rows and replay safely", async (
     ...input, mutationId: "mutation-cancel-1", action: "cancel", rows: undefined,
   });
   assert.equal(cancelled[0].status, "processed");
-  assert.equal(cancelled[1].status, "cancelled");
+  assert.equal(cancelled[1].status, "reversed");
 });
 
 test("arrangement updates revalidate the remaining available balance", async () => {
