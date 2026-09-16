@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession } from "../server/access-control";
+import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession, auditorScopeRecord } from "../server/access-control";
 
 test("global-admin bypass requires the matching live active administrator", () => {
   assert.equal(isActiveGlobalAdminSession("admin-1", { id: "admin-1", isActive: true }), true);
@@ -99,4 +99,36 @@ test("viewing company financials requires the explicit grant - admin/manager rol
       false,
     );
   }
+});
+
+test("auditor scope is null for every non-auditor role, regardless of assignedClientId", () => {
+  const session = { id: "collector-1" };
+  for (const role of ["collector", "manager", "admin"]) {
+    assert.equal(
+      auditorScopeRecord(session, { id: "collector-1", organizationId: "org-1", status: "active", role, assignedClientId: "client-1" }, "org-1"),
+      null,
+    );
+  }
+});
+
+test("an auditor with no assignedClientId is unrestricted (sees the whole org)", () => {
+  const session = { id: "collector-1" };
+  const auditor = { id: "collector-1", organizationId: "org-1", status: "active", role: "auditor", assignedClientId: null };
+  assert.deepEqual(auditorScopeRecord(session, auditor, "org-1"), { clientId: null });
+});
+
+test("an auditor with an assignedClientId is locked to that one client", () => {
+  const session = { id: "collector-1" };
+  const auditor = { id: "collector-1", organizationId: "org-1", status: "active", role: "auditor", assignedClientId: "client-1" };
+  assert.deepEqual(auditorScopeRecord(session, auditor, "org-1"), { clientId: "client-1" });
+});
+
+test("auditor scope requires the live record to actually match - stale/demoted/disabled/cross-org sessions get null", () => {
+  const session = { id: "collector-1" };
+  const auditor = { id: "collector-1", organizationId: "org-1", status: "active", role: "auditor", assignedClientId: "client-1" };
+
+  assert.equal(auditorScopeRecord(session, { ...auditor, status: "inactive" }, "org-1"), null);
+  assert.equal(auditorScopeRecord(session, { ...auditor, organizationId: "org-2" }, "org-1"), null);
+  assert.equal(auditorScopeRecord({ id: "collector-2" }, auditor, "org-1"), null);
+  assert.equal(auditorScopeRecord(session, undefined, "org-1"), null);
 });

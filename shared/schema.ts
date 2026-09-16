@@ -105,6 +105,10 @@ export const collectors = pgTable("collectors", {
   // set once by an org admin when provisioning a collector, so an inbound
   // Chiamo call-event can be matched back to the right DMP collector.
   chiamoEmail: text("chiamo_email"),
+  // Scopes an auditor to one client's portfolios/debtors/remittance/
+  // liquidation data. Only meaningful when role = 'auditor'; null means
+  // unrestricted (sees the whole org, e.g. an internal/QA auditor).
+  assignedClientId: varchar("assigned_client_id"),
 }, (table) => ({
   // Looked up on every inbound Chiamo call-event webhook to find which
   // collector's live connection to push the screen-pop to.

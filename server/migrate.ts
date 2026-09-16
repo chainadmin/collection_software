@@ -1155,6 +1155,18 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS "collector_alerts_to_collector_idx" ON "collector_alerts" ("to_collector_id", "delivered_at")
     `);
 
+    // Scopes an auditor collector to one client's portfolios/debtors/
+    // remittance/liquidation data. Null means unrestricted (sees the whole
+    // org) - only meaningful when role = 'auditor'.
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'collectors' AND column_name = 'assigned_client_id') THEN
+          ALTER TABLE collectors ADD COLUMN assigned_client_id varchar;
+        END IF;
+      END $$;
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password

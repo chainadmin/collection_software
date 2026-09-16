@@ -203,6 +203,25 @@ function AppLayout() {
     }
   }, [collectorsLoading, isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, isPermittedCollectorRoute, setLocation]);
 
+  // An auditor is an outside/administrative reviewer, not a working
+  // collector and not a full admin - they get exactly Debtors, Portfolios,
+  // Remittance, and Liquidation Rates (server-side access is scoped the
+  // same way; this just keeps their own UI from wandering somewhere their
+  // requests will be rejected anyway).
+  const isAuditorRole = currentCollector?.role === "auditor";
+  const isAuditorAllowedRoute =
+    location.startsWith("/app/debtors") ||
+    location.startsWith("/app/portfolios") ||
+    location.startsWith("/app/admin/payments/remittance") ||
+    location.startsWith("/app/liquidation");
+
+  useEffect(() => {
+    if (collectorsLoading) return;
+    if (isAuditorRole && !isAuditorAllowedRoute) {
+      setLocation("/app/debtors");
+    }
+  }, [collectorsLoading, isAuditorRole, isAuditorAllowedRoute, setLocation]);
+
   const handleAccountSelect = (debtor: Debtor) => {
     trackAccount(debtor.id);
     if (isCollectorRoute || isCollectorRole) {

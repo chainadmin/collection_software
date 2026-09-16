@@ -155,6 +155,16 @@ const mainNavItems = [
   { title: "Portfolios", url: "/app/portfolios", icon: FolderKanban },
 ];
 
+// An auditor is an outside/administrative reviewer, not a full admin - they
+// see exactly these four, optionally scoped server-side to one client's
+// data (see collectors.assignedClientId), and nothing else in this sidebar.
+const auditorNavItems = [
+  { title: "Debtors", url: "/app/debtors", icon: Users },
+  { title: "Portfolios", url: "/app/portfolios", icon: FolderKanban },
+  { title: "Remittance", url: "/app/admin/payments/remittance", icon: Receipt },
+  { title: "Liquidation Rates", url: "/app/liquidation", icon: TrendingUp },
+];
+
 interface AdminSidebarProps {
   currentUser?: { name: string; role: string; initials: string } | null;
 }
@@ -162,6 +172,7 @@ interface AdminSidebarProps {
 export function AdminSidebar({ currentUser }: AdminSidebarProps) {
   const [location] = useLocation();
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const isAuditor = currentUser?.role === "auditor";
 
   const toggleSection = (title: string) => {
     setOpenSections((prev) => ({ ...prev, [title]: !prev[title] }));
@@ -174,10 +185,10 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <Link href="/app" className="flex items-center gap-2">
-          <img 
-            src="/logo.png" 
-            alt="Debt Manager Pro" 
+        <Link href={isAuditor ? "/app/debtors" : "/app"} className="flex items-center gap-2">
+          <img
+            src="/logo.png"
+            alt="Debt Manager Pro"
             className="h-9 w-auto"
           />
         </Link>
@@ -185,11 +196,11 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Overview
+            {isAuditor ? "Auditor" : "Overview"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {(isAuditor ? auditorNavItems : mainNavItems).map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -207,6 +218,7 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {!isAuditor && (
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Administration
@@ -265,6 +277,7 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <div className="flex items-center justify-between">
