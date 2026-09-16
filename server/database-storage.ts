@@ -5,6 +5,7 @@ import {
   users,
   clients,
   collectors,
+  collectorAlerts,
   globalAdmins,
   portfolios,
   portfolioAssignments,
@@ -51,6 +52,8 @@ import {
   type InsertClient,
   type Collector,
   type InsertCollector,
+  type CollectorAlert,
+  type InsertCollectorAlert,
   type GlobalAdmin,
   type InsertGlobalAdmin,
   type Portfolio,
@@ -1560,6 +1563,28 @@ export class DatabaseStorage implements IStorage {
         ),
       );
     return collector;
+  }
+
+  async createCollectorAlert(alert: InsertCollectorAlert): Promise<CollectorAlert> {
+    const id = randomUUID();
+    const [created] = await db.insert(collectorAlerts).values({ ...alert, id }).returning();
+    return created;
+  }
+
+  /** Atomically claims every due, undelivered alert for this collector so a second poll or tab never re-shows it. */
+  async claimDueCollectorAlerts(toCollectorId: string, organizationId: string): Promise<CollectorAlert[]> {
+    return await db
+      .update(collectorAlerts)
+      .set({ deliveredAt: sql`now()` })
+      .where(
+        and(
+          eq(collectorAlerts.toCollectorId, toCollectorId),
+          eq(collectorAlerts.organizationId, organizationId),
+          isNull(collectorAlerts.deliveredAt),
+          or(isNull(collectorAlerts.remindAt), lte(collectorAlerts.remindAt, sql`now()`)),
+        ),
+      )
+      .returning();
   }
 
   // Global Admins

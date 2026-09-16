@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Switch, Route, useLocation, useSearch, Redirect } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { useSoftphoneRealtime } from "@/hooks/use-softphone-realtime";
+import { useCollectorAlerts } from "@/hooks/use-collector-alerts";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { UpdatePrompt } from "@/components/update-prompt";
@@ -269,6 +270,8 @@ function AppLayout() {
     onCallParked: handleCallParked,
     onCallUnparked: handleCallUnparked,
   });
+
+  useCollectorAlerts(Boolean(currentCollector?.id));
 
   const style = {
     "--sidebar-width": "16rem",

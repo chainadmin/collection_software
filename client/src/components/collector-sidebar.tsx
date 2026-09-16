@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { LeaveAlertButton } from "@/components/leave-alert-dialog";
 
 function LogoutButton() {
   const { logout } = useAuth();
@@ -126,7 +127,10 @@ export function CollectorSidebar({ currentCollector }: CollectorSidebarProps) {
               </span>
             </div>
           </div>
-          <LogoutButton />
+          <div className="flex items-center">
+            <LeaveAlertButton />
+            <LogoutButton />
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>

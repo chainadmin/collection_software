@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
+import { LeaveAlertButton } from "@/components/leave-alert-dialog";
 import {
   Sidebar,
   SidebarContent,
@@ -280,7 +281,10 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
               </span>
             </div>
           </div>
-          <LogoutButton />
+          <div className="flex items-center">
+            <LeaveAlertButton />
+            <LogoutButton />
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>

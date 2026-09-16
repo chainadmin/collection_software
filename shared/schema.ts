@@ -115,6 +115,29 @@ export const insertCollectorSchema = createInsertSchema(collectors).omit({ id: t
 export type InsertCollector = z.infer<typeof insertCollectorSchema>;
 export type Collector = typeof collectors.$inferSelect;
 
+// Collector Alerts: a free-form note or reminder any collector can leave for
+// another collector in the same org (e.g. "call back at 3:00", "spoke to
+// dtr, not gonna pay"). With no remindAt it delivers on the recipient's next
+// poll; with one set, it delivers once that time arrives.
+export const collectorAlerts = pgTable("collector_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  fromCollectorId: varchar("from_collector_id").notNull(),
+  toCollectorId: varchar("to_collector_id").notNull(),
+  message: text("message").notNull(),
+  remindAt: timestamp("remind_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Set the moment it's actually shown to the recipient, so a second poll
+  // (or a second open tab) never pops the same alert up twice.
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+}, (table) => ({
+  toCollectorIdx: index("collector_alerts_to_collector_idx").on(table.toCollectorId, table.deliveredAt),
+}));
+
+export const insertCollectorAlertSchema = createInsertSchema(collectorAlerts).omit({ id: true, createdAt: true, deliveredAt: true });
+export type InsertCollectorAlert = z.infer<typeof insertCollectorAlertSchema>;
+export type CollectorAlert = typeof collectorAlerts.$inferSelect;
+
 // Global Super Admins (can manage all organizations)
 export const globalAdmins = pgTable("global_admins", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

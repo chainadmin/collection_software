@@ -2191,6 +2191,63 @@ export async function registerRoutes(
     }
   });
 
+  // Collector Alerts - a free-form note or reminder any collector can leave
+  // for another collector in the same org (e.g. "call back at 3:00").
+  app.post("/api/alerts", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const fromCollectorId = req.session.collector.id;
+      const toCollectorId = String(req.body.toCollectorId || "");
+      const message = String(req.body.message || "").trim();
+      if (!toCollectorId || !message) {
+        return res.status(400).json({ error: "A recipient and a message are required" });
+      }
+      if (message.length > 1000) {
+        return res.status(400).json({ error: "Message is too long" });
+      }
+      const recipient = await storage.getCollector(toCollectorId);
+      if (!recipient || recipient.organizationId !== orgId || recipient.isSystemAccount) {
+        return res.status(404).json({ error: "Recipient not found" });
+      }
+      let remindAt: Date | null = null;
+      if (req.body.remindAt) {
+        const parsed = new Date(req.body.remindAt);
+        if (Number.isNaN(parsed.getTime())) {
+          return res.status(400).json({ error: "Invalid reminder time" });
+        }
+        remindAt = parsed;
+      }
+      const alert = await storage.createCollectorAlert({
+        organizationId: orgId,
+        fromCollectorId,
+        toCollectorId,
+        message,
+        remindAt,
+      });
+      res.status(201).json(alert);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create alert" });
+    }
+  });
+
+  // Polled by every signed-in collector to pick up alerts that are due for
+  // them right now. Atomically claims (marks delivered) whatever it returns,
+  // so a second poll or a second open tab never shows the same one twice.
+  app.get("/api/alerts/due", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const collectorId = req.session.collector.id;
+      const due = await storage.claimDueCollectorAlerts(collectorId, orgId);
+      if (due.length === 0) return res.json([]);
+      const senderIds = Array.from(new Set(due.map((a) => a.fromCollectorId)));
+      const senders = await Promise.all(senderIds.map((id) => storage.getCollector(id)));
+      const senderNames = new Map(senderIds.map((id, index) => [id, senders[index]?.name || "A collector"]));
+      res.json(due.map((a) => ({ ...a, fromCollectorName: senderNames.get(a.fromCollectorId) })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch due alerts" });
+    }
+  });
+
   app.post("/api/collectors", async (req, res) => {
     try {
       const orgId = getOrgId(req);
