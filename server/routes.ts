@@ -224,23 +224,17 @@ async function isAuditor(req: any, orgId: string): Promise<boolean> {
   return (await getAuditorScope(req, orgId)) !== null;
 }
 
-// Enforces a client-scoped auditor's boundary on an already-loaded debtor,
-// writing the 403 itself so call sites can just `if (!(await ...)) return;`.
-// A no-op for every other role, and for an unrestricted (no client set)
-// auditor - only a client-scoped auditor is bounded to their own client's
-// debtors.
-async function requireDebtorInScope(req: any, res: any, orgId: string, debtor: { clientId: string | null }): Promise<boolean> {
-  const scope = await getAuditorScope(req, orgId);
-  if (scope?.clientId && debtor.clientId !== scope.clientId) {
-    res.status(403).json({ error: "Access denied" });
-    return false;
-  }
-  return true;
-}
-
-// Remittances and liquidation snapshots key off portfolioId, not clientId
-// directly - resolve a client-scoped auditor's restriction down to the set
-// of portfolio ids it covers. null means unrestricted (no filtering).
+// Remittances, liquidation snapshots, and debtors all key off portfolioId -
+// resolve a client-scoped auditor's restriction down to the set of
+// portfolio ids it covers. null means unrestricted (no filtering).
+//
+// Deliberately does NOT use debtor.clientId / portfolio.clientId on the
+// debtor row itself: that field is a denormalized snapshot that's often
+// null (most import paths never set it - only the portfolio-creation
+// wizard's import does) or stale (editing a portfolio's client afterward
+// does not retroactively update every debtor already imported into it).
+// portfolio.clientId is the one link an org actually maintains going
+// forward, so every scoping check resolves through the portfolio.
 async function auditorScopedPortfolioIds(req: any, orgId: string): Promise<Set<string> | null> {
   const scope = await getAuditorScope(req, orgId);
   if (!scope?.clientId) return null;
@@ -252,16 +246,31 @@ async function auditorScopedPortfolioIds(req: any, orgId: string): Promise<Set<s
   );
 }
 
-// Payments key off debtorId, not clientId directly - resolve a client-scoped
-// auditor's restriction down to the set of debtor ids it covers. null means
-// unrestricted (no filtering).
+// Enforces a client-scoped auditor's boundary on an already-loaded debtor,
+// writing the 403 itself so call sites can just `if (!(await ...)) return;`.
+// A no-op for every other role, and for an unrestricted (no client set)
+// auditor - only a client-scoped auditor is bounded to their own client's
+// debtors.
+async function requireDebtorInScope(req: any, res: any, orgId: string, debtor: { portfolioId: string }): Promise<boolean> {
+  const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+  if (scopedPortfolioIds && !scopedPortfolioIds.has(debtor.portfolioId)) {
+    res.status(403).json({ error: "Access denied" });
+    return false;
+  }
+  return true;
+}
+
+// Payments key off debtorId, not portfolioId directly - resolve a
+// client-scoped auditor's restriction down to the set of debtor ids it
+// covers (via each debtor's portfolio, same as requireDebtorInScope). null
+// means unrestricted (no filtering).
 async function auditorScopedDebtorIds(req: any, orgId: string): Promise<Set<string> | null> {
-  const scope = await getAuditorScope(req, orgId);
-  if (!scope?.clientId) return null;
+  const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+  if (!scopedPortfolioIds) return null;
   const debtors = await storage.getDebtors();
   return new Set(
     debtors
-      .filter(d => d.organizationId === orgId && d.clientId === scope.clientId)
+      .filter(d => d.organizationId === orgId && scopedPortfolioIds.has(d.portfolioId))
       .map(d => d.id)
   );
 }
@@ -2588,9 +2597,9 @@ export async function registerRoutes(
       );
       // Filter to only return debtors from the authenticated user's organization
       let orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
-      const auditorScope = await getAuditorScope(req, orgId);
-      if (auditorScope?.clientId) {
-        orgDebtors = orgDebtors.filter(d => d.clientId === auditorScope.clientId);
+      const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+      if (scopedPortfolioIds) {
+        orgDebtors = orgDebtors.filter(d => scopedPortfolioIds.has(d.portfolioId));
       }
       res.json(orgDebtors);
     } catch (error) {
