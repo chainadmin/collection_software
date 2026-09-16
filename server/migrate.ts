@@ -989,6 +989,37 @@ export async function runMigrations() {
       );
     }
 
+    // Chiamo (chain-admin) CTI integration columns. These back the fields in
+    // shared/schema.ts and were previously only captured in the standalone
+    // migrations/0009_collector_chiamo_link.sql and
+    // migrations/0010_chiamo_org_connection.sql files, which nothing runs at
+    // startup - only this function does. That gap meant deployments that
+    // rely on runMigrations() (e.g. Railway) never actually got these
+    // columns, so every query selecting from organizations/collectors
+    // (including the ones on the login path) failed with
+    // "column organizations.chiamo_api_url does not exist".
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'chiamo_api_url') THEN
+          ALTER TABLE organizations ADD COLUMN chiamo_api_url text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'chiamo_api_key') THEN
+          ALTER TABLE organizations ADD COLUMN chiamo_api_key text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'collectors' AND column_name = 'extension') THEN
+          ALTER TABLE collectors ADD COLUMN extension text;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'collectors' AND column_name = 'chiamo_email') THEN
+          ALTER TABLE collectors ADD COLUMN chiamo_email text;
+        END IF;
+      END $$;
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS "collectors_org_chiamo_email_idx"
+      ON "collectors" ("organization_id", "chiamo_email")
+    `);
+
     console.log("Schema updates complete!");
 
     // Seed chainadmin super admin - DELETE and recreate to ensure correct password
