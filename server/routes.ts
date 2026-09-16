@@ -33,6 +33,7 @@ import {
 } from "./email";
 import { sendChainMessage } from "./chain-messaging";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
+import { summarizeUsedFileNumbers } from "./file-number-summary";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
 import { db } from "./db";
@@ -4726,16 +4727,7 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allDebtors = await storage.getDebtors();
       const orgDebtors = allDebtors.filter((debtor) => debtor.organizationId === orgId);
-      let maxNumber = 0;
-      for (const debtor of orgDebtors) {
-        const match = debtor.fileNumber?.match(/^(?:FN-\d{4}-)?(\d+)$/);
-        if (match) {
-          const numPart = Number.parseInt(match[1], 10);
-          if (numPart > maxNumber) maxNumber = numPart;
-        }
-      }
-      
-      res.json({ nextFileNumber: maxNumber + 1 });
+      res.json(summarizeUsedFileNumbers(orgDebtors.map((debtor) => debtor.fileNumber)));
     } catch (error) {
       res.status(500).json({ error: "Failed to get next file number" });
     }
