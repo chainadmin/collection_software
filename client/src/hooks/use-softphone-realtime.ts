@@ -1,10 +1,17 @@
 import { useEffect, useRef } from "react";
 import { apiRequest } from "@/lib/queryClient";
 
-interface IncomingCallAnsweredMessage {
-  type: "incoming-call-answered";
-  fileNumber: string;
-  matchCount: number;
+export interface CallStateMessage {
+  type: "call-state";
+  status: "ringing" | "connected" | "held" | "muted" | "unmuted" | "ended" | "missed";
+  direction: "inbound" | "outbound";
+  phoneNumber: string;
+  callerName?: string;
+  fileNumber?: string;
+  // Identifies which of the collector's open Chiamo tabs this call is on -
+  // pass it back on any call-control command so Chain can target that one
+  // tab instead of broadcasting to every tab this collector has open.
+  connectionId?: string;
 }
 
 interface CallParkedMessage {
@@ -20,13 +27,13 @@ interface CallUnparkedMessage {
 }
 
 type SoftphoneRealtimeMessage =
-  | IncomingCallAnsweredMessage
+  | CallStateMessage
   | CallParkedMessage
   | CallUnparkedMessage
   | { type: string };
 
 interface SoftphoneRealtimeCallbacks {
-  onIncomingCallAnswered?: (fileNumber: string) => void;
+  onCallStateChanged?: (state: Omit<CallStateMessage, "type">) => void;
   onCallParked?: (call: { parkedCallId: string; callerName: string; callerNumber: string }) => void;
   onCallUnparked?: (parkedCallId: string) => void;
 }
@@ -65,8 +72,9 @@ export function useSoftphoneRealtime(
         socket.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data) as SoftphoneRealtimeMessage;
-            if (message.type === "incoming-call-answered") {
-              callbacksRef.current.onIncomingCallAnswered?.((message as IncomingCallAnsweredMessage).fileNumber);
+            if (message.type === "call-state") {
+              const { type: _type, ...state } = message as CallStateMessage;
+              callbacksRef.current.onCallStateChanged?.(state);
             } else if (message.type === "call-parked") {
               const parked = message as CallParkedMessage;
               callbacksRef.current.onCallParked?.({

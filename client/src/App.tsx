@@ -61,8 +61,16 @@ import type { Collector, Debtor } from "@shared/schema";
 import { OrganizationProvider } from "@/lib/organization-context";
 import { ArrowLeft } from "lucide-react";
 import { ACCOUNT_CHANGED_EVENT, recordAccountChange, type AccountHistory } from "@/lib/account-history";
+import { cn } from "@/lib/utils";
 
 const ACCOUNT_HISTORY_STORAGE_KEY = "debtflow-account-history";
+
+function formatCallDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 
 function accountIdFromLocation(location: string): string | null {
   const detailMatch = location.match(/^\/app\/debtors\/([^/?#]+)/);
@@ -221,12 +229,12 @@ function AppLayout() {
       : `/app/debtors/${encodeURIComponent(destination)}`);
   };
 
-  // Chiamo reports a call as answered with the caller's phone number - DMP
-  // resolves that to an account (see /api/v2/softphone/call-event) and
-  // pushes back only the fileNumber, DMP's external identifier. Resolve it
-  // to this collector's internal debtor id the same way any manual search
-  // does before navigating, rather than exposing the internal id externally.
-  const handleIncomingCallAnswered = useCallback(async (fileNumber: string) => {
+  // Chiamo reports a connected call's fileNumber (DMP's external
+  // identifier, resolved on Chiamo's/DMP's side from the caller's phone
+  // number) - resolve it to this collector's internal debtor id the same
+  // way any manual search does before navigating, rather than exposing the
+  // internal id externally.
+  const screenPopToFileNumber = useCallback(async (fileNumber: string) => {
     try {
       const res = await apiRequest("GET", `/api/debtors/search?q=${encodeURIComponent(fileNumber)}`);
       const results: Debtor[] = await res.json();
@@ -237,6 +245,84 @@ function AppLayout() {
       console.error("Failed to resolve incoming call to an account:", error);
     }
   }, [handleAccountSelect]);
+
+  // DMP is the actual phone here - Chiamo runs headless as the Twilio
+  // connection and reports every call-state transition, DMP renders the
+  // live call and sends control commands back. See use-softphone-realtime's
+  // CallStateMessage and server/chiamoService.ts's triggerCallControl.
+  interface ActiveCall {
+    phase: "ringing" | "connected" | "held";
+    direction: "inbound" | "outbound";
+    phoneNumber: string;
+    callerName?: string;
+    fileNumber?: string;
+    muted: boolean;
+    connectedAt: number | null;
+    // Which of the collector's open Chiamo tabs this call is on. Sent back
+    // on every call-control command so Chain can target that one tab
+    // instead of every tab this collector has open.
+    connectionId?: string;
+  }
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [callControlPending, setCallControlPending] = useState(false);
+  const [callClockNow, setCallClockNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (activeCall?.phase !== "connected") return;
+    const interval = setInterval(() => setCallClockNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [activeCall?.phase]);
+
+  const handleCallStateChanged = useCallback((state: {
+    status: "ringing" | "connected" | "held" | "muted" | "unmuted" | "ended" | "missed";
+    direction: "inbound" | "outbound";
+    phoneNumber: string;
+    callerName?: string;
+    fileNumber?: string;
+    connectionId?: string;
+  }) => {
+    if (state.status === "ended" || state.status === "missed") {
+      setActiveCall(null);
+      return;
+    }
+    if (state.status === "muted" || state.status === "unmuted") {
+      setActiveCall((current) => current ? { ...current, muted: state.status === "muted" } : current);
+      return;
+    }
+    setActiveCall((current) => ({
+      phase: state.status as "ringing" | "connected" | "held",
+      direction: state.direction,
+      phoneNumber: state.phoneNumber,
+      callerName: state.callerName,
+      fileNumber: state.fileNumber ?? current?.fileNumber,
+      muted: current?.muted ?? false,
+      connectedAt: state.status === "connected"
+        ? (current?.phase === "connected" ? current.connectedAt : Date.now())
+        : null,
+      connectionId: state.connectionId ?? current?.connectionId,
+    }));
+    if (state.status === "connected" && state.direction === "inbound" && state.fileNumber) {
+      void screenPopToFileNumber(state.fileNumber);
+    }
+  }, [screenPopToFileNumber]);
+
+  const sendCallControl = useCallback(async (action: "answer" | "decline" | "hangup" | "mute" | "unmute" | "hold" | "resume") => {
+    setCallControlPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/collector/call-control", { action, connectionId: activeCall?.connectionId });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || "Command failed");
+      // decline/hangup optimistically clear the panel rather than waiting on
+      // the "ended" broadcast, which depends on Chiamo's own call-status
+      // webhook and can lag a beat behind the click.
+      if (action === "decline" || action === "hangup") setActiveCall(null);
+    } catch (error) {
+      console.error(`Failed to send call control action "${action}":`, error);
+      alert(error instanceof Error ? error.message : "Failed to send command");
+    } finally {
+      setCallControlPending(false);
+    }
+  }, [activeCall?.connectionId]);
 
   // Parked calls in Chiamo are tenant-wide there (any collector with
   // softphone access can pick one up), so DMP mirrors that as an org-wide
@@ -274,7 +360,7 @@ function AppLayout() {
   }, []);
 
   useSoftphoneRealtime(currentCollector?.id, {
-    onIncomingCallAnswered: handleIncomingCallAnswered,
+    onCallStateChanged: handleCallStateChanged,
     onCallParked: handleCallParked,
     onCallUnparked: handleCallUnparked,
   });
@@ -341,6 +427,81 @@ function AppLayout() {
               <ThemeToggle />
             </div>
           </header>
+          {activeCall && (
+            <div
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2 sm:px-5",
+                activeCall.phase === "ringing" && activeCall.direction === "inbound" && "bg-sky-50 dark:bg-sky-950/40",
+                activeCall.phase === "ringing" && activeCall.direction === "outbound" && "bg-blue-50 dark:bg-blue-950/40",
+                activeCall.phase === "connected" && "bg-emerald-50 dark:bg-emerald-950/40",
+                activeCall.phase === "held" && "bg-slate-100 dark:bg-slate-900/40",
+              )}
+              data-testid="banner-active-call"
+            >
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">
+                  {activeCall.phase === "ringing" && activeCall.direction === "inbound" && "Incoming call:"}
+                  {activeCall.phase === "ringing" && activeCall.direction === "outbound" && "Calling:"}
+                  {activeCall.phase === "connected" && "On call:"}
+                  {activeCall.phase === "held" && "On hold:"}
+                </span>
+                <span>{activeCall.callerName || activeCall.phoneNumber}</span>
+                {activeCall.phase === "connected" && activeCall.connectedAt && (
+                  <span className="font-mono text-xs text-muted-foreground" data-testid="text-call-duration">
+                    {formatCallDuration(callClockNow - activeCall.connectedAt)}
+                  </span>
+                )}
+                {activeCall.muted && <span className="text-xs text-muted-foreground">(muted)</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {activeCall.phase === "ringing" && activeCall.direction === "inbound" && (
+                  <>
+                    <Button type="button" size="sm" disabled={callControlPending} onClick={() => sendCallControl("answer")} data-testid="button-call-answer">
+                      Answer
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={callControlPending} onClick={() => sendCallControl("decline")} data-testid="button-call-decline">
+                      Decline
+                    </Button>
+                  </>
+                )}
+                {activeCall.phase === "connected" && (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={callControlPending}
+                      onClick={() => sendCallControl(activeCall.muted ? "unmute" : "mute")}
+                      data-testid="button-call-mute"
+                    >
+                      {activeCall.muted ? "Unmute" : "Mute"}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={callControlPending} onClick={() => sendCallControl("hold")} data-testid="button-call-hold">
+                      Hold
+                    </Button>
+                    <Button type="button" size="sm" variant="destructive" disabled={callControlPending} onClick={() => sendCallControl("hangup")} data-testid="button-call-hangup">
+                      Hang Up
+                    </Button>
+                  </>
+                )}
+                {activeCall.phase === "held" && (
+                  <>
+                    <Button type="button" size="sm" disabled={callControlPending} onClick={() => sendCallControl("resume")} data-testid="button-call-resume">
+                      Resume
+                    </Button>
+                    <Button type="button" size="sm" variant="destructive" disabled={callControlPending} onClick={() => sendCallControl("hangup")} data-testid="button-call-hangup">
+                      Hang Up
+                    </Button>
+                  </>
+                )}
+                {activeCall.phase === "ringing" && activeCall.direction === "outbound" && (
+                  <Button type="button" size="sm" variant="destructive" disabled={callControlPending} onClick={() => sendCallControl("hangup")} data-testid="button-call-hangup">
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
           {parkedCalls.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 dark:bg-amber-950/40 sm:px-5" data-testid="banner-parked-calls">
               <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Parked in Chiamo:</span>

@@ -2589,6 +2589,38 @@ export async function registerRoutes(
     }
   });
 
+  const CALL_CONTROL_ACTIONS = ["answer", "decline", "hangup", "mute", "unmute", "hold", "resume"];
+
+  // DMP is the control surface for CTI-enabled orgs: this drives
+  // answer/decline/hangup/mute/hold from here, relayed to whichever Chiamo
+  // tab this collector has open. See server/chiamoService.ts and
+  // chain-admin's /api/v2/call_control for why this can't be a pure
+  // server-side action.
+  app.post("/api/collector/call-control", requireCollectorAuth, async (req: any, res) => {
+    try {
+      const { action, connectionId } = req.body || {};
+      if (!CALL_CONTROL_ACTIONS.includes(action)) {
+        return res.status(400).json({ error: `action must be one of: ${CALL_CONTROL_ACTIONS.join(", ")}` });
+      }
+
+      const resolved = await resolveChiamoConnection(req, res);
+      if (!resolved) return;
+      const { collector, chiamoApiUrl, chiamoApiKey } = resolved;
+
+      const { triggerCallControl } = await import("./chiamoService");
+      const result = await triggerCallControl(
+        { chiamoApiUrl, chiamoApiKey },
+        { chiamoEmail: collector.chiamoEmail!, action, connectionId: typeof connectionId === "string" ? connectionId : undefined },
+      );
+      if (!result.success) {
+        return res.status(502).json({ error: result.error || "Chain could not complete the call control request" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to send call control command" });
+    }
+  });
+
   app.get("/api/exports/accounts", requireCollectorAuth, async (req: any, res) => {
     try {
       const orgId = req.session.collector.organizationId;
