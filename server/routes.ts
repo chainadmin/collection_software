@@ -74,8 +74,11 @@ import {
 } from "./import-identification";
 import {
   accountExportFilename,
+  batchExportFilename,
   serializeAccountExport,
+  serializeBatchExport,
   selectAccountExportRows,
+  selectBatchExportRows,
   type AccountExportFormat,
 } from "./account-export";
 
@@ -2601,6 +2604,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Format must be csv, xlsx, or json" });
       }
       const format = requestedFormat as AccountExportFormat;
+      const exportType = req.query.type === "batch" ? "batch" : "accounts";
       const portfolioId = typeof req.query.portfolioId === "string" &&
         req.query.portfolioId.trim() &&
         req.query.portfolioId !== "all"
@@ -2612,6 +2616,9 @@ export async function registerRoutes(
       if (portfolioId && !orgPortfolios.some((portfolio) => portfolio.id === portfolioId)) {
         return res.status(404).json({ error: "Portfolio not found in your organization" });
       }
+      if (exportType === "batch" && !portfolioId) {
+        return res.status(400).json({ error: "Select a portfolio for a batch export" });
+      }
 
       const debtors = (await storage.getDebtors(portfolioId))
         .filter((debtor) => debtor.organizationId === orgId);
@@ -2619,20 +2626,25 @@ export async function registerRoutes(
         return res.status(404).json({ error: "No accounts found for the selected portfolio" });
       }
       const contactGroups = await Promise.all(debtors.map((debtor) => storage.getDebtorContacts(debtor.id)));
-      const rows = selectAccountExportRows({
+      const source = {
         organizationId: orgId,
         debtors,
         portfolios: orgPortfolios,
         clients: await storage.getClients(orgId),
         contacts: contactGroups.flat(),
         portfolioId,
-      });
-      if (rows.length === 0) {
-        return res.status(404).json({ error: "No accounts found for the selected portfolio" });
+      };
+      let exported;
+      if (exportType === "batch") {
+        const rows = selectBatchExportRows(source);
+        if (rows.length === 0) return res.status(404).json({ error: "No accounts found for the selected portfolio" });
+        exported = await serializeBatchExport(rows, format);
+      } else {
+        const rows = selectAccountExportRows(source);
+        if (rows.length === 0) return res.status(404).json({ error: "No accounts found for the selected portfolio" });
+        exported = await serializeAccountExport(rows, format);
       }
-
-      const exported = await serializeAccountExport(rows, format);
-      const filename = accountExportFilename(format);
+      const filename = exportType === "batch" ? batchExportFilename(format) : accountExportFilename(format);
       res.setHeader("Content-Type", exported.contentType);
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("Cache-Control", "no-store");
@@ -4674,8 +4686,8 @@ export async function registerRoutes(
             if (mappedData.ssn) mappedData.ssnLast4 = mappedData.ssn.slice(-4);
           }
 
-          if (!mappedData.accountNumber && !mappedData.ssn) {
-            const reason = "Row missing account number and full SSN — skipped";
+          if (!mappedData.fileNumber && !mappedData.accountNumber && !mappedData.ssn) {
+            const reason = "Row missing file number, account number, and full SSN — skipped";
             results.skipped++;
             results.errors.push(`Row ${rowNumber}: ${reason}`);
             results.skipReasons.push({ row: rowNumber, reason });
@@ -4695,7 +4707,7 @@ export async function registerRoutes(
             const debtorUpdate: any = {};
             for (const [key, value] of Object.entries(mappedData)) {
               if (/^(phone\d*(Label)?|email\d*(Label)?|ref[1-3]|employer)/.test(key)) continue;
-              if (["accountNumber", "firstName", "lastName", "dateOfBirth", "ssn", "ssnLast4", "address", "city", "state", "zipCode", "originalBalance", "currentBalance", "originalCreditor", "clientName", "status", "lastContactDate", "nextFollowUpDate", "chargeOffDate"].includes(key)) debtorUpdate[key] = value;
+              if (["accountNumber", "firstName", "lastName", "dateOfBirth", "openDate", "ssn", "ssnLast4", "address", "city", "state", "zipCode", "originalBalance", "currentBalance", "originalCreditor", "clientName", "status", "lastContactDate", "nextFollowUpDate", "chargeOffDate"].includes(key)) debtorUpdate[key] = value;
             }
             if (Object.keys(customValues).length) {
               let prior: Record<string, unknown> = {};
@@ -4782,6 +4794,7 @@ export async function registerRoutes(
             state: mappedData.state || null,
             zipCode: mappedData.zipCode || null,
             dateOfBirth: mappedData.dateOfBirth || null,
+            openDate: mappedData.openDate || null,
             ssn: mappedData.ssn || null,
             ssnLast4: mappedData.ssnLast4 || (mappedData.ssn ? mappedData.ssn.slice(-4) : null),
             originalBalance: mappedData.originalBalance || 0,

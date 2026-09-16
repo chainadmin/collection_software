@@ -2,10 +2,12 @@ export type SystemField = { value: string; label: string };
 
 export const systemFields: SystemField[] = [
   { value: "skip", label: "-- Skip --" },
+  { value: "fileNumber", label: "File Number" },
   { value: "accountNumber", label: "Account Number" },
   { value: "firstName", label: "First Name" },
   { value: "lastName", label: "Last Name" },
   { value: "dateOfBirth", label: "Date of Birth" },
+  { value: "openDate", label: "Open Date" },
   { value: "ssn", label: "SSN (Full)" },
   { value: "ssnLast4", label: "SSN Last 4" },
   { value: "address", label: "Address" },
@@ -287,6 +289,7 @@ const HEADER_ALIASES: Record<string, string> = {
   lastname: "lastName",
   dob: "dateOfBirth",
   ssn: "ssn",
+  social: "ssn",
   origbal: "originalBalance",
   origbalance: "originalBalance",
   originalbalance: "originalBalance",

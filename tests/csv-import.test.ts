@@ -38,11 +38,11 @@ test("XLSX parser uses the first worksheet and preserves import-ready values", a
   assert.deepEqual(parsed.data, [["000045", "2020-01-02", "000045", "123-45-6789", "1234.5", 'Said "hello", again']]);
 });
 
-test("file numbers are neither auto-mapped nor restored from old schemas", () => {
-  assert.equal(autoMapColumns(["File Number"])["File Number"], "skip");
+test("file numbers are auto-mapped and restored for safe batch re-imports", () => {
+  assert.equal(autoMapColumns(["File Number"])["File Number"], "fileNumber");
   assert.deepEqual(
     sanitizeColumnMappings({ VendorId: "fileNumber", Account: "accountNumber" }),
-    { VendorId: "skip", Account: "accountNumber" },
+    { VendorId: "fileNumber", Account: "accountNumber" },
   );
 });
 

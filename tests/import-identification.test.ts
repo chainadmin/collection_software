@@ -5,15 +5,15 @@ import {
   sanitizeDebtorImportMappings,
 } from "../server/import-identification";
 
-test("imports identify debtors only by account number or full SSN", () => {
+test("imports identify debtors by file number, account number, or full SSN", () => {
   const debtor = { accountNumber: "AC-001", ssn: "123-45-6789", fileNumber: "42" };
   assert.equal(debtorMatchesImportIdentifier(debtor, { accountNumber: " AC-001 " }), true);
   assert.equal(debtorMatchesImportIdentifier(debtor, { ssn: "123456789" }), true);
   assert.equal(debtorMatchesImportIdentifier(debtor, { ssn: "6789" }), false);
-  assert.equal(debtorMatchesImportIdentifier(debtor, { fileNumber: "42" } as any), false);
+  assert.equal(debtorMatchesImportIdentifier(debtor, { fileNumber: "42" }), true);
 });
 
-test("backend mapping sanitizer rejects file number and arbitrary debtor fields", () => {
+test("backend mapping sanitizer accepts file number and rejects arbitrary debtor fields", () => {
   assert.deepEqual(
     sanitizeDebtorImportMappings({
       Account: "accountNumber",
@@ -22,7 +22,7 @@ test("backend mapping sanitizer rejects file number and arbitrary debtor fields"
       Notes: "custom1",
       Ignored: "skip",
     }),
-    { Account: "accountNumber", Notes: "custom1", Ignored: "skip" },
+    { Account: "accountNumber", File: "fileNumber", Notes: "custom1", Ignored: "skip" },
   );
 });
 

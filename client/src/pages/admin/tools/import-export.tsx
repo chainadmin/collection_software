@@ -15,7 +15,7 @@ import {
   parseImportFile,
   systemFields,
   contactFields,
-  buildSkipMappings,
+  autoMapColumns,
   sanitizeColumnMappings,
 } from "@/lib/csv-import";
 
@@ -131,7 +131,7 @@ export default function ImportExport() {
       const { columns, data } = await parseImportFile(file);
       setCsvColumns(columns);
       setCsvData(data);
-      setColumnMappings(buildSkipMappings(columns));
+      setColumnMappings(autoMapColumns(columns));
     } catch (error) {
       setImportFile(null);
       setCsvColumns([]);
@@ -239,11 +239,11 @@ export default function ImportExport() {
 
   const handleImport = async () => {
     if (importType === "accounts" && !Object.values(columnMappings).some(
-      (field) => field === "accountNumber" || field === "ssn",
+      (field) => field === "fileNumber" || field === "accountNumber" || field === "ssn",
     )) {
       toast({
         title: "Missing identifier",
-        description: "Map Account Number or full SSN before importing accounts.",
+        description: "Map File Number, Account Number, or full SSN before importing accounts.",
         variant: "destructive",
       });
       return;
@@ -267,10 +267,15 @@ export default function ImportExport() {
   };
 
   const handleExport = async () => {
-    if (isExporting || exportType !== "accounts") return;
+    if (isExporting || (exportType !== "accounts" && exportType !== "batch")) return;
+    if (exportType === "batch" && (!exportPortfolio || exportPortfolio === "all")) {
+      toast({ title: "Portfolio Required", description: "Select one portfolio for the batch export.", variant: "destructive" });
+      return;
+    }
     setIsExporting(true);
     try {
       const params = new URLSearchParams({ format: exportFormat });
+      params.set("type", exportType);
       if (exportPortfolio && exportPortfolio !== "all") {
         params.set("portfolioId", exportPortfolio);
       }
@@ -622,6 +627,7 @@ export default function ImportExport() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="accounts">All Accounts</SelectItem>
+                      <SelectItem value="batch">Portfolio Batch</SelectItem>
                       <SelectItem value="payments" disabled>Payment History (Unavailable)</SelectItem>
                       <SelectItem value="performance" disabled>Performance Report (Unavailable)</SelectItem>
                       <SelectItem value="collector-summary" disabled>Collector Summary (Unavailable)</SelectItem>
@@ -630,13 +636,13 @@ export default function ImportExport() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Portfolio Filter</Label>
+                  <Label>{exportType === "batch" ? "Portfolio *" : "Portfolio Filter"}</Label>
                   <Select value={exportPortfolio} onValueChange={setExportPortfolio}>
                     <SelectTrigger data-testid="select-export-portfolio">
-                      <SelectValue placeholder="All Portfolios" />
+                      <SelectValue placeholder={exportType === "batch" ? "Select a portfolio" : "All Portfolios"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Portfolios</SelectItem>
+                      {exportType !== "batch" && <SelectItem value="all">All Portfolios</SelectItem>}
                       {portfolios.map((p) => (
                         <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                       ))}
@@ -660,11 +666,14 @@ export default function ImportExport() {
               </div>
 
               <p className="mt-4 text-sm text-muted-foreground">
-                Payment history, performance, and collector summary exports are not available yet.
+                {exportType === "batch"
+                  ? "Batch files include file number, name, address, date of birth, Social, and open date. Import the file back into the same portfolio using File Number to update matching accounts without creating duplicates."
+                  : "Payment history, performance, and collector summary exports are not available yet."}
               </p>
               <Button
                 onClick={handleExport}
-                disabled={isExporting || exportType !== "accounts"}
+                disabled={isExporting || (exportType !== "accounts" && exportType !== "batch") ||
+                  (exportType === "batch" && (!exportPortfolio || exportPortfolio === "all"))}
                 className="mt-4"
                 data-testid="button-export"
               >

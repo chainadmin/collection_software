@@ -218,6 +218,7 @@ export const debtors = pgTable("debtors", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   dateOfBirth: text("date_of_birth"),
+  openDate: text("open_date"),
   ssn: text("ssn"), // full SSN for display
   ssnLast4: text("ssn_last_4"),
   email: text("email"),

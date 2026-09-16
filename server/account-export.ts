@@ -30,8 +30,16 @@ export const accountExportColumns = [
   ["chargeOffDate", "Charge-off Date"],
 ] as const;
 
+export const batchExportColumns = [
+  ["fileNumber", "File Number"], ["firstName", "First Name"], ["lastName", "Last Name"],
+  ["address", "Address"], ["city", "City"], ["state", "State"], ["zipCode", "ZIP Code"],
+  ["dateOfBirth", "Date of Birth"], ["ssn", "Social"], ["openDate", "Open Date"],
+] as const;
+
 type AccountExportKey = (typeof accountExportColumns)[number][0];
 export type AccountExportRow = Record<AccountExportKey, string | number>;
+type BatchExportKey = (typeof batchExportColumns)[number][0];
+export type BatchExportRow = Record<BatchExportKey, string>;
 
 export interface AccountExportSource {
   organizationId: string;
@@ -129,6 +137,22 @@ export function selectAccountExportRows(source: AccountExportSource): AccountExp
   });
 }
 
+/** Produces an import-ready snapshot for safely updating one portfolio later. */
+export function selectBatchExportRows(source: AccountExportSource): BatchExportRow[] {
+  const portfolioIds = new Set(source.portfolios
+    .filter((portfolio) => portfolio.organizationId === source.organizationId)
+    .map((portfolio) => portfolio.id));
+  return source.debtors
+    .filter((debtor) => debtor.organizationId === source.organizationId &&
+      debtor.portfolioId === source.portfolioId && portfolioIds.has(debtor.portfolioId))
+    .map((debtor) => ({
+      fileNumber: debtor.fileNumber ?? "", firstName: debtor.firstName, lastName: debtor.lastName,
+      address: debtor.address ?? "", city: debtor.city ?? "", state: debtor.state ?? "",
+      zipCode: debtor.zipCode ?? "", dateOfBirth: debtor.dateOfBirth ?? "", ssn: debtor.ssn ?? "",
+      openDate: debtor.openDate ?? "",
+    }));
+}
+
 export function escapeCsvCell(value: string | number): string {
   // Keep real numbers numeric, while preventing spreadsheet applications from
   // evaluating attacker-controlled text as a formula when the CSV is opened.
@@ -169,6 +193,23 @@ export async function serializeAccountRowsToXlsx(rows: AccountExportRow[]): Prom
   return Buffer.from(output);
 }
 
+export async function serializeBatchExport(rows: BatchExportRow[], format: AccountExportFormat) {
+  if (format === "json") return { body: JSON.stringify(rows, null, 2), contentType: "application/json; charset=utf-8", extension: "json" };
+  if (format === "xlsx") {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "DebtFlow";
+    const worksheet = workbook.addWorksheet("Batch");
+    worksheet.columns = batchExportColumns.map(([key, header]) => ({ key, header, width: Math.max(14, header.length + 2) }));
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    rows.forEach((row) => worksheet.addRow(row));
+    return { body: Buffer.from(await workbook.xlsx.writeBuffer()), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", extension: "xlsx" };
+  }
+  const header = batchExportColumns.map(([, label]) => escapeCsvCell(label)).join(",");
+  const body = rows.map((row) => batchExportColumns.map(([key]) => escapeCsvCell(row[key])).join(","));
+  return { body: [header, ...body].join("\r\n"), contentType: "text/csv; charset=utf-8", extension: "csv" };
+}
+
 export type AccountExportFormat = "csv" | "xlsx" | "json";
 
 export async function serializeAccountExport(rows: AccountExportRow[], format: AccountExportFormat) {
@@ -196,4 +237,9 @@ export async function serializeAccountExport(rows: AccountExportRow[], format: A
 export function accountExportFilename(extension: AccountExportFormat, date = new Date()): string {
   const day = Number.isNaN(date.getTime()) ? "unknown-date" : date.toISOString().slice(0, 10);
   return `accounts-export-${day}.${extension}`;
+}
+
+export function batchExportFilename(extension: AccountExportFormat, date = new Date()): string {
+  const day = Number.isNaN(date.getTime()) ? "unknown-date" : date.toISOString().slice(0, 10);
+  return `portfolio-batch-${day}.${extension}`;
 }
