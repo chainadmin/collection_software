@@ -50,11 +50,13 @@ interface PaymentWithDebtor extends Payment {
 export default function PaymentRunner() {
   const { toast } = useToast();
   const { user } = useAuth();
-  // Defaults to today so the calendar and Pending summary both start scoped
-  // to today's payments, not every pending payment across every date.
-  // "Clear" (below, where selectedDate is unset) still switches to showing
-  // all dates for whoever wants that view.
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  // Defaults to "all dates" (unset) so every pending payment stays visible
+  // on load, including one just rescheduled off of today - defaulting this
+  // to today made a payment moved to another date vanish from the list with
+  // no indication where it went, since the "N scheduled on other dates" hint
+  // below only fires when the selected day's own filtered list is empty.
+  // The calendar can still be used to scope down to a single day.
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);

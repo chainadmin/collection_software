@@ -188,12 +188,20 @@ function AppLayout() {
     location.startsWith("/app/settings") ||
     location.startsWith("/app/admin/");
 
+  // A collector granted canViewPaymentRunner or canViewDashboard gets those
+  // two admin-area pages linked in their sidebar - the redirect below must
+  // not immediately bounce them back out of pages their own sidebar sent
+  // them to.
+  const isPermittedCollectorRoute =
+    (location.startsWith("/app/payment-runner") && !!currentCollector?.canViewPaymentRunner) ||
+    (location.startsWith("/app/admin/reporting/dashboard") && !!currentCollector?.canViewDashboard);
+
   useEffect(() => {
     if (collectorsLoading) return;
-    if ((isCollectorRole || isCollectorAppMode) && isAdminRoute && !isCollectorRoute) {
+    if ((isCollectorRole || isCollectorAppMode) && isAdminRoute && !isCollectorRoute && !isPermittedCollectorRoute) {
       setLocation("/app/workstation");
     }
-  }, [collectorsLoading, isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, setLocation]);
+  }, [collectorsLoading, isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, isPermittedCollectorRoute, setLocation]);
 
   const handleAccountSelect = (debtor: Debtor) => {
     trackAccount(debtor.id);
