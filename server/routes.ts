@@ -6,7 +6,7 @@ import { authenticatedPaymentCollectorId, buildInternalPaymentInsert, parseOneTi
 import { redactPayment, redactPayments } from "./payment-presenter";
 import crypto from "crypto";
 import { canonicalizeIp, canonicalizeWhitelistEntry } from "./ip-address";
-import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord } from "./access-control";
+import { canRunPaymentsRecord, canEditPaymentsRecord, canViewFinancialsRecord, isActiveGlobalAdminSession, isActiveAdminOrManagerRecord, auditorScopeRecord } from "./access-control";
 import { computeSubscriptionAccess } from "./subscription-access";
 import bcrypt from "bcrypt";
 import { 
@@ -204,6 +204,63 @@ async function canViewFinancials(req: any, orgId: string): Promise<boolean> {
   if (!sessionCollector?.id) return false;
   const live = await storage.getCollector(sessionCollector.id);
   return canViewFinancialsRecord(sessionCollector, live, orgId);
+}
+
+// null => not an auditor, no restriction applies. Otherwise { clientId }:
+// clientId set means locked to that one client's data; null means an
+// unrestricted auditor (sees the whole org, but still view-only outside
+// debtors - see isAuditor/requireNotAuditor below).
+async function getAuditorScope(req: any, orgId: string): Promise<{ clientId: string | null } | null> {
+  const sessionCollector = req.session?.collector;
+  if (!sessionCollector?.id) return null;
+  const live = await storage.getCollector(sessionCollector.id);
+  return auditorScopeRecord(sessionCollector, live, orgId);
+}
+
+async function isAuditor(req: any, orgId: string): Promise<boolean> {
+  return (await getAuditorScope(req, orgId)) !== null;
+}
+
+// Enforces a client-scoped auditor's boundary on an already-loaded debtor,
+// writing the 403 itself so call sites can just `if (!(await ...)) return;`.
+// A no-op for every other role, and for an unrestricted (no client set)
+// auditor - only a client-scoped auditor is bounded to their own client's
+// debtors.
+async function requireDebtorInScope(req: any, res: any, orgId: string, debtor: { clientId: string | null }): Promise<boolean> {
+  const scope = await getAuditorScope(req, orgId);
+  if (scope?.clientId && debtor.clientId !== scope.clientId) {
+    res.status(403).json({ error: "Access denied" });
+    return false;
+  }
+  return true;
+}
+
+// Remittances and liquidation snapshots key off portfolioId, not clientId
+// directly - resolve a client-scoped auditor's restriction down to the set
+// of portfolio ids it covers. null means unrestricted (no filtering).
+async function auditorScopedPortfolioIds(req: any, orgId: string): Promise<Set<string> | null> {
+  const scope = await getAuditorScope(req, orgId);
+  if (!scope?.clientId) return null;
+  const portfolios = await storage.getPortfolios();
+  return new Set(
+    portfolios
+      .filter(p => p.organizationId === orgId && p.clientId === scope.clientId)
+      .map(p => p.id)
+  );
+}
+
+// Payments key off debtorId, not clientId directly - resolve a client-scoped
+// auditor's restriction down to the set of debtor ids it covers. null means
+// unrestricted (no filtering).
+async function auditorScopedDebtorIds(req: any, orgId: string): Promise<Set<string> | null> {
+  const scope = await getAuditorScope(req, orgId);
+  if (!scope?.clientId) return null;
+  const debtors = await storage.getDebtors();
+  return new Set(
+    debtors
+      .filter(d => d.organizationId === orgId && d.clientId === scope.clientId)
+      .map(d => d.id)
+  );
 }
 
 // Hourly wage is company-financial data. A collector may always see their
@@ -1809,10 +1866,14 @@ export async function registerRoutes(
   });
 
   // Client routes
-  app.get("/api/clients", async (req, res) => {
+  app.get("/api/clients", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
-      const clients = await storage.getClients(orgId);
+      let clients = await storage.getClients(orgId);
+      const auditorScope = await getAuditorScope(req, orgId);
+      if (auditorScope?.clientId) {
+        clients = clients.filter(c => c.id === auditorScope.clientId);
+      }
       res.json(clients);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch clients" });
@@ -1830,6 +1891,10 @@ export async function registerRoutes(
       if (!validateOrgOwnership(client.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      const auditorScope = await getAuditorScope(req, orgId);
+      if (auditorScope?.clientId && client.id !== auditorScope.clientId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       res.json(client);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch client" });
@@ -1839,6 +1904,9 @@ export async function registerRoutes(
   app.post("/api/clients", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to clients" });
+      }
       const client = await storage.createClient({
         ...req.body,
         organizationId: orgId,
@@ -1853,6 +1921,9 @@ export async function registerRoutes(
   app.patch("/api/clients/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to clients" });
+      }
       const existing = await storage.getClient(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: "Client not found" });
@@ -1870,6 +1941,9 @@ export async function registerRoutes(
   app.delete("/api/clients/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to clients" });
+      }
       const existing = await storage.getClient(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: "Client not found" });
@@ -2408,7 +2482,11 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allPortfolios = await storage.getPortfolios();
       // Filter to only return portfolios from the authenticated user's organization
-      const orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
+      let orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
+      const auditorScope = await getAuditorScope(req, orgId);
+      if (auditorScope?.clientId) {
+        orgPortfolios = orgPortfolios.filter(p => p.clientId === auditorScope.clientId);
+      }
       res.json(orgPortfolios);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch portfolios" });
@@ -2425,6 +2503,10 @@ export async function registerRoutes(
       if (!validateOrgOwnership(portfolio.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      const auditorScope = await getAuditorScope(req, orgId);
+      if (auditorScope?.clientId && portfolio.clientId !== auditorScope.clientId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       res.json(portfolio);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch portfolio" });
@@ -2434,6 +2516,10 @@ export async function registerRoutes(
   app.post("/api/portfolios", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      // An auditor is view-only on portfolios, scoped or not.
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to portfolios" });
+      }
       const portfolio = await storage.createPortfolio({
         ...req.body,
         organizationId: orgId,
@@ -2447,6 +2533,9 @@ export async function registerRoutes(
   app.patch("/api/portfolios/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to portfolios" });
+      }
       const existing = await storage.getPortfolio(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: "Portfolio not found" });
@@ -2469,6 +2558,9 @@ export async function registerRoutes(
   app.delete("/api/portfolios/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to portfolios" });
+      }
       const existing = await storage.getPortfolio(req.params.id);
       if (!existing) {
         return res.status(404).json({ error: "Portfolio not found" });
@@ -2492,7 +2584,11 @@ export async function registerRoutes(
         collectorId as string | undefined
       );
       // Filter to only return debtors from the authenticated user's organization
-      const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+      let orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
+      const auditorScope = await getAuditorScope(req, orgId);
+      if (auditorScope?.clientId) {
+        orgDebtors = orgDebtors.filter(d => d.clientId === auditorScope.clientId);
+      }
       res.json(orgDebtors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch debtors" });
@@ -2679,6 +2775,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       res.json(debtor);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch debtor" });
@@ -2794,11 +2891,21 @@ export async function registerRoutes(
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, existing))) return;
       const body = { ...req.body };
       delete body.id;
       delete body.organizationId;
       delete body.contacts;
       delete body.references;
+      // An auditor can edit account details, but reassigning which
+      // portfolio/client/collector an account belongs to is an operational
+      // move outside a view/edit/notes role - never theirs to make, scoped
+      // or not.
+      if (await isAuditor(req, orgId)) {
+        delete body.portfolioId;
+        delete body.clientId;
+        delete body.assignedCollectorId;
+      }
       if (body.portfolioId) {
         const portfolio = await storage.getPortfolio(body.portfolioId);
         if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) return res.status(400).json({ error: "Invalid portfolio" });
@@ -2854,6 +2961,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const contacts = await storage.getDebtorContacts(req.params.id);
       res.json(contacts);
     } catch (error) {
@@ -2868,6 +2976,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       if (!req.body || !["phone", "email"].includes(req.body.type) || typeof req.body.value !== "string" || !req.body.value.trim()) {
         return res.status(400).json({ error: "Contact requires a non-blank phone or email value" });
       }
@@ -2993,6 +3102,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const records = await storage.getEmploymentRecords(req.params.id);
       res.json(records);
     } catch (error) {
@@ -3007,6 +3117,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const record = await storage.createEmploymentRecord({
         ...req.body,
         debtorId: req.params.id,
@@ -3047,6 +3158,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const references = await storage.getDebtorReferences(req.params.id);
       res.json(references);
     } catch (error) {
@@ -3064,6 +3176,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const references = await storage.getDebtorReferences(req.params.id);
       const phonesByReference = await Promise.all(references.map((r) => storage.getReferencePhones(r.id)));
       res.json(phonesByReference.flat());
@@ -3079,6 +3192,7 @@ export async function registerRoutes(
       if (!debtor || !validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(404).json({ error: "Debtor not found" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       let cleanReference: any;
       try { cleanReference = referencePayload(req.body); }
       catch (error: any) { return res.status(400).json({ error: error.message }); }
@@ -3293,6 +3407,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const accounts = await storage.getBankAccounts(req.params.id);
       res.json(accounts);
     } catch (error) {
@@ -3308,6 +3423,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const account = await storage.createBankAccount({
         ...req.body,
         debtorId: req.params.id,
@@ -3327,6 +3443,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const payments = await storage.getPayments(req.params.id);
       res.json(redactPayments(payments));
     } catch (error) {
@@ -3342,6 +3459,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const amount = Number(req.body.amount);
       if (!Number.isSafeInteger(amount) || amount <= 0) {
         return res.status(400).json({ error: "Payment amount must be a positive whole number of cents" });
@@ -3464,6 +3582,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const notes = await storage.getNotes(req.params.id);
       res.json(notes);
     } catch (error) {
@@ -3479,6 +3598,7 @@ export async function registerRoutes(
       if (!validateOrgOwnership(debtor.organizationId, orgId)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      if (!(await requireDebtorInScope(req, res, orgId, debtor))) return;
       const note = await storage.createNote({
         ...req.body,
         debtorId: req.params.id,
@@ -3664,7 +3784,11 @@ export async function registerRoutes(
     try {
       const orgId = getOrgId(req);
       const { portfolioId } = req.query;
-      const snapshots = await storage.getLiquidationSnapshots(portfolioId as string | undefined, orgId);
+      let snapshots = await storage.getLiquidationSnapshots(portfolioId as string | undefined, orgId);
+      const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+      if (scopedPortfolioIds) {
+        snapshots = snapshots.filter(s => scopedPortfolioIds.has(s.portfolioId));
+      }
       res.json(snapshots);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch liquidation snapshots" });
@@ -3674,6 +3798,9 @@ export async function registerRoutes(
   app.post("/api/liquidation/snapshots", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to liquidation data" });
+      }
       const snapshot = await storage.createLiquidationSnapshot({
         ...req.body,
         organizationId: orgId,
@@ -4127,7 +4254,11 @@ export async function registerRoutes(
       const orgId = getOrgId(req);
       const allPayments = await storage.getAllPayments();
       // Filter to only return payments from the authenticated user's organization
-      const orgPayments = allPayments.filter(p => p.organizationId === orgId);
+      let orgPayments = allPayments.filter(p => p.organizationId === orgId);
+      const scopedDebtorIds = await auditorScopedDebtorIds(req, orgId);
+      if (scopedDebtorIds) {
+        orgPayments = orgPayments.filter(p => scopedDebtorIds.has(p.debtorId));
+      }
       res.json(redactPayments(orgPayments));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments" });
@@ -5603,15 +5734,19 @@ export async function registerRoutes(
   });
 
   // Remittances API
-  app.get("/api/remittances", async (req, res) => {
+  app.get("/api/remittances", async (req: any, res) => {
     try {
       const { status, portfolioId } = req.query;
       const orgId = getOrgId(req as any);
-      const remittances = await storage.getRemittances(
+      let remittances = await storage.getRemittances(
         status as string | undefined,
         portfolioId as string | undefined,
         orgId
       );
+      const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+      if (scopedPortfolioIds) {
+        remittances = remittances.filter(r => scopedPortfolioIds.has(r.portfolioId));
+      }
       res.json(remittances);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch remittances" });
@@ -5621,6 +5756,9 @@ export async function registerRoutes(
   app.post("/api/remittances", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to remittance" });
+      }
       const remittance = await storage.createRemittance({
         ...req.body,
         organizationId: orgId,
@@ -5635,6 +5773,9 @@ export async function registerRoutes(
   app.patch("/api/remittances/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to remittance" });
+      }
       const existing = await storage.getRemittance(req.params.id);
       if (!existing) return res.status(404).json({ error: "Remittance not found" });
       if (!validateOrgOwnership(existing.organizationId, orgId)) {
@@ -5652,15 +5793,24 @@ export async function registerRoutes(
   });
 
   // Remittance Items API
-  app.get("/api/remittance-items", async (req, res) => {
+  app.get("/api/remittance-items", async (req: any, res) => {
     try {
       const { remittanceId, status } = req.query;
       const orgId = getOrgId(req as any);
-      const items = await storage.getRemittanceItems(
+      let items = await storage.getRemittanceItems(
         remittanceId as string | undefined,
         status as string | undefined,
         orgId
       );
+      const scopedPortfolioIds = await auditorScopedPortfolioIds(req, orgId);
+      if (scopedPortfolioIds) {
+        const remittanceIds = new Set(items.map(i => i.remittanceId));
+        const remittances = await Promise.all(Array.from(remittanceIds).map(id => storage.getRemittance(id)));
+        const allowedRemittanceIds = new Set(
+          remittances.filter((r): r is NonNullable<typeof r> => !!r && scopedPortfolioIds.has(r.portfolioId)).map(r => r.id)
+        );
+        items = items.filter(i => allowedRemittanceIds.has(i.remittanceId));
+      }
       res.json(items);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch remittance items" });
@@ -5670,6 +5820,9 @@ export async function registerRoutes(
   app.post("/api/remittance-items", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to remittance" });
+      }
       const item = await storage.createRemittanceItem({
         ...req.body,
         organizationId: orgId,
@@ -5683,6 +5836,9 @@ export async function registerRoutes(
   app.patch("/api/remittance-items/:id", async (req: any, res) => {
     try {
       const orgId = getOrgId(req);
+      if (await isAuditor(req, orgId)) {
+        return res.status(403).json({ error: "Auditors have view-only access to remittance" });
+      }
       const allItems = await storage.getRemittanceItems(undefined, undefined, orgId);
       const existing = allItems.find((i) => i.id === req.params.id);
       if (!existing) return res.status(404).json({ error: "Remittance item not found" });
