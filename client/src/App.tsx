@@ -287,6 +287,7 @@ function AppLayout() {
               role: currentCollector.role,
               avatarInitials: currentCollector.avatarInitials,
               canViewPaymentRunner: currentCollector.canViewPaymentRunner,
+              canViewDashboard: currentCollector.canViewDashboard,
             } : null}
           />
         ) : (
