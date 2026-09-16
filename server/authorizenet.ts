@@ -263,6 +263,8 @@ export interface DebtorPaymentData {
   cardNumber: string;
   expirationDate: string; // MMYY format
   cardCode: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface AchPaymentData {
@@ -411,12 +413,19 @@ export async function processDebtorCardPayment(
       transactionRequest.setCustomer(customer);
     }
 
+    if (paymentData.firstName || paymentData.lastName) {
+      const billTo = new APIContracts.CustomerAddressType();
+      if (paymentData.firstName) billTo.setFirstName(paymentData.firstName);
+      if (paymentData.lastName) billTo.setLastName(paymentData.lastName);
+      transactionRequest.setBillTo(billTo);
+    }
+
     const createRequest = new APIContracts.CreateTransactionRequest();
     createRequest.setMerchantAuthentication(merchantAuth);
     createRequest.setTransactionRequest(transactionRequest);
 
     const ctrl = new APIControllers.CreateTransactionController(createRequest.getJSON());
-    
+
     // Debtor payment gateways are live-only.
     ctrl.setEnvironment(Constants.endpoint.production);
 
