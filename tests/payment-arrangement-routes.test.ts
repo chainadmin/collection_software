@@ -46,7 +46,7 @@ test("arrangement management is tenant-scoped, immutable, and retry-safe", async
     const created: any[] = await (await f.request(f.debtor.id, {
       arrangementId: "arr-manage-1", paymentMethod: "ach", rows,
     })).json();
-    await f.storage.updatePayment(created[0].id, { status: "processing" });
+    await f.storage.updatePayment(created[0].id, { status: "declined" });
     const update = {
       mutationId: "manage-retry-1", action: "update",
       rows: [{ id: created[1].id, amount: 1200, paymentDate: "2030-03-01" }],
@@ -56,7 +56,7 @@ test("arrangement management is tenant-scoped, immutable, and retry-safe", async
     const first = await f.manage(f.debtor.id, "arr-manage-1", update);
     assert.equal(first.status, 200);
     const updated: any[] = await first.json();
-    assert.equal(updated[0].status, "processing");
+    assert.equal(updated[0].status, "declined");
     assert.equal(updated[0].amount, 1000);
     assert.equal(updated[1].amount, 1200);
     const replay: any[] = await (await f.manage(f.debtor.id, "arr-manage-1", update)).json();
@@ -67,8 +67,8 @@ test("arrangement management is tenant-scoped, immutable, and retry-safe", async
     const cancelled: any[] = await (await f.manage(f.debtor.id, "arr-manage-1", {
       mutationId: "manage-cancel-1", action: "cancel",
     })).json();
-    assert.equal(cancelled[0].status, "processing");
-    assert.equal(cancelled[1].status, "cancelled");
+    assert.equal(cancelled[0].status, "declined");
+    assert.equal(cancelled[1].status, "reversed");
   } finally { await f.close(); }
 });
 

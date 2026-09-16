@@ -748,6 +748,23 @@ export async function runMigrations() {
       UPDATE payment_arrangement_audits SET request_state = before_state WHERE request_state IS NULL;
       ALTER TABLE payment_arrangement_audits ALTER COLUMN request_state SET NOT NULL;
     `);
+
+    // Payment status and payment date are the complete business state.
+    // Convert historical internal states and reject any future hidden state.
+    await db.execute(sql`
+      UPDATE payments
+      SET status = CASE
+        WHEN status = 'processing' THEN 'pending'
+        WHEN status IN ('needs_review', 'failed') THEN 'declined'
+        WHEN status = 'cancelled' THEN 'reversed'
+        ELSE 'pending'
+      END,
+      processing_started_at = CASE WHEN status = 'processing' THEN NULL ELSE processing_started_at END
+      WHERE status NOT IN ('pending', 'posted', 'processed', 'declined', 'reversed');
+      ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_status_allowed;
+      ALTER TABLE payments ADD CONSTRAINT payments_status_allowed
+        CHECK (status IN ('pending', 'posted', 'processed', 'declined', 'reversed'));
+    `);
     
     // Add username column to global_admins if it doesn't exist
     await db.execute(sql`

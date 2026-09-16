@@ -40,7 +40,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import type { Payment, Debtor, Merchant, Collector } from "@shared/schema";
-import { easternBusinessDate } from "@shared/business-date";
+import { calendarDateFromYmd, easternBusinessDate, localCalendarYmd } from "@shared/business-date";
 import { isEligibleForNsfDecision, isDeclinedPendingPayment, REVERSAL_ELIGIBLE_AFTER_DAYS } from "@shared/nsf";
 
 interface PaymentWithDebtor extends Payment {
@@ -50,13 +50,12 @@ interface PaymentWithDebtor extends Payment {
 export default function PaymentRunner() {
   const { toast } = useToast();
   const { user } = useAuth();
-  // Defaults to "all dates" (unset) so every pending payment stays visible
-  // on load, including one just rescheduled off of today - defaulting this
-  // to today made a payment moved to another date vanish from the list with
-  // no indication where it went, since the "N scheduled on other dates" hint
-  // below only fires when the selected day's own filtered list is empty.
-  // The calendar can still be used to scope down to a single day.
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  // Start on the organization's Eastern business day. Date-only values need
+  // to be converted to local midnight so the calendar does not shift a day
+  // for users west of UTC.
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() =>
+    calendarDateFromYmd(easternBusinessDate())
+  );
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithDebtor | null>(null);
@@ -155,7 +154,7 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Payment was successful." });
-      } else if (data.declineReason || data.status === "declined" || data.status === "failed") {
+      } else if (data.declineReason || data.status === "declined") {
         toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
@@ -176,7 +175,7 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Re-run was successful." });
-      } else if (data.declineReason || data.status === "declined" || data.status === "failed") {
+      } else if (data.declineReason || data.status === "declined") {
         toast({ title: "Payment Declined", description: data.declineReason || "Payment was declined again.", variant: "destructive" });
       }
       setProcessingPaymentId(null);
@@ -290,7 +289,7 @@ export default function PaymentRunner() {
       if (totalProcessed === 0 && totalSkipped === 0) {
         toast({
           title: "No payments to process",
-          description: "There are no pending payments due today or earlier.",
+          description: "There are no payments in pending status.",
         });
       } else if (totalProcessed === 0 && uniqueSkipReasons.length > 0) {
         toast({
@@ -339,11 +338,16 @@ export default function PaymentRunner() {
   const filteredPayments = selectedDate
     ? pendingPayments?.filter((p) => {
         if (!p.paymentDate) return false;
-        const paymentDateStr = format(parseDisplayDate(p.paymentDate), "yyyy-MM-dd");
-        const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
-        return paymentDateStr === selectedDateStr;
+        return p.paymentDate === localCalendarYmd(selectedDate);
       }) || []
     : pendingPayments || [];
+
+  // Keep rescheduled payments discoverable even while the runner defaults to
+  // today. This count is displayed whenever a date is selected, including
+  // when that date also has payments of its own.
+  const paymentsOnOtherDates = selectedDate
+    ? (pendingPayments || []).filter((p) => p.paymentDate !== localCalendarYmd(selectedDate)).length
+    : 0;
 
   const todayPayments = pendingPayments?.filter((p) => {
     if (!p.paymentDate) return false;
@@ -379,11 +383,9 @@ export default function PaymentRunner() {
   const processedPayments = allPayments?.filter((p) => p.status === "processed") || [];
   const postedPayments = allPayments?.filter((p) => p.status === "posted") || [];
   const reversedPayments = allPayments?.filter((p) => p.status === "reversed") || [];
-  // "reversed" and "cancelled" are terminal - nothing left to do with them,
-  // so they're excluded here rather than sitting in an action list forever.
-  const reviewPayments = allPayments?.filter((p) =>
-    ["needs_review", "failed", "declined"].includes(p.status)
-  ) || [];
+  // Posted, processed, and reversed are the only statuses that cannot be run
+  // manually. Keep every other previously-run state available to an operator.
+  const reviewPayments = allPayments?.filter((p) => p.status === "declined") || [];
   
   const processedTotal = processedPayments.reduce((sum, p) => sum + p.amount, 0);
   const declinedTotal = declinedPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -411,10 +413,9 @@ export default function PaymentRunner() {
   const renderPaymentActions = (payment: PaymentWithDebtor, isDeclined: boolean = false, _isProcessed: boolean = false) => {
     const isProcessing = processingPaymentId === payment.id;
     const isPosting = postPaymentMutation.isPending;
-    const canInitialRun = payment.status === "pending" && !payment.completedAt && !isDeclined;
-    // Reversed is a hard stop - it can never be rerun, only pending/declined/
-    // needs_review attempts can.
-    const canRerun = payment.status !== "posted" && payment.status !== "processing" &&
+    const canInitialRun = payment.status === "pending" && !isDeclined;
+    // Posted, processed, and reversed are the only manual hard stops.
+    const canRerun = payment.status !== "posted" && payment.status !== "processed" &&
       payment.status !== "reversed" && !canInitialRun;
     
     return (
@@ -550,12 +551,23 @@ export default function PaymentRunner() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3">
                 <p className="font-medium" data-testid="text-auto-runner-title">Auto Payment Runner</p>
-                <Switch
-                  checked={autoStatus?.autoRunnerEnabled ?? false}
-                  onCheckedChange={(checked) => toggleAutoRunnerMutation.mutate(checked)}
-                  disabled={toggleAutoRunnerMutation.isPending}
-                  data-testid="switch-auto-runner"
-                />
+                {canPostOrReverse ? (
+                  <Switch
+                    checked={autoStatus?.autoRunnerEnabled ?? false}
+                    onCheckedChange={(checked) => toggleAutoRunnerMutation.mutate(checked)}
+                    disabled={toggleAutoRunnerMutation.isPending}
+                    data-testid="switch-auto-runner"
+                  />
+                ) : (
+                  <span className={cn(
+                    "rounded-full px-2 py-0.5 text-xs font-medium",
+                    autoStatus?.autoRunnerEnabled
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                      : "bg-muted text-muted-foreground"
+                  )} data-testid="text-auto-runner-state">
+                    {autoStatus?.autoRunnerEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                )}
               </div>
               <p className="text-sm text-muted-foreground" data-testid="text-auto-runner-schedule">
                 {autoStatus?.autoRunnerEnabled
@@ -610,7 +622,7 @@ export default function PaymentRunner() {
           <DialogHeader>
             <DialogTitle>Auto-Runner Schedule</DialogTitle>
             <DialogDescription>
-              Pick the Eastern Time hours when the auto-runner should process pending payments. Only payments with status "pending" and a payment date on or before today will be processed.
+              The first scheduled run processes every pending payment dated today. The final scheduled run processes every pending payment dated today and retries today's declined payments. Run Now processes all pending payments regardless of date.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-4 gap-2 py-2 max-h-72 overflow-y-auto">
@@ -737,10 +749,22 @@ export default function PaymentRunner() {
           ) : filteredPayments.length > 0 ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between pb-2 border-b">
-                <p className="text-sm text-muted-foreground">
-                  {filteredPayments.length} payment{filteredPayments.length !== 1 ? "s" : ""}
-                  {selectedDate ? ` for ${format(selectedDate, "PPP")}` : " total"}
-                </p>
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {filteredPayments.length} payment{filteredPayments.length !== 1 ? "s" : ""}
+                    {selectedDate ? ` for ${format(selectedDate, "PPP")}` : " total"}
+                  </p>
+                  {paymentsOnOtherDates > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => setSelectedDate(undefined)}
+                      data-testid="button-view-other-dates"
+                    >
+                      View {paymentsOnOtherDates} payment{paymentsOnOtherDates !== 1 ? "s" : ""} scheduled on other dates
+                    </button>
+                  )}
+                </div>
                 <p className="text-sm font-medium">
                   Total: {formatCurrency(filteredPayments.reduce((sum, p) => sum + p.amount, 0))}
                 </p>
@@ -775,9 +799,14 @@ export default function PaymentRunner() {
             <div className="text-center py-8">
               <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
               <p className="text-muted-foreground">No pending payments for {format(selectedDate!, "PPP")}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {pendingPayments.length} payment{pendingPayments.length !== 1 ? "s" : ""} scheduled on other dates
-              </p>
+              <button
+                type="button"
+                className="text-sm text-primary hover:underline mt-1"
+                onClick={() => setSelectedDate(undefined)}
+                data-testid="button-view-other-dates-empty"
+              >
+                View {pendingPayments.length} payment{pendingPayments.length !== 1 ? "s" : ""} scheduled on other dates
+              </button>
             </div>
           ) : (
             <div className="text-center py-8">

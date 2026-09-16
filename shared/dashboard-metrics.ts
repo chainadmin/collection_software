@@ -53,9 +53,9 @@ export function calculateDashboardStats(
   const accountFaceValue = debtors.reduce((sum, debtor) => sum + Number(debtor.originalBalance || 0), 0);
   const totalPortfolioValue = accountFaceValue || portfolioFaceValue;
   const totalCollected = inRange.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const declined = payments.filter((payment) => payment.status === "declined" || payment.status === "failed").length;
+  const declined = payments.filter((payment) => payment.status === "declined").length;
   const reversedPayments = payments.filter((payment) => payment.status === "reversed").length;
-  const attempted = payments.filter((payment) => ["processed", "posted", "declined", "failed", "reversed"].includes(payment.status)).length;
+  const attempted = payments.filter((payment) => ["processed", "posted", "declined", "reversed"].includes(payment.status)).length;
   return {
     collectionsToday: posted.filter((payment) => payment.paymentDate === today).reduce((sum, payment) => sum + payment.amount, 0),
     collectionsThisMonth: totalCollected,

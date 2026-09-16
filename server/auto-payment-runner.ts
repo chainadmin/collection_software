@@ -3,7 +3,8 @@ import { processPayment } from "./payment-processor";
 import { sendOrgNotificationEmail } from "./email";
 import type { Payment } from "@shared/schema";
 import {
-  claimPaymentForProcessing,
+  claimPendingPaymentForManualRun,
+  claimScheduledPaymentForProcessing,
   markPaymentNeedsReviewIfProcessing,
   markStaleProcessingPaymentsNeedsReview,
 } from "./payment-safety";
@@ -87,8 +88,9 @@ function getEasternDateString(): string {
   return getPaymentBusinessDate();
 }
 
-export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean }): Promise<RunResult> {
+export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean; includeDeclined?: boolean }): Promise<RunResult> {
   const manualTrigger = options?.manualTrigger === true;
+  const includeDeclined = options?.includeDeclined === true;
   if (!runRegistry.tryStart(singleOrgId)) {
     console.log(`[Auto Runner] Already running${singleOrgId ? ` for org ${singleOrgId}` : ""}, skipping`);
     return {
@@ -122,14 +124,18 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
     if (staleCount > 0) {
       console.warn(`[Auto Runner] Moved ${staleCount} incomplete processing attempt(s) to needs_review`);
     }
-    const pendingPayments = await storage.getPendingPaymentsDueByDate(today);
+    // A scheduled run is date-exact. An explicit Run Now is the only bulk
+    // action allowed to pull pending payments from other scheduled dates.
+    const pendingPayments = manualTrigger
+      ? await storage.getPendingPayments(singleOrgId)
+      : await storage.getPaymentsScheduledForRun(today, includeDeclined);
 
     if (pendingPayments.length === 0) {
-      console.log("[Auto Runner] No pending payments due today or earlier");
+      console.log(`[Auto Runner] No pending payments ${manualTrigger ? "in the queue" : `scheduled for ${today}`}`);
       return result;
     }
 
-    console.log(`[Auto Runner] Found ${pendingPayments.length} pending payments due by ${today}`);
+    console.log(`[Auto Runner] Found ${pendingPayments.length} pending payments ${manualTrigger ? "for a manual run" : `scheduled for ${today}`}`);
 
     const byOrg: Record<string, Payment[]> = {};
     for (const p of pendingPayments) {
@@ -206,7 +212,9 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
         try {
           // Claim immediately before the provider call. A simultaneous manual
           // run or runner instance sees zero rows returned and must not charge.
-          const claimed = await claimPaymentForProcessing(payment.id, orgId, today);
+          const claimed = manualTrigger
+            ? await claimPendingPaymentForManualRun(payment.id, orgId)
+            : await claimScheduledPaymentForProcessing(payment.id, orgId, today, includeDeclined);
           if (!claimed) {
             result.totalSkipped++;
             continue;
@@ -214,7 +222,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
           // Reload after the atomic claim so a schedule update that committed
           // immediately before the claim cannot be charged with stale terms.
           const claimedPayment = await storage.getPayment(payment.id);
-          if (!claimedPayment || claimedPayment.status !== "processing") {
+          if (!claimedPayment || !claimedPayment.processingStartedAt) {
             result.totalSkipped++;
             continue;
           }
@@ -239,7 +247,7 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
               const current = await storage.getPayment(payment.id);
               if (current?.status === "processed" || current?.status === "posted") {
                 orgResult.success++;
-              } else if (current?.status === "needs_review" || current?.status === "processing") {
+              } else if (current?.status === "declined" && current.processingStartedAt) {
                 orgResult.needsReview++;
               } else {
                 orgResult.declined++;
@@ -322,7 +330,8 @@ export function startAutoPaymentScheduler() {
         // Run organizations sequentially. Starting all of them concurrently causes
         // the global overlap guard to skip every organization after the first.
         try {
-          await runAutoPayments(org.id);
+          const includeDeclined = hours.length > 1 && hour === hours[hours.length - 1];
+          await runAutoPayments(org.id, { includeDeclined });
         } catch (err) {
           console.error(`[Auto Runner] Scheduled run error for org ${org.id}:`, err);
         }
