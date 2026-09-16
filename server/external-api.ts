@@ -1252,17 +1252,17 @@ export function registerExternalApiRoutes(app: Express) {
   });
 
   // POST /api/v2/softphone/call-event - Chiamo (chain-admin) reports a call
-  // event. "answered" targets one collector (identified by the Chiamo email
-  // linked on their collector profile): the matching account is resolved
-  // the same way the softphone search bar already does, and pushed to that
-  // collector's live connection so their screen can navigate there without
-  // them touching anything. "parked"/"unparked" are org-wide broadcasts -
-  // parked calls in Chiamo are tenant-wide (any collector with softphone
-  // access can see and pick one up), so there's no single collector to
-  // target.
+  // event. "call-state" targets one collector (identified by the Chiamo
+  // email linked on their collector profile) with the call's live status -
+  // ringing, connected, held, muted, ended - so DMP can be the actual
+  // control surface (answer/decline/hang up/mute/hold), with Chiamo running
+  // headless as the Twilio connection. "parked"/"unparked" are org-wide
+  // broadcasts instead - parked calls in Chiamo are tenant-wide (any
+  // collector with softphone access can see and pick one up), so there's
+  // no single collector to target.
   app.post("/api/v2/softphone/call-event", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const { event, chiamoEmail, phoneNumber, parkedCallId, callerName, callerNumber } = req.body;
+      const { event, chiamoEmail, status, direction, phoneNumber, callerName, parkedCallId, callerNumber } = req.body;
       const orgId = req.apiToken?.organizationId;
 
       if (event === "parked" || event === "unparked") {
@@ -1276,14 +1276,15 @@ export function registerExternalApiRoutes(app: Express) {
         return res.json({ success: true, pushed: pushed > 0 });
       }
 
-      if (event !== "answered") {
+      if (event !== "call-state") {
         // Other event types aren't acted on yet - acknowledge so Chain
         // doesn't need to know what DMP currently supports.
         return res.json({ success: true, pushed: false });
       }
 
-      if (!chiamoEmail || !phoneNumber) {
-        return res.status(400).json({ error: "chiamoEmail and phoneNumber are required" });
+      const validStatuses = ["ringing", "connected", "held", "muted", "unmuted", "ended", "missed"];
+      if (!validStatuses.includes(status) || (direction !== "inbound" && direction !== "outbound") || !phoneNumber || !chiamoEmail) {
+        return res.status(400).json({ error: "chiamoEmail, a valid status, direction, and phoneNumber are required" });
       }
 
       const collector = await storage.getCollectorByOrgAndChiamoEmail(orgId!, chiamoEmail);
@@ -1291,16 +1292,28 @@ export function registerExternalApiRoutes(app: Express) {
         return res.json({ success: true, pushed: false, reason: "No collector linked to that Chiamo email" });
       }
 
-      const matches = await findDebtorsByPhone(orgId, phoneNumber);
-      if (matches.length === 0) {
-        return res.json({ success: true, pushed: false, reason: "No account matched that phone number" });
+      // Resolve the account for display/screen-pop on the two states where
+      // it's useful - an incoming call ringing, and any call once
+      // connected. Best-effort: an unmatched number still gets pushed so
+      // the collector at least sees who's calling.
+      let fileNumber: string | undefined;
+      if (status === "ringing" || status === "connected") {
+        try {
+          const matches = await findDebtorsByPhone(orgId, phoneNumber);
+          if (matches.length > 0) fileNumber = matches[0].fileNumber;
+        } catch {
+          // Non-blocking - the call state still gets pushed without it.
+        }
       }
 
       const { pushToCollector } = await import("./realtimeSoftphone");
       const pushed = pushToCollector(collector.id, {
-        type: "incoming-call-answered",
-        fileNumber: matches[0].fileNumber,
-        matchCount: matches.length,
+        type: "call-state",
+        status,
+        direction,
+        phoneNumber,
+        callerName: callerName || undefined,
+        fileNumber,
       });
 
       res.json({ success: true, pushed });
