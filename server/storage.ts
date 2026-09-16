@@ -1831,7 +1831,7 @@ export class MemStorage implements IStorage {
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
     return Array.from(this.payments.values())
-      .filter((p) => p.status === "pending" && (!organizationId || p.organizationId === organizationId))
+      .filter((p) => p.status === "pending" && !p.completedAt && (!organizationId || p.organizationId === organizationId))
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }
 

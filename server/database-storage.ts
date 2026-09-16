@@ -677,12 +677,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingPayments(organizationId?: string): Promise<Payment[]> {
+    // completedAt is set the moment a run attempt finishes, success or
+    // decline - a declined payment stays status "pending" (so it can be
+    // re-run) but must not keep showing up as an untouched pending payment
+    // alongside its own entry in the declined list.
     if (organizationId) {
       return await db.select().from(payments).where(
-        and(eq(payments.status, "pending"), eq(payments.organizationId, organizationId))
+        and(eq(payments.status, "pending"), isNull(payments.completedAt), eq(payments.organizationId, organizationId))
       );
     }
-    return await db.select().from(payments).where(eq(payments.status, "pending"));
+    return await db.select().from(payments).where(and(eq(payments.status, "pending"), isNull(payments.completedAt)));
   }
 
   async getPendingPaymentsDueByDate(maxDate: string): Promise<Payment[]> {
