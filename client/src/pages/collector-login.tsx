@@ -93,13 +93,13 @@ export default function CollectorLogin() {
       localStorage.setItem("collector_agency_code", normalizedCode);
       // collectorLogin throws on any non-OK response, so we only get here on
       // a successful sign-in.
-      await collectorLogin(trimmedUsername, password, normalizedCode);
+      const signedInUser = await collectorLogin(trimmedUsername, password, normalizedCode);
       toast({
         title: "Welcome!",
         description: "You have been logged in successfully.",
       });
       await new Promise((resolve) => setTimeout(resolve, 100));
-      setLocation(redirectTo);
+      setLocation(signedInUser.role === "auditor" ? "/app/debtors" : redirectTo);
     } catch (error: any) {
       const code: string | undefined = error?.code;
       const title = (code && ERROR_TITLES[code]) || "Sign-in failed";

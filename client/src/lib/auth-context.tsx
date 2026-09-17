@@ -14,7 +14,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  collectorLogin: (username: string, password: string, agencyCode: string) => Promise<boolean>;
+  collectorLogin: (username: string, password: string, agencyCode: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   setAuthUser: (user: AuthUser) => void;
 }
@@ -143,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const collectorLogin = async (username: string, password: string, agencyCode: string): Promise<boolean> => {
+  const collectorLogin = async (username: string, password: string, agencyCode: string): Promise<AuthUser> => {
     // This window is now the collector app — pins it before the request so
     // the login call itself (and everything after it) uses the collector
     // session cookie, independent of any admin session on this computer.
@@ -166,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(authUser);
       localStorage.setItem(authStorageKey(), JSON.stringify(authUser));
       localStorage.setItem("appMode", "collector");
-      return true;
+      return authUser;
     }
 
     let payload: { code?: string; error?: string } = {};

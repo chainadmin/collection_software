@@ -2078,7 +2078,7 @@ export async function registerRoutes(
       const allFeeSchedules = await storage.getFeeSchedules(orgId);
 
       // Filter by organization
-      const collectors = allCollectors.filter(c => c.organizationId === orgId);
+      const collectors = allCollectors.filter(c => c.organizationId === orgId && c.role !== "auditor" && !c.isSystemAccount);
       const orgPayments = allPayments.filter(p => p.organizationId === orgId);
       const orgDebtors = allDebtors.filter(d => d.organizationId === orgId);
       const orgPortfolios = allPortfolios.filter(p => p.organizationId === orgId);
