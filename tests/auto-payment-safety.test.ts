@@ -258,6 +258,34 @@ test("USAePay saved-card duplicate response persists as needs_review", async () 
   }
 });
 
+test("gateway charge uses the name on the saved card, not the debtor's own name", async () => {
+  const source = payment({ cardId: "card-1" });
+  let capturedBody = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    capturedBody = String(init?.body ?? "");
+    return new Response("response=1&transactionid=txn-1", { status: 200 });
+  };
+  const storage = savedCardStorage(source, "nmi", () => {});
+  // The account holder's own name on file differs from who is actually on
+  // the card being charged (e.g. a spouse's or co-signer's card).
+  (storage as any).getDebtor = async () => ({ id: "debtor-1", organizationId: "org-1", firstName: "AccountHolder", lastName: "NotOnCard" });
+  (storage as any).getPaymentCard = async () => ({
+    id: "card-1", organizationId: "org-1", debtorId: "debtor-1", merchantId: "merchant-1",
+    processorType: "nmi", processorToken: "test-vault-token", processorCustomerId: null,
+    vaultStatus: "vaulted", cardholderName: "Robert James Smith",
+  });
+  try {
+    const result = await processPayment(source, storage, "org-1");
+    assert.equal(result.success, true);
+    const params = new URLSearchParams(capturedBody);
+    assert.equal(params.get("firstname"), "Robert James");
+    assert.equal(params.get("lastname"), "Smith");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("a real gateway decline persists status declined and flags the account", async () => {
   const source = payment({ cardId: "card-1" });
   let persistedPayment: Partial<Payment> | undefined;
