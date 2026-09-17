@@ -319,6 +319,7 @@ async function processUsaepayCard(
   try {
     const baseUrl = "https://usaepay.com/api/v2/transactions";
 
+    const cardholder = [firstName, lastName].filter(Boolean).join(" ").trim();
     const body: any = {
       command: "cc:sale",
       amount: amount.toFixed(2),
@@ -326,6 +327,10 @@ async function processUsaepayCard(
         number: cardNumber.replace(/\s/g, ""),
         expiration: expDate,
         cvc: cvv,
+        // Populates USAePay's own "Cardholder" field on the transaction -
+        // billing_address below is separate (AVS/billing name) and left the
+        // cardholder name blank on USAePay's side when this was missing.
+        ...(cardholder ? { cardholder } : {}),
       },
     };
     if (invoiceNumber) body.invoice = invoiceNumber;
@@ -595,7 +600,14 @@ async function processViaGateway(
           body: JSON.stringify({
             command: "cc:sale",
             amount: amount.toFixed(2),
-            creditcard: { cardref: paymentToken },
+            creditcard: {
+              cardref: paymentToken,
+              // Same distinction as processUsaepayCard: this is USAePay's own
+              // "Cardholder" field, separate from billing_address below.
+              ...(billingName?.firstName || billingName?.lastName
+                ? { cardholder: [billingName?.firstName, billingName?.lastName].filter(Boolean).join(" ").trim() }
+                : {}),
+            },
             ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
             ...(billingName?.firstName || billingName?.lastName
               ? { billing_address: { firstname: billingName?.firstName || "", lastname: billingName?.lastName || "" } }
