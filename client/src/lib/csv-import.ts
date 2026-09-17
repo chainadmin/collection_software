@@ -321,6 +321,40 @@ for (let slot = 1; slot <= 10; slot++) {
   HEADER_ALIASES[`customfield${slot}`] = `custom${slot}`;
 }
 
+const REFERENCE_SUBFIELD_ALIASES: Record<string, string> = {
+  name: "Name",
+  relationship: "Relationship",
+  relation: "Relationship",
+  phone: "Phone",
+  phone1: "Phone",
+  phone2: "Phone2",
+  phone3: "Phone3",
+  address: "Address",
+  addr: "Address",
+  city: "City",
+  state: "State",
+  zip: "ZipCode",
+  zipcode: "ZipCode",
+  notes: "Notes",
+  note: "Notes",
+};
+
+// "Reference 4 Name", "Ref12 Phone 2", "Relative 7 Notes", etc. - the
+// manual dropdown only enumerates references 1-3 (see systemFields above),
+// but a file is not limited to 3 references: any "Reference N <field>"
+// style header auto-maps to ref{N}{Field} for any N, so an incoming batch
+// can carry as many references as its own columns define.
+const DYNAMIC_REFERENCE_HEADER = /^(?:reference|ref|relative)(\d+)([a-z0-9]+)$/;
+
+export function parseDynamicReferenceField(normalizedHeader: string): string | null {
+  const match = DYNAMIC_REFERENCE_HEADER.exec(normalizedHeader);
+  if (!match) return null;
+  const index = parseInt(match[1], 10);
+  if (!Number.isInteger(index) || index < 1) return null;
+  const suffix = REFERENCE_SUBFIELD_ALIASES[match[2]];
+  return suffix ? `ref${index}${suffix}` : null;
+}
+
 export function autoMapColumns(columns: string[]): Record<string, string> {
   const lookup: Record<string, string> = {};
   for (const f of systemFields) {
@@ -331,7 +365,7 @@ export function autoMapColumns(columns: string[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (const col of columns) {
     const norm = normalizeHeader(col);
-    const match = lookup[norm] ?? HEADER_ALIASES[norm];
+    const match = lookup[norm] ?? HEADER_ALIASES[norm] ?? parseDynamicReferenceField(norm);
     result[col] = match || "skip";
   }
   return result;
@@ -343,14 +377,21 @@ export function buildSkipMappings(columns: string[]): Record<string, string> {
   return result;
 }
 
+// Any reference field for any slot number - not just the 1-3 the manual
+// dropdown enumerates - is a legitimate mapping, same set of subfields as
+// parseDynamicReferenceField above produces.
+const DYNAMIC_REFERENCE_FIELD =
+  /^ref\d+(?:Name|Relationship|Phone|Phone2|Phone3|Address|City|State|ZipCode|Notes)$/;
+
 export function sanitizeColumnMappings(
   mappings: Record<string, string>,
 ): Record<string, string> {
   const validFields = new Set(systemFields.map((field) => field.value));
   return Object.fromEntries(
     Object.entries(mappings).map(([column, field]) => {
-      const canonical = /^ref[1-3]Phone1$/.test(field) ? field.slice(0, -1) : field;
-      return [column, validFields.has(canonical) ? canonical : "skip"];
+      const canonical = /^ref\d+Phone1$/.test(field) ? field.slice(0, -1) : field;
+      const isValid = validFields.has(canonical) || DYNAMIC_REFERENCE_FIELD.test(canonical);
+      return [column, isValid ? canonical : "skip"];
     }),
   );
 }

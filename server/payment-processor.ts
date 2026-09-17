@@ -109,6 +109,17 @@ async function usaepayHttpFailure(response: Response, paymentKind = "payment"): 
   return ambiguousGatewayResult(message);
 }
 
+// The name on file for the card being charged, not the debtor's own name -
+// they can differ (a spouse's or co-signer's card, a name formatted
+// differently than the account record) and the gateway's cardholder field
+// is what actually gets AVS/fraud-checked against the card.
+function splitCardholderName(name: string): { firstName?: string; lastName?: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return {};
+  if (parts.length === 1) return { firstName: parts[0] };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
+}
+
 function getActiveMerchant(merchants: Merchant[]): Merchant | undefined {
   return merchants.find(
     (m) =>
@@ -308,6 +319,7 @@ async function processUsaepayCard(
   try {
     const baseUrl = "https://usaepay.com/api/v2/transactions";
 
+    const cardholder = [firstName, lastName].filter(Boolean).join(" ").trim();
     const body: any = {
       command: "cc:sale",
       amount: amount.toFixed(2),
@@ -315,6 +327,10 @@ async function processUsaepayCard(
         number: cardNumber.replace(/\s/g, ""),
         expiration: expDate,
         cvc: cvv,
+        // Populates USAePay's own "Cardholder" field on the transaction -
+        // billing_address below is separate (AVS/billing name) and left the
+        // cardholder name blank on USAePay's side when this was missing.
+        ...(cardholder ? { cardholder } : {}),
       },
     };
     if (invoiceNumber) body.invoice = invoiceNumber;
@@ -584,7 +600,14 @@ async function processViaGateway(
           body: JSON.stringify({
             command: "cc:sale",
             amount: amount.toFixed(2),
-            creditcard: { cardref: paymentToken },
+            creditcard: {
+              cardref: paymentToken,
+              // Same distinction as processUsaepayCard: this is USAePay's own
+              // "Cardholder" field, separate from billing_address below.
+              ...(billingName?.firstName || billingName?.lastName
+                ? { cardholder: [billingName?.firstName, billingName?.lastName].filter(Boolean).join(" ").trim() }
+                : {}),
+            },
             ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
             ...(billingName?.firstName || billingName?.lastName
               ? { billing_address: { firstname: billingName?.firstName || "", lastname: billingName?.lastName || "" } }
@@ -708,6 +731,12 @@ export async function processPayment(
   const savedCard = payment.paymentMethod === "card" && payment.cardId
     ? await storage.getPaymentCard(payment.cardId)
     : undefined;
+  // Prefer the name actually on the card; a one-time card (no saved record
+  // yet) has no cardholder name captured, so the debtor's name is the best
+  // available fallback there.
+  const billingName = savedCard?.cardholderName
+    ? splitCardholderName(savedCard.cardholderName)
+    : { firstName: debtor?.firstName ?? undefined, lastName: debtor?.lastName ?? undefined };
   const activeMerchant = selectActiveMerchant(merchants, savedCard, !!oneTimeCard);
   let result: ProcessPaymentResult;
 
@@ -753,8 +782,8 @@ export async function processPayment(
       }
       cardData = {
         ...oneTimeCard,
-        firstName: debtor?.firstName,
-        lastName: debtor?.lastName,
+        firstName: billingName.firstName,
+        lastName: billingName.lastName,
       };
       gatewayPaymentToken = null;
     } else if (payment.paymentMethod === "card" && payment.cardId) {
@@ -767,8 +796,8 @@ export async function processPayment(
           // PCI DSS prohibits retaining CVV after authorization. Gateways can
           // process a card-on-file transaction without resubmitting it.
           cardCode: "",
-          firstName: debtor?.firstName,
-          lastName: debtor?.lastName,
+          firstName: billingName.firstName,
+          lastName: billingName.lastName,
         };
         gatewayPaymentToken = null;
       } else if (
@@ -884,7 +913,7 @@ export async function processPayment(
       references.orderReference,
       debtor?.email || undefined,
       references.idempotencyKey,
-      { firstName: debtor?.firstName, lastName: debtor?.lastName },
+      billingName,
     );
   }
 

@@ -10,24 +10,45 @@ export const ACCEPTED_DEBTOR_IMPORT_FIELDS = new Set([
   "phone6", "phone6Label", "phone7", "phone7Label",
   "email", "emailLabel", "email1", "email1Label", "email2", "email2Label", "email3", "email3Label",
   "employerName", "employerPhone", "employerAddress", "position", "salary",
-  "ref1Name", "ref1Relationship", "ref1Phone", "ref1Phone1", "ref1Phone2", "ref1Phone3", "ref1Address", "ref1City",
-  "ref1State", "ref1ZipCode", "ref1Notes", "ref2Name", "ref2Relationship",
-  "ref2Phone", "ref2Phone1", "ref2Phone2", "ref2Phone3", "ref2Address", "ref2City", "ref2State", "ref2ZipCode", "ref2Notes",
-  "ref3Name", "ref3Relationship", "ref3Phone", "ref3Phone1", "ref3Phone2", "ref3Phone3", "ref3Address", "ref3City",
-  "ref3State", "ref3ZipCode", "ref3Notes",
 ]);
+
+// A reference's own name/relationship/phone(2/3)/address/notes fields, for
+// any reference slot number - references are not capped at a fixed count
+// during import, only each reference's own phone count stays fixed at 3.
+const DYNAMIC_REFERENCE_FIELD =
+  /^ref(\d+)(?:Name|Relationship|Phone|Phone2|Phone3|Address|City|State|ZipCode|Notes)$/;
+// Older schemas exposed refNPhone1; it is the established Phone 1 field.
+const LEGACY_REFERENCE_PHONE1 = /^ref\d+Phone1$/;
 
 export function sanitizeDebtorImportMappings(mappings: Record<string, unknown>): Record<string, string> {
   const sanitized: Record<string, string> = {};
   for (const [column, field] of Object.entries(mappings || {})) {
     if (field === "skip") sanitized[column] = "skip";
-    else if (typeof field === "string" &&
-      (ACCEPTED_DEBTOR_IMPORT_FIELDS.has(field) || /^custom(?:[1-9]|10)$/.test(field))) {
-      // Older schemas exposed refNPhone1; it is the established Phone 1 field.
-      sanitized[column] = /^ref[1-3]Phone1$/.test(field) ? field.replace(/Phone1$/, "Phone") : field;
+    else if (typeof field === "string") {
+      const canonical = LEGACY_REFERENCE_PHONE1.test(field) ? field.replace(/Phone1$/, "Phone") : field;
+      if (
+        ACCEPTED_DEBTOR_IMPORT_FIELDS.has(canonical) ||
+        /^custom(?:[1-9]|10)$/.test(canonical) ||
+        DYNAMIC_REFERENCE_FIELD.test(canonical)
+      ) {
+        sanitized[column] = canonical;
+      }
     }
   }
   return sanitized;
+}
+
+// Which reference slot numbers this row actually has mapped data for -
+// driven entirely by which ref{N}* keys are present, so a file with
+// Reference 1..3 columns behaves exactly as before while one with
+// Reference 1..50 columns creates all 50 references, with no fixed cap.
+export function discoverReferenceSlots(mappedData: Record<string, unknown>): number[] {
+  const slots = new Set<number>();
+  for (const key of Object.keys(mappedData)) {
+    const match = DYNAMIC_REFERENCE_FIELD.exec(key);
+    if (match) slots.add(parseInt(match[1], 10));
+  }
+  return Array.from(slots).sort((a, b) => a - b);
 }
 
 export function normalizeImportSsn(value: unknown): string | null {
