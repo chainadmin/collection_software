@@ -2607,6 +2607,20 @@ export async function registerRoutes(
     }
   });
 
+  // Debtor ids this org has an "opened" email attempt for - Chain logs these
+  // via POST /api/v2/insertattempt (attemptType: "email", outcome: "opened")
+  // whenever a sent email is opened. Used to let a campaign send filter
+  // recipients down to "previously opened an email" / "never opened".
+  app.get("/api/debtors/opened-email-ids", async (req: any, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const debtorIds = await storage.getDebtorIdsWithOpenedEmail(orgId);
+      res.json(debtorIds);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch opened-email debtors" });
+    }
+  });
+
   // Mints a short-lived, one-time token for the collector's browser to open
   // the softphone WebSocket connection with, so screen-pop events (a call
   // Chiamo reports as answered) can reach their live tab without them
