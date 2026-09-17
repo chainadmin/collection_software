@@ -5129,15 +5129,21 @@ export async function registerRoutes(
   app.post("/api/import/contacts", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const { portfolioId, records, mappings } = req.body as { portfolioId: string; records: any[]; mappings: Record<string, string> };
-      
-      if (!portfolioId || !records || !mappings) {
-        return res.status(400).json({ error: "Missing required fields: portfolioId, records, mappings" });
+      const { portfolioId, records, mappings } = req.body as { portfolioId?: string; records: any[]; mappings: Record<string, string> };
+
+      if (!records || !mappings) {
+        return res.status(400).json({ error: "Missing required fields: records, mappings" });
       }
 
-      const portfolio = await storage.getPortfolio(portfolioId);
-      if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
-        return res.status(403).json({ error: "Invalid portfolio for organization" });
+      // Portfolio is an optional narrowing filter, not a requirement - a
+      // contact file is matched to existing accounts by file number, account
+      // number, or SSN across the whole organization, without needing the
+      // uploader to pick which client or portfolio the accounts live in.
+      if (portfolioId) {
+        const portfolio = await storage.getPortfolio(portfolioId);
+        if (!portfolio || !validateOrgOwnership(portfolio.organizationId, orgId)) {
+          return res.status(403).json({ error: "Invalid portfolio for organization" });
+        }
       }
       const safeContactMappings = sanitizeDebtorImportMappings(mappings);
 
@@ -5147,18 +5153,12 @@ export async function registerRoutes(
         errors: [] as string[],
       };
 
-      const debtors = (await storage.getDebtors(portfolioId)).filter((debtor) => debtor.organizationId === orgId);
-
-      const normalizeSsn = (s: any): string | null => {
-        if (s === null || s === undefined) return null;
-        const digits = String(s).replace(/\D/g, "");
-        return digits.length > 0 ? digits : null;
-      };
+      const debtors = (await storage.getDebtors(portfolioId || undefined)).filter((debtor) => debtor.organizationId === orgId);
 
       for (const record of records) {
         try {
           const mappedData: any = {};
-          
+
           for (const [csvColumn, systemField] of Object.entries(safeContactMappings)) {
             if (systemField && systemField !== "skip" && record[csvColumn] !== undefined) {
               const rawValue = record[csvColumn];
@@ -5169,24 +5169,32 @@ export async function registerRoutes(
             }
           }
 
-          if (mappedData.accountNumber !== undefined && mappedData.accountNumber !== null) {
-            mappedData.accountNumber = String(mappedData.accountNumber).trim() || null;
+          if (mappedData.fileNumber !== undefined) {
+            mappedData.fileNumber = normalizeImportText(mappedData.fileNumber);
+          }
+          if (mappedData.accountNumber !== undefined) {
+            mappedData.accountNumber = normalizeImportText(mappedData.accountNumber);
           }
           if (mappedData.ssn !== undefined) {
-            mappedData.ssn = normalizeSsn(mappedData.ssn);
+            mappedData.ssn = normalizeImportSsn(mappedData.ssn);
           }
 
-          let matchedDebtor = null;
-          if (mappedData.accountNumber) {
-            matchedDebtor = debtors.find((d) => d.accountNumber === mappedData.accountNumber);
-          } else if (mappedData.ssn) {
-            matchedDebtor = debtors.find((d) => normalizeSsn(d.ssn) === mappedData.ssn);
+          if (!mappedData.fileNumber && !mappedData.accountNumber && !mappedData.ssn) {
+            results.errors.push(`Row missing file number, account number, and full SSN - cannot match to an account`);
+            continue;
           }
 
-          if (!matchedDebtor) {
+          const matches = debtors.filter((d) => debtorMatchesImportIdentifier(d, mappedData));
+
+          if (matches.length === 0) {
             results.errors.push(`No matching debtor found for record`);
             continue;
           }
+          if (matches.length > 1) {
+            results.errors.push(`Multiple accounts match this record - add a File Number or select a portfolio to narrow the match`);
+            continue;
+          }
+          const matchedDebtor = matches[0];
 
           results.matched++;
           const added = await storage.runAtomic(async () => {
@@ -5221,7 +5229,8 @@ export async function registerRoutes(
             await storage.updateDebtor(matchedDebtor.id, { customFields: JSON.stringify({ ...previous, ...customValues }) });
           }
           const references = await storage.getDebtorReferences(matchedDebtor.id);
-          for (const number of [1, 2, 3]) {
+          // As many reference slots as the file maps - no fixed cap.
+          for (const number of discoverReferenceSlots(mappedData)) {
             const name = typeof mappedData[`ref${number}Name`] === "string" ? mappedData[`ref${number}Name`].trim() : "";
             const patch: any = { importSlot: number };
             for (const [suffix, field] of [["Relationship", "relationship"], ["Phone", "phone"], ["Phone2", "phone2"], ["Phone3", "phone3"], ["Address", "address"], ["City", "city"], ["State", "state"], ["ZipCode", "zipCode"], ["Notes", "notes"]] as const) {

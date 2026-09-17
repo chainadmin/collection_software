@@ -17,6 +17,7 @@ import {
   contactFields,
   autoMapColumns,
   sanitizeColumnMappings,
+  buildReferenceFields,
 } from "@/lib/csv-import";
 
 type SavedSchema = { name: string; mappings: Record<string, string> };
@@ -55,6 +56,7 @@ export default function ImportExport() {
   const [fileError, setFileError] = useState("");
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [extraReferenceSlots, setExtraReferenceSlots] = useState(0);
   
   const [savedSchemas, setSavedSchemas] = useState<{name: string; mappings: Record<string, string>}[]>(() => {
     try {
@@ -126,6 +128,7 @@ export default function ImportExport() {
     setCsvColumns([]);
     setCsvData([]);
     setColumnMappings({});
+    setExtraReferenceSlots(0);
     setIsParsingFile(true);
     try {
       const { columns, data } = await parseImportFile(file);
@@ -149,8 +152,11 @@ export default function ImportExport() {
       return;
     }
     
-    const requiresClientPortfolio = importType === "accounts" || importType === "contacts";
-    
+    // Contacts are matched to an existing account by file number, account
+    // number, or SSN, so the uploader doesn't need to know (or pick) which
+    // client or portfolio the account already lives in.
+    const requiresClientPortfolio = importType === "accounts";
+
     if (requiresClientPortfolio && !importClientId) {
       toast({ title: "Error", description: "Please select a client.", variant: "destructive" });
       return;
@@ -238,12 +244,14 @@ export default function ImportExport() {
   });
 
   const handleImport = async () => {
-    if (importType === "accounts" && !Object.values(columnMappings).some(
+    if ((importType === "accounts" || importType === "contacts") && !Object.values(columnMappings).some(
       (field) => field === "fileNumber" || field === "accountNumber" || field === "ssn",
     )) {
       toast({
         title: "Missing identifier",
-        description: "Map File Number, Account Number, or full SSN before importing accounts.",
+        description: importType === "accounts"
+          ? "Map File Number, Account Number, or full SSN before importing accounts."
+          : "Map File Number, Account Number, or full SSN so contacts can be matched to existing accounts.",
         variant: "destructive",
       });
       return;
@@ -313,8 +321,13 @@ export default function ImportExport() {
   };
 
   const getFieldsForType = () => {
-    if (importType === "contacts") return contactFields;
-    return systemFields;
+    const base = importType === "contacts" ? contactFields : systemFields;
+    if (extraReferenceSlots <= 0) return base;
+    const extraFields = [];
+    for (let slot = 4; slot <= 3 + extraReferenceSlots; slot++) {
+      extraFields.push(...buildReferenceFields(slot));
+    }
+    return [...base, ...extraFields];
   };
 
   const handleDeleteSchema = (index: number) => {
@@ -370,7 +383,7 @@ export default function ImportExport() {
                     </Select>
                   </div>
 
-                  {(importType === "accounts" || importType === "contacts") && (
+                  {importType === "accounts" && (
                     <>
                       <div className="space-y-2">
                         <Label>Client *</Label>
@@ -443,6 +456,14 @@ export default function ImportExport() {
                     </>
                   )}
 
+                  {importType === "contacts" && (
+                    <p className="text-xs text-muted-foreground">
+                      Contact files don't need a client or portfolio - each row is matched to an
+                      existing account by File Number, Account Number, or full SSN, wherever that
+                      account already lives.
+                    </p>
+                  )}
+
                   {importType === "accounts" && (
                     <div className="space-y-2">
                       <Label>DMP File Number Starting At</Label>
@@ -513,10 +534,10 @@ export default function ImportExport() {
                     </div>
                   )}
 
-                  <Button 
-                    onClick={handleContinueToMapping} 
-                    disabled={isParsingFile || !importFile || ((importType === "accounts" || importType === "contacts") && !importClientId)}
-                    className="w-full" 
+                  <Button
+                    onClick={handleContinueToMapping}
+                    disabled={isParsingFile || !importFile || (importType === "accounts" && !importClientId)}
+                    className="w-full"
                     data-testid="button-continue-mapping"
                   >
                     Continue to Mapping
@@ -535,7 +556,9 @@ export default function ImportExport() {
                 <CardDescription>
                   Match your file columns to system fields. You can use a saved schema or create a new mapping.
                   References aren't limited to the 3 shown below - a column named e.g. "Reference 4 Name" or
-                  "Reference 12 Phone 2" is picked up automatically no matter how many your file has.
+                  "Reference 12 Phone 2" is picked up automatically no matter how many your file has. If a
+                  column can't be auto-detected, use "Add Reference Slot" to add more reference options to
+                  the dropdown below and map it by hand.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -553,8 +576,16 @@ export default function ImportExport() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
+                    onClick={() => setExtraReferenceSlots((n) => n + 1)}
+                    data-testid="button-add-reference-slot"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Reference Slot
+                  </Button>
+                  <Button
+                    variant="outline"
                     onClick={() => setShowSaveSchemaDialog(true)}
                     data-testid="button-save-new-schema"
                   >
@@ -562,6 +593,11 @@ export default function ImportExport() {
                     Save Current Mapping
                   </Button>
                 </div>
+                {extraReferenceSlots > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Manual mapping now includes references 1-{3 + extraReferenceSlots}.
+                  </p>
+                )}
 
                 <div className="border rounded-lg overflow-hidden">
                   <div className="grid grid-cols-3 gap-4 p-3 bg-muted font-medium text-sm">

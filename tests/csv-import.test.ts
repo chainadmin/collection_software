@@ -9,6 +9,7 @@ import {
   systemFields,
   contactFields,
   parseDynamicReferenceField,
+  buildReferenceFields,
 } from "../client/src/lib/csv-import";
 import ExcelJS from "exceljs";
 
@@ -66,6 +67,22 @@ test("all import entry points offer seven phones, three per reference, and ten c
     }
     for (let custom = 1; custom <= 10; custom++) assert.ok(values.includes(`custom${custom}`));
   }
+});
+
+test("the contact import screen can match accounts by file number, account number, or SSN", () => {
+  const matchFields = contactFields.filter((field) => field.label.endsWith("(to match)"));
+  assert.deepEqual(matchFields.map((field) => field.value).sort(), ["accountNumber", "fileNumber", "ssn"]);
+});
+
+test("buildReferenceFields extends the manual mapping dropdown to any reference slot", () => {
+  const fourth = buildReferenceFields(4);
+  const values = fourth.map((field) => field.value);
+  assert.deepEqual(values, [
+    "ref4Name", "ref4Relationship", "ref4Phone", "ref4Phone2", "ref4Phone3",
+    "ref4Address", "ref4City", "ref4State", "ref4ZipCode", "ref4Notes",
+  ]);
+  // Extending the dropdown must not collide with the fields already listed.
+  for (const field of fourth) assert.ok(!systemFields.some((existing) => existing.value === field.value));
 });
 
 test("auto mapping and saved schemas preserve old and expanded phone/custom mappings", () => {

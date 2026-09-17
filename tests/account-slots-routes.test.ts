@@ -390,6 +390,117 @@ test("unnamed new contact-import reference rejects and rolls back the entire row
   }
 });
 
+test("contact import matches an existing account by file number alone, with no portfolio supplied", async () => {
+  const f = await fixture();
+  try {
+    const debtor = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "FN-MATCH-1"),
+      fileNumber: "9001",
+    } as any);
+    const result = await f.request("POST", "/api/import/contacts", {
+      mappings: { File: "fileNumber", Phone: "phone1" },
+      records: [{ File: "9001", Phone: "2025559001" }],
+    });
+    assert.equal(result.response.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.results.errors.length, 0);
+    assert.equal(result.body.results.matched, 1);
+    const contacts = await f.memory.getDebtorContacts(debtor.id);
+    assert.equal(contacts.length, 1);
+    assert.equal(contacts[0].value, "2025559001");
+  } finally {
+    await f.close();
+  }
+});
+
+test("contact import without a portfolio finds an account in any of the org's portfolios", async () => {
+  const f = await fixture();
+  try {
+    const secondPortfolio = await f.memory.createPortfolio({
+      organizationId: f.organization.id, clientId: f.client.id, name: "Second Portfolio",
+      purchaseDate: "2025-01-01", purchasePrice: 0, totalFaceValue: 0, totalAccounts: 0,
+    } as any);
+    const debtor = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(secondPortfolio.id, "OTHER-PORTFOLIO-1"),
+    } as any);
+    const result = await f.request("POST", "/api/import/contacts", {
+      mappings: { Account: "accountNumber", Phone: "phone1" },
+      records: [{ Account: "OTHER-PORTFOLIO-1", Phone: "2025559002" }],
+    });
+    assert.equal(result.body.results.errors.length, 0);
+    assert.equal(result.body.results.matched, 1);
+    assert.equal((await f.memory.getDebtorContacts(debtor.id)).length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("contact import rejects an ambiguous match spanning multiple accounts without changing either", async () => {
+  const f = await fixture();
+  try {
+    const secondPortfolio = await f.memory.createPortfolio({
+      organizationId: f.organization.id, clientId: f.client.id, name: "Second Portfolio",
+      purchaseDate: "2025-01-01", purchasePrice: 0, totalFaceValue: 0, totalAccounts: 0,
+    } as any);
+    const first = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "DUP-ACCT"),
+    } as any);
+    const second = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(secondPortfolio.id, "DUP-ACCT"),
+    } as any);
+    const result = await f.request("POST", "/api/import/contacts", {
+      mappings: { Account: "accountNumber", Phone: "phone1" },
+      records: [{ Account: "DUP-ACCT", Phone: "2025559003" }],
+    });
+    assert.equal(result.body.results.matched, 0);
+    assert.equal(result.body.results.errors.length, 1);
+    assert.match(result.body.results.errors[0], /multiple accounts/i);
+    assert.equal((await f.memory.getDebtorContacts(first.id)).length, 0);
+    assert.equal((await f.memory.getDebtorContacts(second.id)).length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("contact import ignores accounts belonging to another organization even without a portfolio", async () => {
+  const f = await fixture();
+  try {
+    const foreignDebtor = await f.memory.createDebtor({
+      organizationId: f.otherOrganization.id, ...debtorBody(f.foreignPortfolio.id, "CROSS-ORG"),
+    } as any);
+    const result = await f.request("POST", "/api/import/contacts", {
+      mappings: { Account: "accountNumber", Phone: "phone1" },
+      records: [{ Account: "CROSS-ORG", Phone: "2025559004" }],
+    });
+    assert.equal(result.body.results.matched, 0);
+    assert.equal(result.body.results.errors.length, 1);
+    assert.match(result.body.results.errors[0], /no matching debtor/i);
+    assert.equal((await f.memory.getDebtorContacts(foreignDebtor.id)).length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("contact import creates a fourth reference slot when the file maps one", async () => {
+  const f = await fixture();
+  try {
+    const debtor = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "REF4-CONTACT"),
+    } as any);
+    const result = await f.request("POST", "/api/import/contacts", {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", Name: "ref4Name", Phone: "ref4Phone" },
+      records: [{ Account: "REF4-CONTACT", Name: "Fourth Reference", Phone: "2025559005" }],
+    });
+    assert.equal(result.body.results.errors.length, 0, JSON.stringify(result.body));
+    const refs = await f.memory.getDebtorReferences(debtor.id);
+    assert.equal(refs.length, 1);
+    assert.equal(refs[0].importSlot, 4);
+    assert.equal(refs[0].name, "Fourth Reference");
+  } finally {
+    await f.close();
+  }
+});
+
 test("explicit null clears work while omitted account and nested fields are preserved", async () => {
   const f = await fixture();
   try {
