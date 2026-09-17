@@ -290,7 +290,9 @@ export async function processDebtorTokenPayment(
   paymentProfileId: string,
   amount: number,
   invoiceNumber?: string,
-  customerEmail?: string
+  customerEmail?: string,
+  firstName?: string,
+  lastName?: string,
 ): Promise<ChargeResult> {
   return new Promise((resolve) => {
     const merchantAuth = new APIContracts.MerchantAuthenticationType();
@@ -318,6 +320,13 @@ export async function processDebtorTokenPayment(
       const customer = new APIContracts.CustomerDataType();
       customer.setEmail(customerEmail);
       transactionRequest.setCustomer(customer);
+    }
+
+    if (firstName || lastName) {
+      const billTo = new APIContracts.CustomerAddressType();
+      if (firstName) billTo.setFirstName(firstName);
+      if (lastName) billTo.setLastName(lastName);
+      transactionRequest.setBillTo(billTo);
     }
 
     const createRequest = new APIContracts.CreateTransactionRequest();

@@ -700,14 +700,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPaymentsScheduledForRun(date: string, includeDeclined: boolean): Promise<Payment[]> {
-    // Both daily runs are date-exact. The first selects pending only; the
-    // second also retries payments that declined during the day.
+    // Due-by-date, not date-exact: a payment that was declined and then
+    // edited back to pending (or otherwise left with a stale past date)
+    // must still be picked up by the next unattended scheduled run instead
+    // of only ever being reachable via a manual Run Now. The first daily
+    // run selects pending only; the second also retries payments that
+    // declined during the day.
     return await db.select().from(payments).where(
       and(
         includeDeclined
           ? or(eq(payments.status, "pending"), eq(payments.status, "declined"))
           : eq(payments.status, "pending"),
-        eq(payments.paymentDate, date),
+        lte(payments.paymentDate, date),
       )
     );
   }

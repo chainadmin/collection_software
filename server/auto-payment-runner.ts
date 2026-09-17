@@ -146,9 +146,13 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       console.warn(`[Auto Runner] Moved ${staleCount} incomplete processing attempt(s) to needs_review`);
     }
     // Both a scheduled run and an explicit Run Now are bounded to what's due
-    // by today - Run Now additionally sweeps up anything still pending from
-    // an earlier date, but neither may reach forward and charge a payment
-    // scheduled for a later date.
+    // by today (payment_date <= today) so a stale pending payment - e.g. one
+    // reset by an edit - is still picked up automatically instead of only
+    // being reachable via a manual Run Now. Neither may reach forward and
+    // charge a payment scheduled for a later date. Run Now additionally
+    // ignores the org's autoRunnerEnabled/hours gating and never retries a
+    // declined payment on its own (that stays a scheduled-run-only retry, or
+    // an explicit rerun).
     const pendingPayments = manualTrigger
       ? await storage.getPendingPaymentsDueByDate(today)
       : await storage.getPaymentsScheduledForRun(today, includeDeclined);
