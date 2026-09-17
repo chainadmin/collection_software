@@ -82,7 +82,8 @@ function AppRouter() {
       <Route path="/app/debtors/:id" component={DebtorDetail} />
       <Route path="/app/payment-runner" component={PaymentRunner} />
       <Route path="/app/portfolios" component={Portfolios} />
-      <Route path="/app/collectors" component={Collectors} />
+      <Route path="/app/collectors">{() => <Collectors />}</Route>
+      <Route path="/app/auditors">{() => <Collectors audience="auditors" />}</Route>
       <Route path="/app/liquidation" component={Liquidation} />
       <Route path="/app/settings" component={Settings} />
       <Route path="/app/collector/whiteboard" component={Whiteboard} />
@@ -165,6 +166,7 @@ function AppLayout() {
 
   const currentCollector = collectors.find((collector) => collector.id === authUser?.id);
   const isCollectorRole = authUser?.role === "collector" || currentCollector?.role === "collector";
+  const isAuditorRole = authUser?.role === "auditor" || currentCollector?.role === "auditor";
   const isCollectorAppMode = typeof window !== "undefined" && localStorage.getItem("appMode") === "collector";
 
   // Redirect to subscribe page if trial expired and not active
@@ -184,6 +186,7 @@ function AppLayout() {
     location.startsWith("/app/payment-runner") ||
     location.startsWith("/app/portfolios") ||
     location.startsWith("/app/collectors") ||
+    location.startsWith("/app/auditors") ||
     location.startsWith("/app/liquidation") ||
     location.startsWith("/app/settings") ||
     location.startsWith("/app/admin/");
@@ -201,7 +204,6 @@ function AppLayout() {
   // Remittance, and Liquidation Rates (server-side access is scoped the
   // same way; this just keeps their own UI from wandering somewhere their
   // requests will be rejected anyway).
-  const isAuditorRole = currentCollector?.role === "auditor";
   const isAuditorAllowedRoute =
     location.startsWith("/app/debtors") ||
     location.startsWith("/app/portfolios") ||
@@ -300,13 +302,13 @@ function AppLayout() {
     }
   }, []);
 
-  useSoftphoneRealtime(currentCollector?.id, {
+  useSoftphoneRealtime(isAuditorRole ? undefined : currentCollector?.id, {
     onIncomingCallAnswered: handleIncomingCallAnswered,
     onCallParked: handleCallParked,
     onCallUnparked: handleCallUnparked,
   });
 
-  useCollectorAlerts(Boolean(currentCollector?.id));
+  useCollectorAlerts(Boolean(currentCollector?.id) && !isAuditorRole);
 
   const style = {
     "--sidebar-width": "16rem",

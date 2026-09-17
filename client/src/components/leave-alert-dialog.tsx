@@ -67,7 +67,7 @@ export function LeaveAlertButton() {
                 <SelectValue placeholder="Choose a collector" />
               </SelectTrigger>
               <SelectContent>
-                {collectors?.filter((c) => !c.isSystemAccount && c.status === "active").map((c) => (
+                {collectors?.filter((c) => !c.isSystemAccount && c.role !== "auditor" && c.status === "active").map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                 ))}
               </SelectContent>

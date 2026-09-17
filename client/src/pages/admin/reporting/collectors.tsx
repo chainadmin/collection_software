@@ -67,7 +67,8 @@ export default function CollectorReporting() {
   const hoursWorked = getHoursWorked();
 
   // Merge collector data with performance data
-  const collectorMetrics = collectors.map((c) => {
+  const collectionTeam = collectors.filter((c) => c.role !== "auditor" && !c.isSystemAccount);
+  const collectorMetrics = collectionTeam.map((c) => {
     const perf = performanceData.find(p => p.id === c.id);
     const collections = perf?.currentPosted || 0;
     
@@ -121,7 +122,7 @@ export default function CollectorReporting() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Collectors</SelectItem>
-              {collectors.map((c) => (
+              {collectionTeam.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
             </SelectContent>

@@ -50,7 +50,7 @@ export default function TimeClock() {
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
     const weekEndStr = weekEnd.toISOString().split("T")[0];
 
-    return collectors.map((c) => {
+    return collectors.filter((c) => c.role !== "auditor" && !c.isSystemAccount).map((c) => {
       const collectorEntries = timeEntries.filter((e) => e.collectorId === c.id);
       const todayEntries = collectorEntries.filter((e) => getDateFromClockIn(e.clockIn) === today);
       const weekEntries = collectorEntries.filter((e) => {

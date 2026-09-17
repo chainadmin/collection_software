@@ -106,9 +106,12 @@ export default function CompanyDashboard() {
 
   const postedPayments = payments.filter((payment) => payment.status === "posted");
 
-  // Attribute collections to the collector that actually processed the payment.
+  // Attribute collections to the collector that actually processed the
+  // payment. An auditor is a reviewer, not a working collector, and must not
+  // appear on this leaderboard even in the unlikely case one has a payment
+  // attributed to them.
   const topCollectors = collectors
-    .filter((collector) => collector.status === "active")
+    .filter((collector) => collector.status === "active" && collector.role !== "auditor")
     .map((collector) => {
       const collectorPayments = postedPayments.filter((payment) => payment.processedBy === collector.id);
       const collections = collectorPayments.reduce((sum, payment) => sum + payment.amount, 0);

@@ -452,9 +452,10 @@ interface AddCollectorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   showFinancials: boolean;
+  initialRole?: "collector" | "auditor";
 }
 
-function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollectorDialogProps) {
+function AddCollectorDialog({ open, onOpenChange, showFinancials, initialRole = "collector" }: AddCollectorDialogProps) {
   const { toast } = useToast();
 
   const form = useForm<AddCollectorForm>({
@@ -464,7 +465,7 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
       email: "",
       username: "",
       password: "",
-      role: "collector",
+      role: initialRole,
       status: "active",
       goal: 0,
       // Hourly wage is required by the schema, but the field is hidden from
@@ -495,7 +496,7 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
       queryClient.invalidateQueries({ queryKey: ["/api/collectors"] });
       onOpenChange(false);
       form.reset();
-      toast({ title: "Collector added", description: "Collector has been created successfully." });
+      toast({ title: initialRole === "auditor" ? "Auditor added" : "Collector added", description: `${initialRole === "auditor" ? "Auditor" : "Collector"} has been created successfully.` });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to add collector.", variant: "destructive" });
@@ -511,8 +512,8 @@ function AddCollectorDialog({ open, onOpenChange, showFinancials }: AddCollector
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Collector</DialogTitle>
-          <DialogDescription>Add a new collector to your organization.</DialogDescription>
+          <DialogTitle>Add {initialRole === "auditor" ? "Auditor" : "Collector"}</DialogTitle>
+          <DialogDescription>Add a new {initialRole} to your organization.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form
@@ -740,7 +741,8 @@ function RemoveCollectorDialog({ collector, onOpenChange, onConfirm, isRemoving 
   );
 }
 
-export default function Collectors() {
+export default function Collectors({ audience = "collectors" }: { audience?: "collectors" | "auditors" }) {
+  const isAuditorView = audience === "auditors";
   const { toast } = useToast();
   const { user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
@@ -760,7 +762,9 @@ export default function Collectors() {
   // "Company Accounts" is a built-in placeholder, not a real collector -
   // keep it out of this management page entirely (nothing here applies to
   // it), even though it still appears normally in reporting/liquidation.
-  const manageableCollectors = collectors?.filter((c) => !c.isSystemAccount);
+  const manageableCollectors = collectors?.filter((c) =>
+    !c.isSystemAccount && (isAuditorView ? c.role === "auditor" : c.role !== "auditor")
+  );
 
   const deleteCollectorMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -813,16 +817,16 @@ export default function Collectors() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Collectors</h1>
-          <p className="text-sm text-muted-foreground">Manage collectors and their assignments</p>
+          <h1 className="text-2xl font-semibold">{isAuditorView ? "Auditors" : "Collectors"}</h1>
+          <p className="text-sm text-muted-foreground">{isAuditorView ? "Manage administrative reviewers and their client access" : "Manage collectors and their assignments"}</p>
         </div>
         <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-collector">
           <Plus className="h-4 w-4 mr-2" />
-          Add Collector
+          Add {isAuditorView ? "Auditor" : "Collector"}
         </Button>
       </div>
 
-      <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/40">
+      {!isAuditorView && <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/40">
         <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-muted-foreground mb-0.5">Collector App Link</p>
@@ -858,9 +862,9 @@ export default function Collectors() {
           <QrCode className="h-3 w-3 mr-1" />
           QR Code
         </Button>
-      </div>
+      </div>}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {!isAuditorView && <div className="grid gap-4 md:grid-cols-3">
         <StatCard
           title="Active Collectors"
           value={activeCollectors.toString()}
@@ -878,7 +882,7 @@ export default function Collectors() {
           subtitle="monthly target"
           icon={Target}
         />
-      </div>
+      </div>}
 
       <Card>
         <CardHeader className="pb-3">
@@ -886,7 +890,7 @@ export default function Collectors() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search collectors..."
+                placeholder={`Search ${isAuditorView ? "auditors" : "collectors"}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -981,16 +985,16 @@ export default function Collectors() {
               <div className="rounded-full bg-muted p-4 mb-4">
                 <Users className="h-6 w-6 text-muted-foreground" />
               </div>
-              <h3 className="text-lg font-medium mb-1">No collectors found</h3>
+              <h3 className="text-lg font-medium mb-1">No {isAuditorView ? "auditors" : "collectors"} found</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 {searchQuery
                   ? "Try adjusting your search"
-                  : "Get started by adding your first collector"}
+                  : `Get started by adding your first ${isAuditorView ? "auditor" : "collector"}`}
               </p>
               {!searchQuery && (
                 <Button onClick={() => setShowAddDialog(true)}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Collector
+                  Add {isAuditorView ? "Auditor" : "Collector"}
                 </Button>
               )}
             </div>
@@ -998,7 +1002,7 @@ export default function Collectors() {
         </CardContent>
       </Card>
 
-      <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} showFinancials={showFinancials} />
+      <AddCollectorDialog open={showAddDialog} onOpenChange={setShowAddDialog} showFinancials={showFinancials} initialRole={isAuditorView ? "auditor" : "collector"} />
       <EditCollectorDialog
         collector={editingCollector}
         onClose={() => setEditingCollector(null)}
