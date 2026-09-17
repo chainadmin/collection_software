@@ -307,7 +307,17 @@ export const debtorReferences = pgTable("debtor_references", {
   zipCode: text("zip_code"),
   notes: text("notes"),
   addedDate: text("added_date"),
-});
+}, (table) => ({
+  // A given import slot can only back one reference per debtor - guards
+  // against a duplicate reference row when two imports (e.g. a doubled
+  // click) race each other for the same debtor and slot. NULL slots
+  // (manually added references) are exempt, same as Postgres unique-index
+  // semantics for NULL.
+  debtorImportSlotUnique: uniqueIndex("debtor_references_debtor_import_slot_unique").on(
+    table.debtorId,
+    table.importSlot,
+  ),
+}));
 
 export const insertDebtorReferenceSchema = createInsertSchema(debtorReferences).omit({ id: true });
 export type InsertDebtorReference = z.infer<typeof insertDebtorReferenceSchema>;

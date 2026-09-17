@@ -480,6 +480,56 @@ test("contact import ignores accounts belonging to another organization even wit
   }
 });
 
+test("createDebtorReference rejects a second reference for the same debtor and import slot", async () => {
+  const f = await fixture();
+  try {
+    const debtor = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "SLOT-UNIQUE"),
+    } as any);
+    await f.memory.createDebtorReference({
+      organizationId: f.organization.id, debtorId: debtor.id, name: "First",
+      importSlot: 1, addedDate: "2025-01-01",
+    } as any);
+    await assert.rejects(
+      f.memory.createDebtorReference({
+        organizationId: f.organization.id, debtorId: debtor.id, name: "Duplicate",
+        importSlot: 1, addedDate: "2025-01-01",
+      } as any),
+      /duplicate/i,
+    );
+    assert.equal((await f.memory.getDebtorReferences(debtor.id)).length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a doubled contact-import click cannot create two references for the same slot", async () => {
+  const f = await fixture();
+  try {
+    const debtor = await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "DOUBLE-CLICK"),
+    } as any);
+    const payload = {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", Name: "ref1Name", Phone: "ref1Phone" },
+      records: [{ Account: "DOUBLE-CLICK", Name: "Race Reference", Phone: "2025559999" }],
+    };
+    // Simulate hitting Import twice before either request finishes.
+    const [first, second] = await Promise.all([
+      f.request("POST", "/api/import/contacts", payload),
+      f.request("POST", "/api/import/contacts", payload),
+    ]);
+    const outcomes = [first, second];
+    const refs = await f.memory.getDebtorReferences(debtor.id);
+    // At most one reference for the slot should exist no matter how the two
+    // requests interleaved - never two.
+    assert.equal(refs.length, 1, JSON.stringify({ refs, outcomes: outcomes.map(o => o.body) }));
+    assert.equal(refs[0].name, "Race Reference");
+  } finally {
+    await f.close();
+  }
+});
+
 test("contact import creates a fourth reference slot when the file maps one", async () => {
   const f = await fixture();
   try {

@@ -1649,6 +1649,11 @@ export class MemStorage implements IStorage {
   }
 
   async createDebtorReference(reference: InsertDebtorReference): Promise<DebtorReference> {
+    if (reference.importSlot != null && Array.from(this.debtorReferences.values()).some(candidate =>
+      candidate.debtorId === reference.debtorId && candidate.importSlot === reference.importSlot
+    )) {
+      throw Object.assign(new Error("Duplicate reference import slot"), { code: "23505" });
+    }
     const id = randomUUID();
     const newReference: DebtorReference = {
       id,
