@@ -1010,6 +1010,45 @@ export async function runMigrations() {
       );
     }
 
+    // Self-heal duplicate reference rows for the same debtor and import slot
+    // (e.g. from a double-clicked import before that button had a loading
+    // guard) before enforcing uniqueness below - otherwise the index create
+    // would simply fail and leave the duplicates in place. Keeps the most
+    // recently written row of each duplicate group, drops the rest. Only
+    // named (import-slot-tagged) rows are touched; manually added
+    // references (NULL slot) are never deduplicated this way.
+    try {
+      const dedupeResult = await db.execute(sql`
+        DELETE FROM debtor_references a
+        USING debtor_references b
+        WHERE a.debtor_id = b.debtor_id
+          AND a.import_slot = b.import_slot
+          AND a.import_slot IS NOT NULL
+          AND a.ctid < b.ctid
+      `);
+      const removed = (dedupeResult as any).rowCount ?? 0;
+      if (removed > 0) {
+        console.log(`[Migrate] Removed ${removed} duplicate debtor reference row(s) sharing an import slot`);
+      }
+    } catch (err: any) {
+      console.warn("[Migrate] Could not clean up duplicate debtor_references rows:", err?.message || err);
+    }
+
+    // Enforce that an import slot backs at most one reference per debtor, so
+    // a raced double-submit can no longer create a duplicate reference (the
+    // second write now fails instead of silently duplicating the row).
+    try {
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS "debtor_references_debtor_import_slot_unique"
+        ON debtor_references (debtor_id, import_slot)
+      `);
+    } catch (err: any) {
+      console.warn(
+        "[Migrate] Could not create debtor_references_debtor_import_slot_unique index (duplicates may remain):",
+        err?.message || err
+      );
+    }
+
     // Chiamo (chain-admin) CTI integration columns. These back the fields in
     // shared/schema.ts and were previously only captured in the standalone
     // migrations/0009_collector_chiamo_link.sql and

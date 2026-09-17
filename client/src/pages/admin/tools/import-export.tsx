@@ -633,12 +633,19 @@ export default function ImportExport() {
                 </div>
 
                 <div className="flex justify-between">
-                  <Button variant="outline" onClick={() => setImportStep("select")} data-testid="button-back">
+                  <Button
+                    variant="outline"
+                    onClick={() => setImportStep("select")}
+                    disabled={importMutation.isPending}
+                    data-testid="button-back"
+                  >
                     Back
                   </Button>
-                  <Button onClick={handleImport} data-testid="button-import">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Import {csvData.length} Records
+                  <Button onClick={handleImport} disabled={importMutation.isPending} data-testid="button-import">
+                    {importMutation.isPending
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <Upload className="h-4 w-4 mr-2" />}
+                    {importMutation.isPending ? "Importing..." : `Import ${csvData.length} Records`}
                   </Button>
                 </div>
               </CardContent>

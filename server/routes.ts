@@ -5088,17 +5088,16 @@ export async function registerRoutes(
           if (linkedAccountId) results.linked++;
         } catch (err: any) {
           let reason = err.message || "Unknown error processing record";
-          // Surface the unique-(portfolio, file_number) violation as a
-          // human-readable skip reason instead of leaking the raw
-          // Postgres error.
+          // Surface known unique-constraint violations as human-readable
+          // skip reasons instead of leaking the raw Postgres error.
           const code = err?.code || err?.cause?.code;
           const constraint = err?.constraint || err?.cause?.constraint;
-          if (
-            code === "23505" ||
-            constraint === "debtors_portfolio_file_number_unique" ||
-            /debtors_portfolio_file_number_unique/.test(reason)
-          ) {
+          if (constraint === "debtors_portfolio_file_number_unique" || /debtors_portfolio_file_number_unique/.test(reason)) {
             reason = `The generated DMP file number already exists in this portfolio`;
+          } else if (constraint === "debtor_references_debtor_import_slot_unique" || /debtor_references_debtor_import_slot_unique/.test(reason)) {
+            reason = `This reference was updated by another import running at the same time - re-run this row if needed`;
+          } else if (code === "23505") {
+            reason = `A duplicate record conflict occurred - re-run this row if needed`;
           }
           results.skipped++;
           results.errors.push(`Row ${rowNumber}: ${reason}`);
@@ -5260,7 +5259,15 @@ export async function registerRoutes(
           });
           results.added += added;
         } catch (err: any) {
-          results.errors.push(err.message || "Unknown error processing record");
+          let reason = err.message || "Unknown error processing record";
+          const code = err?.code || err?.cause?.code;
+          const constraint = err?.constraint || err?.cause?.constraint;
+          if (constraint === "debtor_references_debtor_import_slot_unique" || /debtor_references_debtor_import_slot_unique/.test(reason)) {
+            reason = `This reference was updated by another import running at the same time - re-run this row if needed`;
+          } else if (code === "23505") {
+            reason = `A duplicate record conflict occurred - re-run this row if needed`;
+          }
+          results.errors.push(reason);
         }
       }
 
