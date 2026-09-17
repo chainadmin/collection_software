@@ -530,6 +530,47 @@ test("a doubled contact-import click cannot create two references for the same s
   }
 });
 
+test("createDebtor rejects a second account for the same account number in a portfolio", async () => {
+  const f = await fixture();
+  try {
+    await f.memory.createDebtor({
+      organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "ACCT-UNIQUE"),
+    } as any);
+    await assert.rejects(
+      f.memory.createDebtor({
+        organizationId: f.organization.id, ...debtorBody(f.portfolio.id, "ACCT-UNIQUE"),
+      } as any),
+      /duplicate/i,
+    );
+    assert.equal((await f.memory.getDebtors(f.portfolio.id)).filter(d => d.accountNumber === "ACCT-UNIQUE").length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a doubled accounts-import click cannot create two debtors for the same account number", async () => {
+  const f = await fixture();
+  try {
+    const payload = {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", First: "firstName" },
+      records: [{ Account: "DOUBLE-CLICK-ACCT", First: "Raced" }],
+    };
+    // Simulate hitting Import twice before either request finishes.
+    const [first, second] = await Promise.all([
+      f.request("POST", "/api/import/debtors", payload),
+      f.request("POST", "/api/import/debtors", payload),
+    ]);
+    const outcomes = [first, second];
+    const matching = (await f.memory.getDebtors(f.portfolio.id)).filter(d => d.accountNumber === "DOUBLE-CLICK-ACCT");
+    // Exactly one debtor for the account number should exist no matter how
+    // the two requests interleaved - never two.
+    assert.equal(matching.length, 1, JSON.stringify({ matching, outcomes: outcomes.map(o => o.body) }));
+  } finally {
+    await f.close();
+  }
+});
+
 test("contact import creates a fourth reference slot when the file maps one", async () => {
   const f = await fixture();
   try {

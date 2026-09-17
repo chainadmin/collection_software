@@ -1010,6 +1010,42 @@ export async function runMigrations() {
       );
     }
 
+    // Import already treats a matching account number within a portfolio as
+    // the same account (see debtorMatchesImportIdentifier) - this closes the
+    // race where two near-simultaneous imports (e.g. a doubled click before
+    // the Import button had a loading guard) each see no existing match and
+    // both insert a new debtor for the same account number, producing a
+    // real duplicate account. Unlike the reference-slot duplicates above,
+    // existing duplicate debtor rows are never auto-merged or deleted here:
+    // each row may carry its own payments, contacts, or notes, so picking
+    // one to discard is not a call this migration can safely make. If
+    // duplicates already exist, the index simply won't be created and this
+    // logs how many pairs need manual review.
+    try {
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS "debtors_portfolio_account_number_unique"
+        ON debtors (portfolio_id, account_number)
+      `);
+    } catch (err: any) {
+      try {
+        const { rows } = await db.execute(sql`
+          SELECT portfolio_id, account_number, COUNT(*) AS count
+          FROM debtors
+          GROUP BY portfolio_id, account_number
+          HAVING COUNT(*) > 1
+        `) as unknown as { rows: Array<{ count: string }> };
+        console.warn(
+          `[Migrate] Could not create debtors_portfolio_account_number_unique index - ${rows.length} account number(s) are duplicated within a portfolio and need manual review:`,
+          err?.message || err
+        );
+      } catch {
+        console.warn(
+          "[Migrate] Could not create debtors_portfolio_account_number_unique index (likely duplicate account numbers within a portfolio):",
+          err?.message || err
+        );
+      }
+    }
+
     // Self-heal duplicate reference rows for the same debtor and import slot
     // (e.g. from a double-clicked import before that button had a loading
     // guard) before enforcing uniqueness below - otherwise the index create

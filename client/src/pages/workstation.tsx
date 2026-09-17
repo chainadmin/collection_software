@@ -25,6 +25,7 @@ import {
   Voicemail,
   Ban,
   CalendarClock,
+  CalendarDays,
   Send,
   Settings,
   Pencil,
@@ -1607,6 +1608,11 @@ export default function Workstation() {
                       label="Creditor"
                       className="col-span-2 sm:col-span-1"
                       value={selectedDebtor.originalCreditor || "N/A"}
+                    />
+                    <InfoTile
+                      icon={CalendarDays}
+                      label="Open Date"
+                      value={selectedDebtor.openDate ? formatDate(selectedDebtor.openDate) : "N/A"}
                     />
                     <InfoTile
                       icon={CalendarClock}

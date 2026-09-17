@@ -1492,6 +1492,11 @@ export class MemStorage implements IStorage {
   }
 
   async createDebtor(debtor: InsertDebtor): Promise<Debtor> {
+    if (Array.from(this.debtors.values()).some(candidate =>
+      candidate.portfolioId === debtor.portfolioId && candidate.accountNumber === debtor.accountNumber
+    )) {
+      throw Object.assign(new Error("Duplicate account number in portfolio"), { code: "23505" });
+    }
     const id = randomUUID();
     const newDebtor: Debtor = {
       id,

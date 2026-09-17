@@ -5094,6 +5094,8 @@ export async function registerRoutes(
           const constraint = err?.constraint || err?.cause?.constraint;
           if (constraint === "debtors_portfolio_file_number_unique" || /debtors_portfolio_file_number_unique/.test(reason)) {
             reason = `The generated DMP file number already exists in this portfolio`;
+          } else if (constraint === "debtors_portfolio_account_number_unique" || /debtors_portfolio_account_number_unique/.test(reason)) {
+            reason = `This account number was created by another import running at the same time - re-run this row if needed`;
           } else if (constraint === "debtor_references_debtor_import_slot_unique" || /debtor_references_debtor_import_slot_unique/.test(reason)) {
             reason = `This reference was updated by another import running at the same time - re-run this row if needed`;
           } else if (code === "23505") {
