@@ -1860,7 +1860,7 @@ export class MemStorage implements IStorage {
     return Array.from(this.payments.values())
       .filter((p) =>
         (p.status === "pending" || (includeDeclined && p.status === "declined")) &&
-        p.paymentDate === date
+        p.paymentDate <= date
       )
       .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
   }

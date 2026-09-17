@@ -620,7 +620,7 @@ export default function PaymentRunner() {
           <DialogHeader>
             <DialogTitle>Auto-Runner Schedule</DialogTitle>
             <DialogDescription>
-              The first scheduled run processes every pending payment dated today. The final scheduled run processes every pending payment dated today and retries today's declined payments. Run Now processes all pending payments regardless of date.
+              The first scheduled run processes every pending payment due today or earlier (including one reset to pending by an edit). The final scheduled run does the same and also retries today's declined payments. Run Now processes all pending payments due today or earlier immediately.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-4 gap-2 py-2 max-h-72 overflow-y-auto">

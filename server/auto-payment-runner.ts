@@ -10,6 +10,13 @@ import {
 } from "./payment-safety";
 import { getPaymentBusinessDate } from "./payment-date";
 
+export interface RunResultPaymentDetail {
+  debtorName: string;
+  amount: number;
+  outcome: "success" | "declined" | "needs_review";
+  declineReason?: string | null;
+}
+
 export interface RunResult {
   runTime: string;
   totalProcessed: number;
@@ -26,6 +33,7 @@ export interface RunResult {
     needsReview?: number;
     skipped: boolean;
     skipReason?: string;
+    payments?: RunResultPaymentDetail[];
   }>;
 }
 
@@ -88,6 +96,19 @@ function getEasternDateString(): string {
   return getPaymentBusinessDate();
 }
 
+function escapeHtmlForReport(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatCentsForReport(cents: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
 export async function runAutoPayments(singleOrgId?: string, options?: { manualTrigger?: boolean; includeDeclined?: boolean }): Promise<RunResult> {
   const manualTrigger = options?.manualTrigger === true;
   const includeDeclined = options?.includeDeclined === true;
@@ -125,9 +146,13 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       console.warn(`[Auto Runner] Moved ${staleCount} incomplete processing attempt(s) to needs_review`);
     }
     // Both a scheduled run and an explicit Run Now are bounded to what's due
-    // by today - Run Now additionally sweeps up anything still pending from
-    // an earlier date, but neither may reach forward and charge a payment
-    // scheduled for a later date.
+    // by today (payment_date <= today) so a stale pending payment - e.g. one
+    // reset by an edit - is still picked up automatically instead of only
+    // being reachable via a manual Run Now. Neither may reach forward and
+    // charge a payment scheduled for a later date. Run Now additionally
+    // ignores the org's autoRunnerEnabled/hours gating and never retries a
+    // declined payment on its own (that stays a scheduled-run-only retry, or
+    // an explicit rerun).
     const pendingPayments = manualTrigger
       ? await storage.getPendingPaymentsDueByDate(today)
       : await storage.getPaymentsScheduledForRun(today, includeDeclined);
@@ -201,16 +226,27 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
         continue;
       }
 
-      const orgResult = {
+      const orgResult: {
+        orgName: string;
+        processed: number;
+        success: number;
+        declined: number;
+        needsReview: number;
+        skipped: boolean;
+        payments: RunResultPaymentDetail[];
+      } = {
         orgName,
         processed: 0,
         success: 0,
         declined: 0,
         needsReview: 0,
         skipped: false,
+        payments: [],
       };
 
       for (const payment of payments) {
+        const debtor = await storage.getDebtor(payment.debtorId);
+        const debtorName = debtor ? `${debtor.firstName} ${debtor.lastName}`.trim() : "Unknown";
         try {
           // Claim immediately before the provider call. A simultaneous manual
           // run or runner instance sees zero rows returned and must not charge.
@@ -232,10 +268,13 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
           orgResult.processed++;
           if (r.success) {
             orgResult.success++;
+            orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "success" });
           } else if (r.ambiguous) {
             orgResult.needsReview++;
+            orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "needs_review", declineReason: r.declineReason });
           } else {
             orgResult.declined++;
+            orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "declined", declineReason: r.declineReason });
           }
         } catch (err) {
           console.error(`[Auto Runner] Error processing payment ${payment.id} for org ${orgName}:`, err);
@@ -244,20 +283,25 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
             const marked = await markPaymentNeedsReviewIfProcessing(payment.id, orgId);
             if (marked) {
               orgResult.needsReview++;
+              orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "needs_review" });
             } else {
               // Another worker may have persisted a conclusive result first.
               const current = await storage.getPayment(payment.id);
               if (current?.status === "processed" || current?.status === "posted") {
                 orgResult.success++;
+                orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "success" });
               } else if (current?.status === "declined" && current.processingStartedAt) {
                 orgResult.needsReview++;
+                orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "needs_review" });
               } else {
                 orgResult.declined++;
+                orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "declined" });
               }
             }
           } catch (recoveryError) {
             console.error(`[Auto Runner] Failed to preserve uncertain payment ${payment.id} for review:`, recoveryError);
             orgResult.needsReview++;
+            orgResult.payments.push({ debtorName, amount: payment.amount, outcome: "needs_review" });
           }
         }
       }
@@ -271,17 +315,33 @@ export async function runAutoPayments(singleOrgId?: string, options?: { manualTr
       console.log(`[Auto Runner] Org "${orgName}": ${orgResult.processed} processed, ${orgResult.success} success, ${orgResult.declined} declined, ${orgResult.needsReview} needs review`);
 
       if (orgResult.processed > 0) {
-        const subject = `Payment Runner Report — ${orgResult.processed} processed (${orgResult.success} approved, ${orgResult.declined} declined, ${orgResult.needsReview} needs review)`;
+        const outcomeLabel = { success: "Approved", declined: "Declined", needs_review: "Needs review" } as const;
+        const rowsHtml = orgResult.payments
+          .map((p) => {
+            const reason = p.declineReason ? ` — ${escapeHtmlForReport(p.declineReason)}` : "";
+            return `<li>${escapeHtmlForReport(p.debtorName)} — ${formatCentsForReport(p.amount)} — <strong>${outcomeLabel[p.outcome]}</strong>${reason}</li>`;
+          })
+          .join("\n");
+        const rowsText = orgResult.payments
+          .map((p) => `- ${p.debtorName} — ${formatCentsForReport(p.amount)} — ${outcomeLabel[p.outcome]}${p.declineReason ? ` (${p.declineReason})` : ""}`)
+          .join("\n");
+
+        const subject = `Payment Runner Report — ${orgResult.processed} processed today (${orgResult.success} approved, ${orgResult.declined} declined, ${orgResult.needsReview} needs review)`;
         const html = `<h2>Automatic Payment Runner Report</h2>
 <p><strong>${orgName}</strong></p>
 <p>Run time: ${startTime.toLocaleString("en-US", { timeZone: "America/New_York" })} ET</p>
+<p>This run only, not a running total:</p>
 <ul>
   <li>Payments processed: <strong>${orgResult.processed}</strong></li>
   <li>Approved: <strong>${orgResult.success}</strong></li>
   <li>Declined: <strong>${orgResult.declined}</strong></li>
   <li>Needs review: <strong>${orgResult.needsReview}</strong></li>
+</ul>
+<p>Payments run in this batch:</p>
+<ul>
+${rowsHtml}
 </ul>`;
-        const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}\nNeeds review: ${orgResult.needsReview}`;
+        const text = `Automatic Payment Runner Report — ${orgName}\nRun time: ${startTime.toISOString()}\nThis run only, not a running total.\nProcessed: ${orgResult.processed}\nApproved: ${orgResult.success}\nDeclined: ${orgResult.declined}\nNeeds review: ${orgResult.needsReview}\n\nPayments run in this batch:\n${rowsText}`;
         sendOrgNotificationEmail(orgId, subject, html, text).catch((err) => {
           console.error(`[Auto Runner] Failed to send report email for org ${orgName}:`, err);
         });
