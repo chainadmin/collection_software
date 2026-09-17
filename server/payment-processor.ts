@@ -822,6 +822,7 @@ export async function processPayment(
       };
       const updatedPayment = await storage.updatePayment(payment.id, {
         status: "declined",
+        processingStartedAt: null,
         completedAt: new Date(),
         notes: `DECLINED: ${result.declineReason}`,
       });
