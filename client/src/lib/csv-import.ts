@@ -96,14 +96,41 @@ export const systemFields: SystemField[] = [
 ];
 
 // Both import screens share the same contact/reference/custom mapping options.
+// fileNumber, accountNumber, and ssn are the identifiers a contact file can
+// be matched against an existing account with - no client/portfolio needed.
 export const contactFields = systemFields.filter(({ value }) =>
-  ["skip", "accountNumber", "ssn"].includes(value) ||
+  ["skip", "fileNumber", "accountNumber", "ssn"].includes(value) ||
   /^(phone|email|ref|custom)/.test(value),
 ).map((field) => (
-  field.value === "accountNumber" || field.value === "ssn"
+  field.value === "fileNumber" || field.value === "accountNumber" || field.value === "ssn"
     ? { ...field, label: `${field.label} (to match)` }
     : field
 ));
+
+const REFERENCE_SUBFIELD_LABELS: [string, string][] = [
+  ["Name", "Name"],
+  ["Relationship", "Relationship"],
+  ["Phone", "Phone 1"],
+  ["Phone2", "Phone 2"],
+  ["Phone3", "Phone 3"],
+  ["Address", "Address"],
+  ["City", "City"],
+  ["State", "State"],
+  ["ZipCode", "ZIP Code"],
+  ["Notes", "Notes"],
+];
+
+// The manual mapping dropdown only lists references 1-3 by default (see
+// systemFields above). A file whose reference columns aren't named in a way
+// autoMapColumns recognizes can still map extra references by hand - each
+// added slot exposes the same field set the auto-detector already
+// understands, for any slot number.
+export function buildReferenceFields(slot: number): SystemField[] {
+  return REFERENCE_SUBFIELD_LABELS.map(([suffix, label]) => ({
+    value: `ref${slot}${suffix}`,
+    label: `Reference ${slot} ${label}`,
+  }));
+}
 
 export type ParsedImportFile = { columns: string[]; data: string[][] };
 
