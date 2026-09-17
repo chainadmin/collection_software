@@ -1525,6 +1525,19 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getDebtorIdsWithOpenedEmail(organizationId: string): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ debtorId: communicationAttempts.debtorId })
+      .from(communicationAttempts)
+      .innerJoin(debtors, eq(debtors.id, communicationAttempts.debtorId))
+      .where(and(
+        eq(debtors.organizationId, organizationId),
+        eq(communicationAttempts.attemptType, "email"),
+        eq(communicationAttempts.outcome, "opened"),
+      ));
+    return rows.map((r) => r.debtorId);
+  }
+
   // Helper methods for external API
   async getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined> {
     const [debtor] = await db.select().from(debtors).where(and(

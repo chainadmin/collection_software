@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { EmailTemplate, Debtor, DebtorContact, AccountStatus } from "@shared/schema";
+import type { EmailTemplate, Debtor, DebtorContact, AccountStatus, Portfolio } from "@shared/schema";
 
 type MaskedCampaignIntegration = {
   id: string;
@@ -179,6 +179,10 @@ export default function EmailTemplates() {
   const [selectedDebtorIds, setSelectedDebtorIds] = useState<Set<string>>(new Set());
   const [accountSearch, setAccountSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [portfolioFilter, setPortfolioFilter] = useState("all");
+  const [minBalance, setMinBalance] = useState("");
+  const [maxBalance, setMaxBalance] = useState("");
+  const [emailEngagementFilter, setEmailEngagementFilter] = useState("all");
   const [sendQuantity, setSendQuantity] = useState("");
   const [contactsPerDebtor, setContactsPerDebtor] = useState("1");
 
@@ -194,6 +198,20 @@ export default function EmailTemplates() {
     queryKey: ["/api/account-statuses"],
     enabled: !!sendTemplate,
   });
+
+  const { data: portfolios = [] } = useQuery<Portfolio[]>({
+    queryKey: ["/api/portfolios"],
+    enabled: !!sendTemplate,
+  });
+
+  // debtorIds Chain has ever logged an "opened" email attempt for - lets a
+  // send be filtered to people who've previously opened one of our emails
+  // (or the opposite: never opened one), independent of which campaign.
+  const { data: openedEmailDebtorIds = [] } = useQuery<string[]>({
+    queryKey: ["/api/debtors/opened-email-ids"],
+    enabled: !!sendTemplate,
+  });
+  const openedEmailDebtorIdSet = useMemo(() => new Set(openedEmailDebtorIds), [openedEmailDebtorIds]);
 
   const statusOptions = [
     ...SYSTEM_STATUS_OPTIONS,
@@ -308,10 +326,18 @@ export default function EmailTemplates() {
   const activeIntegrations = integrations.filter((i) => i.isActive);
   const sendIntegration = integrations.find((i) => i.id === sendIntegrationId);
 
+  const minBalanceCents = minBalance.trim() ? Math.round(parseFloat(minBalance) * 100) : null;
+  const maxBalanceCents = maxBalance.trim() ? Math.round(parseFloat(maxBalance) * 100) : null;
+
   const statusFilteredDebtors = useMemo(() => {
     const q = accountSearch.trim().toLowerCase();
     return debtors.filter((d) => {
       if (statusFilter !== "all" && d.status !== statusFilter) return false;
+      if (portfolioFilter !== "all" && d.portfolioId !== portfolioFilter) return false;
+      if (minBalanceCents !== null && d.currentBalance < minBalanceCents) return false;
+      if (maxBalanceCents !== null && d.currentBalance > maxBalanceCents) return false;
+      if (emailEngagementFilter === "opened" && !openedEmailDebtorIdSet.has(d.id)) return false;
+      if (emailEngagementFilter === "not_opened" && openedEmailDebtorIdSet.has(d.id)) return false;
       if (!q) return true;
       return (
         `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) ||
@@ -320,7 +346,7 @@ export default function EmailTemplates() {
         (d.email || "").toLowerCase().includes(q)
       );
     });
-  }, [debtors, accountSearch, statusFilter]);
+  }, [debtors, accountSearch, statusFilter, portfolioFilter, minBalanceCents, maxBalanceCents, emailEngagementFilter, openedEmailDebtorIdSet]);
 
   const filteredDebtors = useMemo(
     () => statusFilteredDebtors.slice(0, 200),
@@ -333,6 +359,10 @@ export default function EmailTemplates() {
     setSelectedDebtorIds(new Set());
     setAccountSearch("");
     setStatusFilter("all");
+    setPortfolioFilter("all");
+    setMinBalance("");
+    setMaxBalance("");
+    setEmailEngagementFilter("all");
     setSendQuantity("");
     setContactsPerDebtor("1");
     const match = integrations.find((i) => i.isActive);
@@ -767,6 +797,63 @@ export default function EmailTemplates() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Select value={portfolioFilter} onValueChange={setPortfolioFilter}>
+                      <SelectTrigger data-testid="select-portfolio-filter">
+                        <SelectValue placeholder="All Portfolios" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Portfolios</SelectItem>
+                        {portfolios.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Select value={emailEngagementFilter} onValueChange={setEmailEngagementFilter}>
+                      <SelectTrigger data-testid="select-email-engagement-filter">
+                        <SelectValue placeholder="Email Engagement" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Any Email Engagement</SelectItem>
+                        <SelectItem value="opened">Previously Opened an Email</SelectItem>
+                        <SelectItem value="not_opened">Never Opened an Email</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Min Balance ($)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="No minimum"
+                      value={minBalance}
+                      onChange={(e) => setMinBalance(e.target.value)}
+                      data-testid="input-min-balance"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Max Balance ($)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="No maximum"
+                      value={maxBalance}
+                      onChange={(e) => setMaxBalance(e.target.value)}
+                      data-testid="input-max-balance"
+                    />
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <Input
                     type="number"
@@ -814,8 +901,13 @@ export default function EmailTemplates() {
                         data-testid={`checkbox-account-${d.id}`}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">
+                        <p className="text-sm font-medium truncate flex items-center gap-2">
                           {d.firstName} {d.lastName}
+                          {openedEmailDebtorIdSet.has(d.id) && (
+                            <Badge variant="outline" className="text-[10px] font-normal px-1.5 py-0" data-testid={`badge-opened-${d.id}`}>
+                              Opened before
+                            </Badge>
+                          )}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
                           {d.fileNumber || d.accountNumber}

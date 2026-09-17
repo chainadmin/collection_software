@@ -378,6 +378,10 @@ export interface IStorage {
   // Communication Attempts
   getCommunicationAttempts(debtorId: string): Promise<CommunicationAttempt[]>;
   createCommunicationAttempt(attempt: InsertCommunicationAttempt): Promise<CommunicationAttempt>;
+  // Debtor ids (scoped to the org) with at least one attempt Chain logged as
+  // an opened email - communicationAttempts has no organizationId of its
+  // own, so this is always scoped through the debtor.
+  getDebtorIdsWithOpenedEmail(organizationId: string): Promise<string[]>;
 
   // Helper methods for external API
   getDebtorByFileNumber(fileNumber: string, organizationId: string): Promise<Debtor | undefined>;
@@ -2915,6 +2919,21 @@ export class MemStorage implements IStorage {
     };
     this.communicationAttempts.set(id, newAttempt);
     return newAttempt;
+  }
+
+  async getDebtorIdsWithOpenedEmail(organizationId: string): Promise<string[]> {
+    const orgDebtorIds = new Set(
+      Array.from(this.debtors.values())
+        .filter((d) => d.organizationId === organizationId)
+        .map((d) => d.id),
+    );
+    const ids = new Set<string>();
+    for (const attempt of this.communicationAttempts.values()) {
+      if (attempt.attemptType === "email" && attempt.outcome === "opened" && orgDebtorIds.has(attempt.debtorId)) {
+        ids.add(attempt.debtorId);
+      }
+    }
+    return Array.from(ids);
   }
 
   // Helper methods for external API
