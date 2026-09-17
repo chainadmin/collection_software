@@ -571,6 +571,66 @@ test("a doubled accounts-import click cannot create two debtors for the same acc
   }
 });
 
+test("same SSN with a different account number and client creates a second, linked debtor instead of overwriting the first", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.request("POST", "/api/import/debtors", {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", SSN: "ssn", Client: "clientName", Balance: "currentBalance" },
+      records: [{ Account: "FILE-A", SSN: "111223333", Client: "Original Creditor A", Balance: "100.00" }],
+    });
+    assert.equal(first.body.results.created, 1, JSON.stringify(first.body));
+
+    const second = await f.request("POST", "/api/import/debtors", {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", SSN: "ssn", Client: "clientName", Balance: "currentBalance" },
+      records: [{ Account: "FILE-B", SSN: "111223333", Client: "Original Creditor B", Balance: "250.00" }],
+    });
+    // A second file for the same person is a new debtor, not an update to
+    // the first - same-person matching must never fall back to SSN alone
+    // when the row carries its own account number.
+    assert.equal(second.body.results.created, 1, JSON.stringify(second.body));
+    assert.equal(second.body.results.updated, 0);
+    assert.equal(second.body.results.linked, 1);
+
+    const debtors = (await f.memory.getDebtors(f.portfolio.id)).filter(d => d.ssn === "111223333");
+    assert.equal(debtors.length, 2);
+    const fileA = debtors.find(d => d.accountNumber === "FILE-A")!;
+    const fileB = debtors.find(d => d.accountNumber === "FILE-B")!;
+    // The first file's own identity must be untouched by the second import.
+    assert.equal(fileA.clientName, "Original Creditor A");
+    assert.equal(fileA.currentBalance, 10000);
+    assert.equal(fileB.clientName, "Original Creditor B");
+    assert.equal(fileB.currentBalance, 25000);
+    // The two files are cross-referenced as the same person.
+    assert.equal(fileB.linkedAccountId, fileA.id);
+  } finally {
+    await f.close();
+  }
+});
+
+test("two new files for the same SSN in one import batch link to each other", async () => {
+  const f = await fixture();
+  try {
+    const result = await f.request("POST", "/api/import/debtors", {
+      portfolioId: f.portfolio.id,
+      mappings: { Account: "accountNumber", SSN: "ssn" },
+      records: [
+        { Account: "BATCH-A", SSN: "444556666" },
+        { Account: "BATCH-B", SSN: "444556666" },
+      ],
+    });
+    assert.equal(result.body.results.created, 2, JSON.stringify(result.body));
+    assert.equal(result.body.results.linked, 1);
+    const debtors = (await f.memory.getDebtors(f.portfolio.id)).filter(d => d.ssn === "444556666");
+    const first = debtors.find(d => d.accountNumber === "BATCH-A")!;
+    const second = debtors.find(d => d.accountNumber === "BATCH-B")!;
+    assert.equal(second.linkedAccountId, first.id);
+  } finally {
+    await f.close();
+  }
+});
+
 test("contact import creates a fourth reference slot when the file maps one", async () => {
   const f = await fixture();
   try {
