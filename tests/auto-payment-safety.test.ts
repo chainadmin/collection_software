@@ -169,6 +169,32 @@ test("payment processing rejects a foreign account before selecting a merchant",
   assert.match(result.declineReason || "", /does not belong/);
 });
 
+test("a card payment with no saved card clears the processing claim so a later retry isn't stuck unclaimable", async () => {
+  const source = payment({ paymentMethod: "card", cardId: null });
+  let persisted: Partial<Payment> | undefined;
+  const storage = {
+    getDebtor: async () => ({ id: "debtor-1", organizationId: "org-1", firstName: "Jane", lastName: "Doe" }),
+    getMerchants: async () => [{
+      id: "merchant-1", organizationId: "org-1", processorType: "usaepay", isActive: true,
+      usaepaySourceKey: "key", usaepayPin: "pin",
+    }],
+    getPaymentCard: async () => undefined,
+    updatePayment: async (_id: string, update: Partial<Payment>) => {
+      persisted = update;
+      return { ...source, ...update };
+    },
+  } as unknown as IStorage;
+
+  const result = await processPayment(source, storage, "org-1");
+
+  assert.equal(result.success, false);
+  assert.equal(persisted?.status, "declined");
+  // A stale (non-null) processing_started_at makes every future claim query
+  // - scheduled or manual Run Now - silently skip this row even after it's
+  // edited back to pending, since both require processing_started_at IS NULL.
+  assert.equal(persisted?.processingStartedAt, null);
+});
+
 test("duplicate-like gateway responses are treated as uncertain outcomes", () => {
   assert.equal(isPotentialDuplicateGatewayMessage("A duplicate transaction has been submitted."), true);
   assert.equal(isPotentialDuplicateGatewayMessage("Payment was already processed"), true);

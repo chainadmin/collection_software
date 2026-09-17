@@ -31,7 +31,7 @@ test("getPendingPayments returns every payment whose status is pending", async (
   assert.deepEqual(pending.map(p => p.id), [untouched.id, previouslyAttempted.id]);
 });
 
-test("scheduled selection is date-exact and adds declines only on the second run", async () => {
+test("scheduled selection is due-by-date (never forward) and adds declines only on the second run", async () => {
   const storage = new MemStorage();
   const base = {
     organizationId: "org", debtorId: "debtor", amount: 1000,
@@ -44,10 +44,26 @@ test("scheduled selection is date-exact and adds declines only on the second run
   const declinedToday = await storage.createPayment({ ...base, paymentDate: "2030-01-02" });
   await storage.updatePayment(declinedToday.id, { status: "declined" });
 
-  const firstRun = await storage.getPaymentsScheduledForRun("2030-01-02", false);
-  assert.deepEqual(firstRun.map(payment => payment.id), [today.id]);
+  // A still-pending payment left with a stale past date (e.g. reset by an
+  // edit) must still be swept up by the day's first run - not just an
+  // exact match on today - since nothing else will ever pick it up
+  // automatically otherwise.
+  const stalePending = await storage.createPayment({ ...base, paymentDate: "2029-12-25" });
 
-  const secondRun = await storage.getPaymentsScheduledForRun("2030-01-02", true);
-  assert.deepEqual(new Set(secondRun.map(payment => payment.id)), new Set([today.id, declinedToday.id]));
-  assert.ok(!secondRun.some(payment => payment.id === yesterday.id || payment.id === tomorrow.id));
+  // Scope out unrelated seeded demo data - this storage function itself is
+  // cross-org (the caller groups by organizationId afterward).
+  const ownIds = new Set([yesterday.id, today.id, tomorrow.id, declinedToday.id, stalePending.id]);
+
+  const firstRun = (await storage.getPaymentsScheduledForRun("2030-01-02", false))
+    .filter(payment => ownIds.has(payment.id));
+  assert.deepEqual(new Set(firstRun.map(payment => payment.id)), new Set([today.id, stalePending.id]));
+  assert.ok(!firstRun.some(payment => payment.id === tomorrow.id));
+
+  const secondRun = (await storage.getPaymentsScheduledForRun("2030-01-02", true))
+    .filter(payment => ownIds.has(payment.id));
+  assert.deepEqual(
+    new Set(secondRun.map(payment => payment.id)),
+    new Set([today.id, declinedToday.id, yesterday.id, stalePending.id]),
+  );
+  assert.ok(!secondRun.some(payment => payment.id === tomorrow.id));
 });

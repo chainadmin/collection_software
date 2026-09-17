@@ -4317,11 +4317,16 @@ export async function registerRoutes(
 
       // Editing a declined payment is treated as a fresh attempt - reset it
       // to pending and clear the stale decline record so it's picked up
-      // normally next run instead of still reading as declined.
+      // normally next run instead of still reading as declined. Clearing
+      // processingStartedAt here too matters even when a decline path
+      // already nulled it: every claim (scheduled or manual) requires it to
+      // be NULL, so any payment left with a stale claim timestamp would
+      // otherwise sit unclaimable - silently skipped - until the 30-minute
+      // stale sweep bounces it back to declined instead of staying pending.
       const resetForRetry = payment.status === "declined";
       const updated = await storage.updatePayment(payment.id, {
         amount, paymentDate, paymentMethod,
-        ...(resetForRetry ? { status: "pending", completedAt: null, notes: null } : {}),
+        ...(resetForRetry ? { status: "pending", processingStartedAt: null, completedAt: null, notes: null } : {}),
       });
       if (!updated) return res.status(404).json({ error: "Payment not found" });
       res.json(redactPayment(updated));

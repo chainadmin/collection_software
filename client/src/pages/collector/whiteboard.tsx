@@ -96,9 +96,16 @@ export default function Whiteboard() {
   const collectorInitials = (collector: Collector) =>
     collector.avatarInitials || collector.name.split(" ").map((n) => n[0]).join("");
 
+  // A payment posting today doesn't mean it was collected today -- a
+  // recurring installment set up weeks ago posts on its own schedule with
+  // no new work behind it. The leaderboard only credits a collector when
+  // the underlying account is new (or recovered) within the same window,
+  // same as Total Collected above.
+  const newAccountPostedToday = postedToday.filter((p) => newAccountIdsToday.has(p.debtorId));
+
   const topCollectorsToday = collectors
     .map((collector) => {
-      const posted = postedToday.filter((p) => p.processedBy === collector.id);
+      const posted = newAccountPostedToday.filter((p) => p.processedBy === collector.id);
       return {
         id: collector.id,
         name: collector.name,
@@ -138,6 +145,16 @@ export default function Whiteboard() {
     p.status === "posted" && String(p.paymentDate).slice(0, 7) === currentMonth
   );
 
+  // Same "new (or recovered) account" gate as today's leaderboard, just
+  // widened to the longer window -- an old arrangement's scheduled posting
+  // isn't new work this week/month either.
+  const isNewAccountAsOf = (debtorId: string, earliestOnOrAfter: string) => {
+    const earliest = earliestRealPaymentDateByDebtor.get(debtorId);
+    return earliest !== undefined && earliest >= earliestOnOrAfter && earliest <= today;
+  };
+  const newAccountPostedThisWeek = postedThisWeek.filter((p) => isNewAccountAsOf(p.debtorId, weekStartStr));
+  const newAccountPostedThisMonth = postedThisMonth.filter((p) => isNewAccountAsOf(p.debtorId, `${currentMonth}-01`));
+
   const topCollectorsByAmount = (list: Payment[]) =>
     collectors
       .map((collector) => ({
@@ -150,8 +167,8 @@ export default function Whiteboard() {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 3);
 
-  const topCollectorsWeek = topCollectorsByAmount(postedThisWeek);
-  const topCollectorsMonth = topCollectorsByAmount(postedThisMonth);
+  const topCollectorsWeek = topCollectorsByAmount(newAccountPostedThisWeek);
+  const topCollectorsMonth = topCollectorsByAmount(newAccountPostedThisMonth);
 
   const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat("en-US", {

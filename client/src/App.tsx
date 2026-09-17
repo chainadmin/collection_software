@@ -199,13 +199,6 @@ function AppLayout() {
     (location.startsWith("/app/payment-runner") && !!currentCollector?.canViewPaymentRunner) ||
     (location.startsWith("/app/admin/reporting/dashboard") && !!currentCollector?.canViewDashboard);
 
-  useEffect(() => {
-    if (collectorsLoading) return;
-    if (!isAuditorRole && (isCollectorRole || isCollectorAppMode) && isAdminRoute && !isCollectorRoute && !isPermittedCollectorRoute) {
-      setLocation("/app/workstation");
-    }
-  }, [collectorsLoading, isAuditorRole, isCollectorRole, isCollectorAppMode, isAdminRoute, isCollectorRoute, isPermittedCollectorRoute, setLocation]);
-
   // An auditor is an outside/administrative reviewer, not a working
   // collector and not a full admin - they get exactly Debtors, Portfolios,
   // Remittance, and Liquidation Rates (server-side access is scoped the
@@ -216,6 +209,21 @@ function AppLayout() {
     location.startsWith("/app/portfolios") ||
     location.startsWith("/app/admin/payments/remittance") ||
     location.startsWith("/app/liquidation");
+
+  useEffect(() => {
+    if (collectorsLoading) return;
+    // isCollectorAppMode is a blunt localStorage flag set by the collector
+    // login page regardless of role - once the real collector record loads
+    // and says auditor, that flag must not override it. Without this
+    // exclusion, an auditor who signed in through /collector-login gets
+    // stuck in an infinite bounce: this effect sends them to /app/workstation
+    // (isCollectorAppMode is true), the auditor effect below immediately
+    // sends them back to /app/debtors (not an allowed collector route),
+    // forever - which looks exactly like a blank/frozen page.
+    if ((isCollectorRole || isCollectorAppMode) && !isAuditorRole && isAdminRoute && !isCollectorRoute && !isPermittedCollectorRoute) {
+      setLocation("/app/workstation");
+    }
+  }, [collectorsLoading, isCollectorRole, isCollectorAppMode, isAuditorRole, isAdminRoute, isCollectorRoute, isPermittedCollectorRoute, setLocation]);
 
   useEffect(() => {
     if (collectorsLoading) return;
@@ -307,6 +315,10 @@ function AppLayout() {
     "--sidebar-width-icon": "4rem",
   };
 
+  // An auditor never gets the collector sidebar, even if they signed in
+  // through /collector-login (which sets isCollectorAppMode regardless of
+  // the account's actual role) or briefly passed through /app/workstation
+  // before being redirected off it.
   const showCollectorSidebar = !isAuditorRole && (isCollectorRole || isCollectorAppMode || isCollectorRoute);
 
   return (

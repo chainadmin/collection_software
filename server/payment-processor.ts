@@ -436,6 +436,7 @@ async function processViaGateway(
   invoiceNumber?: string,
   customerEmail?: string,
   stripeIdempotencyKey?: string,
+  billingName?: { firstName?: string; lastName?: string },
 ): Promise<ProcessPaymentResult> {
   if (paymentMethod === "check") {
     return { success: true, transactionId: null, declineReason: null };
@@ -450,7 +451,16 @@ async function processViaGateway(
       if (!customerToken) {
         return { success: false, transactionId: null, declineReason: "Authorize.Net CIM customer profile is missing" };
       }
-      const result = await processDebtorTokenPayment(creds, customerToken, paymentToken, amount, invoiceNumber, customerEmail);
+      const result = await processDebtorTokenPayment(
+        creds,
+        customerToken,
+        paymentToken,
+        amount,
+        invoiceNumber,
+        customerEmail,
+        billingName?.firstName,
+        billingName?.lastName,
+      );
       return {
         success: result.success,
         transactionId: result.transactionId || null,
@@ -508,6 +518,8 @@ async function processViaGateway(
           dup_seconds: "300",
         });
         if (invoiceNumber) params.set("orderid", invoiceNumber);
+        if (billingName?.firstName) params.set("firstname", billingName.firstName);
+        if (billingName?.lastName) params.set("lastname", billingName.lastName);
         const response = await fetch("https://secure.nmi.com/api/transact.php", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -574,6 +586,9 @@ async function processViaGateway(
             amount: amount.toFixed(2),
             creditcard: { cardref: paymentToken },
             ...(invoiceNumber ? { invoice: invoiceNumber } : {}),
+            ...(billingName?.firstName || billingName?.lastName
+              ? { billing_address: { firstname: billingName?.firstName || "", lastname: billingName?.lastName || "" } }
+              : {}),
           }),
         });
         if (!response.ok) return usaepayHttpFailure(response, "saved-card payment");
@@ -807,6 +822,7 @@ export async function processPayment(
       };
       const updatedPayment = await storage.updatePayment(payment.id, {
         status: "declined",
+        processingStartedAt: null,
         completedAt: new Date(),
         notes: `DECLINED: ${result.declineReason}`,
       });
@@ -868,6 +884,7 @@ export async function processPayment(
       references.orderReference,
       debtor?.email || undefined,
       references.idempotencyKey,
+      { firstName: debtor?.firstName, lastName: debtor?.lastName },
     );
   }
 

@@ -72,7 +72,12 @@ export async function claimPaymentForProcessing(paymentId: string, organizationI
   return result.rows[0];
 }
 
-/** Claims a pending payment for an automatic run on its exact scheduled day. */
+/**
+ * Claims a pending (or, on the day's final run, declined) payment for an
+ * unattended scheduled run. Due-by-date, not date-exact, so a payment left
+ * pending with a stale past date - e.g. reset by an edit - is still picked
+ * up automatically instead of only being reachable via a manual Run Now.
+ */
 export async function claimScheduledPaymentForProcessing(
   paymentId: string,
   organizationId: string,
@@ -84,7 +89,7 @@ export async function claimScheduledPaymentForProcessing(
      WHERE id = $1 AND organization_id = $2
        AND (status = 'pending' OR ($4 = TRUE AND status = 'declined'))
        AND processing_started_at IS NULL
-       AND payment_date = $3
+       AND payment_date <= $3
      RETURNING *`,
     [paymentId, organizationId, scheduledDate, includeDeclined],
   );
