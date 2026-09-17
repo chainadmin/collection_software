@@ -247,6 +247,15 @@ export const debtors = pgTable("debtors", {
     table.portfolioId,
     table.fileNumber,
   ),
+  // Import already treats a matching account number within a portfolio as
+  // the same account (see debtorMatchesImportIdentifier) - this closes the
+  // race where two near-simultaneous imports (e.g. a doubled click) each
+  // see no existing match and both insert a new debtor for the same
+  // account number, producing a real duplicate account.
+  accountNumberPerPortfolioIdx: uniqueIndex("debtors_portfolio_account_number_unique").on(
+    table.portfolioId,
+    table.accountNumber,
+  ),
 }));
 
 export const insertDebtorSchema = createInsertSchema(debtors).omit({ id: true });

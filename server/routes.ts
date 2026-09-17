@@ -4854,10 +4854,26 @@ export async function registerRoutes(
             continue;
           }
 
+          // A row identifies the same file to update in place only by file
+          // number or account number. A bare SSN match is never enough on
+          // its own: the same person can legitimately have more than one
+          // debt file (a different account number, often a different
+          // original client) even within one portfolio, and merging a new
+          // file's data into an unrelated existing file would silently
+          // overwrite that file's account number, balance, and client.
+          // SSN is used below only to link separate files as belonging to
+          // the same person - never to merge one file's identity into
+          // another's. When a row supplies neither a file number nor an
+          // account number, SSN is all there is to identify it, so it's
+          // used as a last-resort match (legacy single-file-per-person
+          // behavior).
           const existingInPortfolio = (await storage.getDebtors(portfolioId))
             .filter((debtor) => debtor.organizationId === orgId).find((debtor) =>
-            debtorMatchesImportIdentifier(debtor, mappedData),
-          );
+              (mappedData.fileNumber && debtor.fileNumber === mappedData.fileNumber) ||
+              (mappedData.accountNumber && debtor.accountNumber === mappedData.accountNumber) ||
+              (!mappedData.fileNumber && !mappedData.accountNumber && mappedData.ssn &&
+                normalizeImportSsn(debtor.ssn) === mappedData.ssn),
+            );
 
           if (existingInPortfolio) {
             await storage.runAtomic(async () => {
@@ -4925,10 +4941,14 @@ export async function registerRoutes(
             continue;
           }
 
+          // This row didn't match an existing file above, so it's a new
+          // debt file. If it shares an SSN with another file - in this
+          // portfolio or another - link them as the same person without
+          // merging their identities.
           let linkedAccountId: string | null = null;
           if (mappedData.ssn) {
             const linkedDebtor = allDebtors.find(
-              (d) => normalizeImportSsn(d.ssn) === mappedData.ssn && d.portfolioId !== portfolioId
+              (d) => normalizeImportSsn(d.ssn) === mappedData.ssn
             );
             if (linkedDebtor) {
               linkedAccountId = linkedDebtor.id;
@@ -4941,7 +4961,7 @@ export async function registerRoutes(
           maxFnSeq++;
           const resolvedFileNumber = maxFnSeq.toString();
 
-          await storage.runAtomic(async () => {
+          const newDebtor = await storage.runAtomic(async () => {
           const newDebtor = await storage.createDebtor({
             portfolioId,
             clientId: effectiveClientId,
@@ -5083,7 +5103,13 @@ export async function registerRoutes(
             }
           }
 
+          return newDebtor;
           });
+          // Make this row's new debtor visible to later rows in the same
+          // batch, so two new files for the same SSN within one import both
+          // still get linked to each other (not just to rows that already
+          // existed before this import started).
+          allDebtors.push(newDebtor);
           results.created++;
           if (linkedAccountId) results.linked++;
         } catch (err: any) {
@@ -5094,6 +5120,8 @@ export async function registerRoutes(
           const constraint = err?.constraint || err?.cause?.constraint;
           if (constraint === "debtors_portfolio_file_number_unique" || /debtors_portfolio_file_number_unique/.test(reason)) {
             reason = `The generated DMP file number already exists in this portfolio`;
+          } else if (constraint === "debtors_portfolio_account_number_unique" || /debtors_portfolio_account_number_unique/.test(reason)) {
+            reason = `This account number was created by another import running at the same time - re-run this row if needed`;
           } else if (constraint === "debtor_references_debtor_import_slot_unique" || /debtor_references_debtor_import_slot_unique/.test(reason)) {
             reason = `This reference was updated by another import running at the same time - re-run this row if needed`;
           } else if (code === "23505") {
