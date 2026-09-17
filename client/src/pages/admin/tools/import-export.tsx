@@ -20,6 +20,17 @@ import {
 } from "@/lib/csv-import";
 
 type SavedSchema = { name: string; mappings: Record<string, string> };
+type FileNumberRange = { start: number; end: number };
+type FileNumberSummary = {
+  nextFileNumber: number;
+  highestUsedFileNumber: number;
+  usedCount: number;
+  usedFileNumberRanges: FileNumberRange[];
+};
+
+function formatFileNumberRange(range: FileNumberRange) {
+  return range.start === range.end ? range.start.toString() : `${range.start}\u2013${range.end}`;
+}
 
 function sanitizeSavedSchemas(schemas: unknown): SavedSchema[] {
   if (!Array.isArray(schemas)) return [];
@@ -79,7 +90,7 @@ export default function ImportExport() {
     queryKey: ["/api/clients"],
   });
 
-  const { data: nextFileNumberData } = useQuery<{ nextFileNumber: number }>({
+  const { data: nextFileNumberData, isLoading: isLoadingFileNumbers, isError: isFileNumberSummaryError } = useQuery<FileNumberSummary>({
     queryKey: ["/api/import/next-file-number"],
   });
 
@@ -219,6 +230,7 @@ export default function ImportExport() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
       queryClient.invalidateQueries({ queryKey: ["/api/portfolios"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/import/next-file-number"] });
       toast({ 
         title: "Import Complete", 
         description: data.message || `Successfully imported records.` 
@@ -457,6 +469,28 @@ export default function ImportExport() {
                       <p className="text-xs text-muted-foreground">
                         DMP will generate short file numbers starting with {fileNumberStart || "1"}, then {(parseInt(fileNumberStart) + 1 || 2).toString()}, etc.
                       </p>
+                      <div className="rounded-md border bg-muted/40 p-3" data-testid="used-file-number-summary">
+                        <p className="text-xs font-medium">File numbers already in use</p>
+                        {isLoadingFileNumbers ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Checking existing accounts\u2026</p>
+                        ) : isFileNumberSummaryError ? (
+                          <p className="mt-1 text-xs text-destructive">Existing file numbers could not be loaded. Refresh before importing.</p>
+                        ) : nextFileNumberData?.usedCount ? (
+                          <>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {nextFileNumberData.usedCount.toLocaleString()} used; highest is {nextFileNumberData.highestUsedFileNumber.toLocaleString()}.
+                            </p>
+                            <p className="mt-2 max-h-20 overflow-y-auto font-mono text-xs leading-5" data-testid="used-file-number-ranges">
+                              {nextFileNumberData.usedFileNumberRanges.map(formatFileNumberRange).join(", ")}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">No DMP file numbers have been used yet.</p>
+                        )}
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          New accounts are assigned above the highest used number, so an existing number will not be reused.
+                        </p>
+                      </div>
                     </div>
                   )}
 
