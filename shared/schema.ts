@@ -300,7 +300,7 @@ export const debtorReferences = pgTable("debtor_references", {
   // phone remains the original/reference Phone 1 column for backwards compatibility.
   phone2: text("phone2"),
   phone3: text("phone3"),
-  importSlot: integer("import_slot"), // stable import/reference position (1..3)
+  importSlot: integer("import_slot"), // stable import/reference position - not capped; a file's own Reference N columns set how many
   address: text("address"),
   city: text("city"),
   state: text("state"),

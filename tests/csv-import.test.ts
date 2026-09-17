@@ -8,6 +8,7 @@ import {
   tableFromRows,
   systemFields,
   contactFields,
+  parseDynamicReferenceField,
 } from "../client/src/lib/csv-import";
 import ExcelJS from "exceljs";
 
@@ -89,6 +90,28 @@ test("auto mapping and saved schemas preserve old and expanded phone/custom mapp
   assert.deepEqual(sanitizeColumnMappings(saved), {
     ...saved, SecondReference: "ref2Phone", NotAllowed: "skip",
   });
+});
+
+test("references are not capped at 3 - any Reference N column auto-maps and survives sanitizing", () => {
+  assert.equal(parseDynamicReferenceField("reference47name"), "ref47Name");
+  assert.equal(parseDynamicReferenceField("ref12phone2"), "ref12Phone2");
+  assert.equal(parseDynamicReferenceField("relative9notes"), "ref9Notes");
+  assert.equal(parseDynamicReferenceField("refund"), null); // no digits, not a reference field
+  assert.equal(parseDynamicReferenceField("reference4"), null); // no recognizable subfield
+
+  assert.deepEqual(
+    autoMapColumns(["Reference 4 Name", "Reference 12 Phone 3", "Relative 50 Notes"]),
+    {
+      "Reference 4 Name": "ref4Name",
+      "Reference 12 Phone 3": "ref12Phone3",
+      "Relative 50 Notes": "ref50Notes",
+    },
+  );
+
+  assert.deepEqual(
+    sanitizeColumnMappings({ Col1: "ref9Name", Col2: "ref9Phone1", Col3: "ref9Bogus" }),
+    { Col1: "ref9Name", Col2: "ref9Phone", Col3: "skip" },
+  );
 });
 
 test("CSV and XLSX retain the complete expanded account row, including custom labels", async () => {

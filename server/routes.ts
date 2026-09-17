@@ -71,6 +71,7 @@ import {
   normalizeImportSsn,
   normalizeImportText,
   sanitizeDebtorImportMappings,
+  discoverReferenceSlots,
 } from "./import-identification";
 import {
   accountExportFilename,
@@ -4890,7 +4891,8 @@ export async function registerRoutes(
               existingContacts.push({ type, value: text, isPrimary } as any);
             }
             const existingReferences = await storage.getDebtorReferences(existingInPortfolio.id);
-            for (const n of [1, 2, 3]) {
+            // As many reference slots as the file maps - no fixed cap.
+            for (const n of discoverReferenceSlots(mappedData)) {
               const name = typeof mappedData[`ref${n}Name`] === "string" ? mappedData[`ref${n}Name`].trim() : "";
               const patch: any = { importSlot: n };
               for (const [suffix, field] of [["Relationship", "relationship"], ["Phone", "phone"], ["Phone2", "phone2"], ["Phone3", "phone3"], ["Address", "address"], ["City", "city"], ["State", "state"], ["ZipCode", "zipCode"], ["Notes", "notes"]] as const) {
@@ -5042,17 +5044,25 @@ export async function registerRoutes(
             });
           }
 
-          // Create references (up to 3)
-          const refFields = [
-            { name: mappedData.ref1Name, relationship: mappedData.ref1Relationship, phone: mappedData.ref1Phone, phone2: mappedData.ref1Phone2, phone3: mappedData.ref1Phone3, address: mappedData.ref1Address, city: mappedData.ref1City, state: mappedData.ref1State, zipCode: mappedData.ref1ZipCode, notes: mappedData.ref1Notes },
-            { name: mappedData.ref2Name, relationship: mappedData.ref2Relationship, phone: mappedData.ref2Phone, phone2: mappedData.ref2Phone2, phone3: mappedData.ref2Phone3, address: mappedData.ref2Address, city: mappedData.ref2City, state: mappedData.ref2State, zipCode: mappedData.ref2ZipCode, notes: mappedData.ref2Notes },
-            { name: mappedData.ref3Name, relationship: mappedData.ref3Relationship, phone: mappedData.ref3Phone, phone2: mappedData.ref3Phone2, phone3: mappedData.ref3Phone3, address: mappedData.ref3Address, city: mappedData.ref3City, state: mappedData.ref3State, zipCode: mappedData.ref3ZipCode, notes: mappedData.ref3Notes },
-          ];
-          
-          for (let refIndex = 0; refIndex < refFields.length; refIndex++) {
-            const ref = refFields[refIndex];
+          // Create references - as many slots as the file maps, no fixed cap.
+          // Each reference's own phone count still stays fixed at 3
+          // (phone/phone2/phone3); unlimited extra numbers per reference are
+          // added one at a time from the workstation, not through import.
+          for (const n of discoverReferenceSlots(mappedData)) {
+            const ref = {
+              name: mappedData[`ref${n}Name`],
+              relationship: mappedData[`ref${n}Relationship`],
+              phone: mappedData[`ref${n}Phone`],
+              phone2: mappedData[`ref${n}Phone2`],
+              phone3: mappedData[`ref${n}Phone3`],
+              address: mappedData[`ref${n}Address`],
+              city: mappedData[`ref${n}City`],
+              state: mappedData[`ref${n}State`],
+              zipCode: mappedData[`ref${n}ZipCode`],
+              notes: mappedData[`ref${n}Notes`],
+            };
             const hasDetails = Object.values(ref).some((value) => typeof value === "string" && value.trim());
-            if (hasDetails && (!ref.name || !ref.name.trim())) throw new Error(`Reference ${refIndex + 1} name is required`);
+            if (hasDetails && (!ref.name || !ref.name.trim())) throw new Error(`Reference ${n} name is required`);
             if (ref.name && ref.name.trim()) {
               await storage.createDebtorReference({
                 debtorId: newDebtor.id,
@@ -5061,7 +5071,7 @@ export async function registerRoutes(
                 phone: ref.phone || null,
                 phone2: ref.phone2 || null,
                 phone3: ref.phone3 || null,
-                importSlot: refIndex + 1,
+                importSlot: n,
                 address: ref.address || null,
                 city: ref.city || null,
                 state: ref.state || null,

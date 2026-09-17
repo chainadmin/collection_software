@@ -534,6 +534,8 @@ export default function ImportExport() {
                 <CardTitle className="text-lg">Map Columns</CardTitle>
                 <CardDescription>
                   Match your file columns to system fields. You can use a saved schema or create a new mapping.
+                  References aren't limited to the 3 shown below - a column named e.g. "Reference 4 Name" or
+                  "Reference 12 Phone 2" is picked up automatically no matter how many your file has.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
