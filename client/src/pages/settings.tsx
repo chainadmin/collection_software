@@ -636,8 +636,17 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                Example decline text: Hello First Name, your payment for the amount and date came back declined with the gateway reason. Please call or email the callback details above to rectify it.
+              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+                <p>
+                  Example decline text: "Your payment to [Company] for [amount] dated [date] came back as
+                  declined with the reason of: [reason]. Please [call/email] the callback details above to
+                  rectify this."
+                </p>
+                <p>
+                  Example receipt text: "Thank you for your payment of [amount]. This will be posted to
+                  your account. Your next payment is [amount] on [date]." (the last sentence is left off when
+                  there's no other payment scheduled)
+                </p>
               </div>
 
               <Button
@@ -964,7 +973,7 @@ export default function Settings() {
               <div>
                 <p className="text-sm font-medium mb-1">Collector App</p>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Share this link with collectors so they can install the Collector Workstation app.
+                  Share this link and company code with collectors so they can install the Collector Workstation app and sign in.
                 </p>
                 <div className="p-3 rounded-md bg-muted/50 mb-3">
                   <p className="text-xs text-muted-foreground mb-2">Collector App Download Link</p>
@@ -986,6 +995,31 @@ export default function Settings() {
                         toast({ title: "Copied!", description: "Collector app link copied to clipboard" });
                       }}
                       data-testid="button-copy-collector-link-settings"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="p-3 rounded-md bg-muted/50 mb-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Company Code — collectors need this to sign in
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code
+                      className="flex-1 text-xs bg-background p-2 rounded border truncate"
+                      data-testid="text-settings-collector-company-code"
+                    >
+                      {organization?.slug || "Loading…"}
+                    </code>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      disabled={!organization?.slug}
+                      onClick={() => {
+                        navigator.clipboard.writeText(organization?.slug || "");
+                        toast({ title: "Copied!", description: "Company code copied to clipboard" });
+                      }}
+                      data-testid="button-copy-collector-company-code"
                     >
                       <Copy className="h-4 w-4" />
                     </Button>

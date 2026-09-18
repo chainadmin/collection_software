@@ -175,7 +175,7 @@ export function buildDeclineMessage(org: Organization, debtor: Debtor, payment: 
   const contactLine = buildContactLine(settings);
 
   if (!html) {
-    return `Hello ${firstName}, your payment to ${org.name} for ${amount} dated ${date} came back as declined. Reason: ${declineReason}. Please ${contactLine} to rectify this. Thank you.`;
+    return `Hello ${firstName}, your payment to ${org.name} for ${amount} dated ${date} came back as declined with the reason of: ${declineReason}. Please ${contactLine} to rectify this. Thank you.`;
   }
 
   const logoUrl = getCompanyLogoUrl(org, settings);
@@ -183,22 +183,30 @@ export function buildDeclineMessage(org: Organization, debtor: Debtor, payment: 
 <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;">
   <div style="margin-bottom:16px;"><img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(org.name)} logo" style="max-height:64px;max-width:220px;" /></div>
   <p>Hello ${escapeHtml(firstName)},</p>
-  <p>Your payment to <strong>${escapeHtml(org.name)}</strong> for <strong>${escapeHtml(amount)}</strong> dated <strong>${escapeHtml(date)}</strong> came back as declined.</p>
-  <p><strong>Decline reason:</strong> ${escapeHtml(declineReason)}</p>
+  <p>Your payment to <strong>${escapeHtml(org.name)}</strong> for <strong>${escapeHtml(amount)}</strong> dated <strong>${escapeHtml(date)}</strong> came back as declined with the reason of: <strong>${escapeHtml(declineReason)}</strong>.</p>
   <p>Please ${escapeHtml(contactLine)} to rectify this.</p>
   <p>Thank you,<br />${escapeHtml(org.name)}</p>
 </div>`.trim();
 }
 
-export function buildReceiptMessage(org: Organization, debtor: Debtor, payment: Payment, transactionId: string | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
+/** The debtor's earliest still-pending payment other than the one that just posted, if any. */
+export function findNextPayment(payments: Payment[], justPostedPaymentId: string): Payment | null {
+  const upcoming = payments
+    .filter((p) => p.status === "pending" && p.id !== justPostedPaymentId)
+    .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
+  return upcoming[0] ?? null;
+}
+
+export function buildReceiptMessage(org: Organization, debtor: Debtor, payment: Payment, transactionId: string | null, nextPayment: Payment | null, settings: PaymentMessageAutomationSettings, html: boolean): string {
   const firstName = debtor.firstName || "there";
   const amount = formatMoney(payment.amount);
-  const date = formatDate(payment.paymentDate);
+  const nextAmount = nextPayment ? formatMoney(nextPayment.amount) : null;
+  const nextDate = nextPayment ? formatDate(nextPayment.paymentDate) : null;
   const contactLine = buildContactLine(settings);
-  const txnLine = transactionId ? ` Transaction ID: ${transactionId}.` : "";
 
   if (!html) {
-    return `Hello ${firstName}, your payment to ${org.name} for ${amount} dated ${date} was approved.${txnLine} If you have questions, please ${contactLine}. Thank you.`;
+    const nextLine = nextPayment ? ` Your next payment is ${nextAmount} on ${nextDate}.` : "";
+    return `Hello ${firstName}, thank you for your payment of ${amount}. This will be posted to your account.${nextLine} If you have questions, please ${contactLine}. Thank you.`;
   }
 
   const logoUrl = getCompanyLogoUrl(org, settings);
@@ -206,8 +214,9 @@ export function buildReceiptMessage(org: Organization, debtor: Debtor, payment: 
 <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;">
   <div style="margin-bottom:16px;"><img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(org.name)} logo" style="max-height:64px;max-width:220px;" /></div>
   <p>Hello ${escapeHtml(firstName)},</p>
-  <p>Your payment to <strong>${escapeHtml(org.name)}</strong> for <strong>${escapeHtml(amount)}</strong> dated <strong>${escapeHtml(date)}</strong> was approved.</p>
-  ${transactionId ? `<p><strong>Transaction ID:</strong> ${escapeHtml(transactionId)}</p>` : ""}
+  <p>Thank you for your payment of <strong>${escapeHtml(amount)}</strong>. This will be posted to your account.</p>
+  ${nextPayment ? `<p>Your next payment is <strong>${escapeHtml(nextAmount!)}</strong> on <strong>${escapeHtml(nextDate!)}</strong>.</p>` : ""}
+  ${transactionId ? `<p style="color:#6b7280;font-size:13px;">Transaction ID: ${escapeHtml(transactionId)}</p>` : ""}
   <p>If you have questions, please ${escapeHtml(contactLine)}.</p>
   <p>Thank you,<br />${escapeHtml(org.name)}</p>
 </div>`.trim();
@@ -258,8 +267,11 @@ async function sendGeneratedPaymentMessage(
   const subject = context.success
     ? `Payment receipt from ${org.name}`
     : `Payment declined - ${org.name}`;
+  const nextPayment = context.success
+    ? findNextPayment(await storage.getPaymentsForDebtor(debtor.id), payment.id)
+    : null;
   const body = context.success
-    ? buildReceiptMessage(org, debtor, payment, context.transactionId, settings, isEmail)
+    ? buildReceiptMessage(org, debtor, payment, context.transactionId, nextPayment, settings, isEmail)
     : buildDeclineMessage(org, debtor, payment, context.declineReason, settings, isEmail);
 
   const campaignLog = await storage.createCampaignLog({
