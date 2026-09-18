@@ -106,6 +106,8 @@ import type {
   DebtorReferencePhone,
   AccountStatus,
   EmailTemplate,
+  Portfolio,
+  Client,
 } from "@shared/schema";
 
 type CollectorPaymentCard = PaymentCard & { cardNumber?: string };
@@ -350,6 +352,14 @@ export default function Workstation() {
     queryKey: ["/api/collectors"],
   });
 
+  const { data: portfolios } = useQuery<Portfolio[]>({
+    queryKey: ["/api/portfolios"],
+  });
+
+  const { data: clients } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+  });
+
   const currentCollector = authUser ? collectors?.find((c) => c.id === authUser.id) : null;
   const canManagePayments = currentCollector?.role === "admin" || currentCollector?.role === "manager";
   const canRunScheduledPayments = canManagePayments || currentCollector?.canViewPaymentRunner === true;
@@ -359,6 +369,17 @@ export default function Workstation() {
   const canEditPayments = canManagePayments || currentCollector?.canEditPayments === true;
   const isReady = !collectorsLoading && !authLoading && authUser;
   const selectedDebtor = debtors?.find((d) => d.id === selectedDebtorId);
+  // The debtor's own clientId/clientName is a denormalized snapshot that's
+  // often null (most import paths never set it) or stale (editing a
+  // portfolio's client afterward doesn't retroactively update every debtor
+  // already imported into it). The portfolio's clientId is the link an org
+  // actually maintains going forward, so resolve the client through the
+  // debtor's portfolio first and only fall back to the debtor's own field.
+  const selectedDebtorPortfolio = portfolios?.find((p) => p.id === selectedDebtor?.portfolioId);
+  const selectedDebtorClient = selectedDebtorPortfolio?.clientId
+    ? clients?.find((c) => c.id === selectedDebtorPortfolio.clientId)
+    : undefined;
+  const selectedDebtorClientName = selectedDebtorClient?.name || selectedDebtor?.clientName || "N/A";
 
   // Messaging permissions must always come from the signed-in collector.
   const messagingEnabled = !!currentCollector?.canViewEmail || currentCollector?.role === "admin" || currentCollector?.role === "manager";
@@ -1620,7 +1641,7 @@ export default function Workstation() {
                         </Button>
                       }
                     />
-                    <InfoTile icon={Building2} label="Client" value={selectedDebtor.clientName || "N/A"} />
+                    <InfoTile icon={Building2} label="Client" value={selectedDebtorClientName} />
                     <InfoTile
                       icon={FileText}
                       label="Creditor"
