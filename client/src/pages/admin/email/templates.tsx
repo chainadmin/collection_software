@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -335,8 +335,66 @@ export default function EmailTemplates() {
   };
 
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // The email body editor is an uncontrolled contentEditable div - it's
+  // never fed back a `value`/`dangerouslySetInnerHTML` after the initial
+  // render below, so the DOM (what the user sees and edits) is the one
+  // source of truth and typing never fights a React re-render for the
+  // cursor. `form.body` is kept in sync via onInput purely for saving/
+  // validation/previewing elsewhere; it does not drive this element.
+  const bodyEditableRef = useRef<HTMLDivElement>(null);
+  const savedBodyRangeRef = useRef<Range | null>(null);
+
+  // Clicking a toolbar badge/button blurs the editor, which can drop or
+  // move the browser's selection - remember the caret position whenever
+  // the user is actually interacting with the editor so a later insert
+  // still lands where they left off, the same way a plain textarea's
+  // selectionStart/End persists across a blur.
+  const captureBodySelection = () => {
+    const editable = bodyEditableRef.current;
+    const selection = window.getSelection();
+    if (editable && selection && selection.rangeCount > 0 && editable.contains(selection.anchorNode)) {
+      savedBodyRangeRef.current = selection.getRangeAt(0).cloneRange();
+    }
+  };
+
+  // Sets the WYSIWYG editor's initial content whenever a template is
+  // opened (or its type is switched to email) - the one place this
+  // component is allowed to write to the DOM directly. After this, all
+  // further changes come from the user typing or from insertVariable.
+  useEffect(() => {
+    if (showEditor && form.templateType === "email" && bodyEditableRef.current) {
+      bodyEditableRef.current.innerHTML = form.body;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEditor, form.templateType]);
 
   const insertVariable = (v: string) => {
+    if (form.templateType === "email") {
+      const editable = bodyEditableRef.current;
+      if (!editable) return;
+      editable.focus();
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        if (savedBodyRangeRef.current) {
+          selection.addRange(savedBodyRangeRef.current);
+        } else {
+          const range = document.createRange();
+          range.selectNodeContents(editable);
+          range.collapse(false);
+          selection.addRange(range);
+        }
+      }
+      // The editing surface IS the preview (no raw HTML shown), so a box
+      // or button has to land as real, already-rendered elements at the
+      // caret - execCommand is the simple way to splice HTML into a
+      // contentEditable's current selection without hand-rolling Range
+      // node-splitting.
+      document.execCommand("insertHTML", false, v);
+      setForm((f) => ({ ...f, body: editable.innerHTML }));
+      captureBodySelection();
+      return;
+    }
     const textarea = bodyTextareaRef.current;
     if (!textarea) {
       setForm((f) => ({ ...f, body: `${f.body}${v}` }));
@@ -380,8 +438,6 @@ export default function EmailTemplates() {
     );
     setPaymentButtonPopoverOpen(false);
   };
-
-  const [showLivePreview, setShowLivePreview] = useState(false);
 
   // ---- Send campaign ----
   const { data: debtors = [] } = useQuery<Debtor[]>({
@@ -613,14 +669,35 @@ export default function EmailTemplates() {
               )}
               <div className="space-y-2">
                 <Label>{form.templateType === "email" ? "Email Body" : "Message Text"}</Label>
-                <Textarea
-                  ref={bodyTextareaRef}
-                  placeholder="Enter content... Use {{variable}} for dynamic content."
-                  value={form.body}
-                  onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                  className="min-h-[180px] font-mono text-sm"
-                  data-testid="input-template-body"
-                />
+                {form.templateType === "email" ? (
+                  <div
+                    ref={bodyEditableRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={(e) => setForm((f) => ({ ...f, body: e.currentTarget.innerHTML }))}
+                    onBlur={captureBodySelection}
+                    onMouseUp={captureBodySelection}
+                    onKeyUp={captureBodySelection}
+                    className="flex min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    data-placeholder="Type your message. Click a box/link/variable below to add it right where your cursor is."
+                    data-testid="input-template-body"
+                  />
+                ) : (
+                  <Textarea
+                    ref={bodyTextareaRef}
+                    placeholder="Enter content... Use {{variable}} for dynamic content."
+                    value={form.body}
+                    onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                    className="min-h-[180px]"
+                    data-testid="input-template-body"
+                  />
+                )}
+                {form.templateType === "email" && (
+                  <p className="text-xs text-muted-foreground">
+                    This is what the email will actually look like - no HTML shown. Variables like {"{{firstName}}"}{" "}
+                    stay as-is here and are filled in per account when it's sent.
+                  </p>
+                )}
               </div>
               {form.templateType === "email" && (
                 <div className="space-y-1.5">
@@ -709,31 +786,10 @@ export default function EmailTemplates() {
                       </PopoverContent>
                     </Popover>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      Inserts HTML at your cursor - a box's border/background color and text can be edited directly
-                      in the body above.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setShowLivePreview((v) => !v)}
-                      data-testid="button-toggle-live-preview"
-                    >
-                      <Eye className="h-3.5 w-3.5 mr-1.5" />
-                      {showLivePreview ? "Hide preview" : "Show preview"}
-                    </Button>
-                  </div>
-                  {showLivePreview && (
-                    <div
-                      className="text-sm bg-background border p-3 rounded-lg max-h-[300px] overflow-y-auto"
-                      data-testid="editor-live-preview"
-                      dangerouslySetInnerHTML={{
-                        __html: renderWithSampleValues(form.body, customVarNames, true, companyLogoUrl) || "<p class=\"text-muted-foreground\">Nothing to preview yet.</p>",
-                      }}
-                    />
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Inserts at your cursor in the body above, already rendered - a box's border/background color and
+                    text can be edited directly by clicking into it.
+                  </p>
                 </div>
               )}
               <div className="p-3 bg-muted rounded-lg space-y-3 max-h-[260px] overflow-y-auto">
