@@ -33,6 +33,7 @@ import {
 } from "./email";
 import { sendChainMessage } from "./chain-messaging";
 import { registerPaymentMessageAutomationRoutes, registerPaymentMessagePublicLogoRoute } from "./payment-message-routes";
+import { getPaymentMessageAutomationSettings, getCompanyLogoUrl } from "./payment-message-automation";
 import { registerPaymentArrangementRoutes } from "./payment-arrangement-routes";
 import { registerPaymentCardRoutes } from "./payment-card-routes";
 import { db } from "./db";
@@ -383,13 +384,24 @@ function buildPaymentArrangementTable(payments: Array<{ paymentDate: string; amo
 async function renderTemplateForDebtor(templateText: string, debtor: any, html: boolean): Promise<string> {
   const contacts = await storage.getDebtorContacts(debtor.id);
   const payments = await storage.getPaymentsForDebtor(debtor.id);
+  const org = await storage.getOrganization(debtor.organizationId);
   const primaryPhone = contacts.find((c) => c.type === "phone" && c.isPrimary)?.value || contacts.find((c) => c.type === "phone")?.value || "";
   const primaryEmail = debtor.email || contacts.find((c) => c.type === "email" && c.isPrimary)?.value || contacts.find((c) => c.type === "email")?.value || "";
   const customFields = (() => {
     try { return debtor.customFields ? JSON.parse(debtor.customFields) : {}; } catch { return {}; }
   })();
   const fullAddress = [debtor.address, debtor.city, debtor.state, debtor.zipCode].filter(Boolean).join(", ");
+  // The org's uploaded payment-message logo doubles as the one branding
+  // asset this app has - reuse it here instead of asking for a second logo
+  // upload just for campaign templates.
+  const companyLogoUrl = org ? getCompanyLogoUrl(org, getPaymentMessageAutomationSettings(org)) : "/logo.png";
   const values: Record<string, string> = {
+    agencyName: org?.name || "",
+    agencyEmail: org?.email || "",
+    agencyPhone: org?.phone || "",
+    COMPANY_LOGO: html
+      ? `<img src="${companyLogoUrl}" alt="${org?.name || "Company"} logo" style="max-height:64px;max-width:220px;" />`
+      : (org?.name || ""),
     firstName: debtor.firstName || "",
     lastName: debtor.lastName || "",
     fullName: `${debtor.firstName || ""} ${debtor.lastName || ""}`.trim(),

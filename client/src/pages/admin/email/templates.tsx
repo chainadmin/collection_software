@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,7 +123,7 @@ const SAMPLE_VALUES: Record<string, string> = {
   "balance50%": "$617.28", "balance60%": "$740.74", "balance70%": "$864.19",
   "balance80%": "$987.65", "balance90%": "$1,111.10", "balance100%": "$1,234.56",
   agencyName: "DebtFlow Pro Recovery", agencyEmail: "support@example.com",
-  agencyPhone: "(800) 555-0199", COMPANY_LOGO: "[company logo]",
+  agencyPhone: "(800) 555-0199",
   consumerPortalLink: "https://pay.example.com/jm", appDownloadLink: "https://example.com/app",
   unsubscribeLink: "https://example.com/unsubscribe", unsubscribeUrl: "https://example.com/unsubscribe",
   unsubscribeButton: "[Unsubscribe]",
@@ -131,10 +131,19 @@ const SAMPLE_VALUES: Record<string, string> = {
   "Payment arrangement on file": "Payment Date | Amount\n07/15/2026 | $100.00\n08/15/2026 | $100.00",
 };
 
-function renderWithSampleValues(text: string, custom: string[]): string {
+function renderWithSampleValues(text: string, custom: string[], html: boolean, companyLogoUrl?: string): string {
   if (!text) return text;
   return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
     const name = String(rawName).trim();
+    // Mirrors server/routes.ts renderTemplateForDebtor: an <img> of the
+    // org's uploaded logo in an email, since a text message can't carry
+    // one - so preview the same way instead of the plain "[company logo]"
+    // placeholder text.
+    if (name === "COMPANY_LOGO") {
+      return html
+        ? `<img src="${companyLogoUrl || "/logo.png"}" alt="Company logo" style="max-height:64px;max-width:220px;" />`
+        : SAMPLE_VALUES.agencyName;
+    }
     if (Object.prototype.hasOwnProperty.call(SAMPLE_VALUES, name)) {
       return SAMPLE_VALUES[name];
     }
@@ -144,6 +153,28 @@ function renderWithSampleValues(text: string, custom: string[]): string {
     return match;
   });
 }
+
+// Ready-made HTML snippets for structure a plain-text box can't express -
+// bordered/highlighted call-out boxes for things like arrangement letters,
+// and a divider. Email-only: SMS has no HTML to render it with.
+const STYLE_SNIPPETS: { label: string; html: string }[] = [
+  {
+    label: "Bordered Box",
+    html: `\n<div style="border:2px solid #2563eb;border-radius:8px;padding:16px;margin:16px 0;">\n  Your text here\n</div>\n`,
+  },
+  {
+    label: "Highlight Box",
+    html: `\n<div style="background:#fef9c3;border-radius:8px;padding:16px;margin:16px 0;">\n  Your text here\n</div>\n`,
+  },
+  {
+    label: "Arrangement Box",
+    html: `\n<div style="border:2px solid #2563eb;border-radius:8px;padding:16px;margin:16px 0;background:#eff6ff;">\n  <strong>Your Payment Arrangement</strong><br />\n  {{Payment arrangement on file}}\n</div>\n`,
+  },
+  {
+    label: "Divider",
+    html: `\n<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />\n`,
+  },
+];
 
 const blankForm = { name: "", subject: "", body: "", templateType: "email" };
 
@@ -185,6 +216,11 @@ export default function EmailTemplates() {
   const [emailEngagementFilter, setEmailEngagementFilter] = useState("all");
   const [sendQuantity, setSendQuantity] = useState("");
   const [contactsPerDebtor, setContactsPerDebtor] = useState("1");
+
+  const { data: paymentMessageSettings } = useQuery<{ logoPreviewUrl: string | null }>({
+    queryKey: ["/api/payment-message-automation"],
+  });
+  const companyLogoUrl = paymentMessageSettings?.logoPreviewUrl || "/logo.png";
 
   const { data: templates = [], isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["/api/email-templates"],
@@ -293,8 +329,25 @@ export default function EmailTemplates() {
     saveMutation.mutate();
   };
 
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+
   const insertVariable = (v: string) => {
-    setForm((f) => ({ ...f, body: `${f.body}${v}` }));
+    const textarea = bodyTextareaRef.current;
+    if (!textarea) {
+      setForm((f) => ({ ...f, body: `${f.body}${v}` }));
+      return;
+    }
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    setForm((f) => ({ ...f, body: f.body.slice(0, start) + v + f.body.slice(end) }));
+    // Clicking the badge takes focus off the textarea, and React re-applying
+    // `value` on this render can reset the browser's cursor to the end - put
+    // it right after the inserted text once the new value has committed.
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const pos = start + v.length;
+      textarea.setSelectionRange(pos, pos);
+    });
   };
 
   // ---- Send campaign ----
@@ -528,13 +581,35 @@ export default function EmailTemplates() {
               <div className="space-y-2">
                 <Label>{form.templateType === "email" ? "Email Body" : "Message Text"}</Label>
                 <Textarea
+                  ref={bodyTextareaRef}
                   placeholder="Enter content... Use {{variable}} for dynamic content."
                   value={form.body}
                   onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                  className="min-h-[180px]"
+                  className="min-h-[180px] font-mono text-sm"
                   data-testid="input-template-body"
                 />
               </div>
+              {form.templateType === "email" && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium">Click to insert a styled box (email only):</p>
+                  <div className="flex flex-wrap gap-2">
+                    {STYLE_SNIPPETS.map((snippet) => (
+                      <Badge
+                        key={snippet.label}
+                        variant="outline"
+                        className="text-xs cursor-pointer hover-elevate"
+                        onClick={() => insertVariable(snippet.html)}
+                        data-testid={`badge-snippet-${snippet.label.replace(/[^a-zA-Z0-9]/g, "")}`}
+                      >
+                        {snippet.label}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Inserts HTML at your cursor - edit the border/background colors and text directly in the body above.
+                  </p>
+                </div>
+              )}
               <div className="p-3 bg-muted rounded-lg space-y-3 max-h-[260px] overflow-y-auto">
                 <p className="text-xs font-medium">Click to insert a variable:</p>
                 {MERGE_VAR_GROUPS.map((group) => (
@@ -665,7 +740,7 @@ export default function EmailTemplates() {
             <DialogTitle>{previewTemplate?.name}</DialogTitle>
             {previewTemplate?.templateType === "email" && (
               <DialogDescription>
-                Subject: {renderWithSampleValues(previewTemplate?.subject || "", customVarNames)}
+                Subject: {renderWithSampleValues(previewTemplate?.subject || "", customVarNames, false)}
               </DialogDescription>
             )}
           </DialogHeader>
@@ -673,9 +748,19 @@ export default function EmailTemplates() {
             <p className="text-xs text-muted-foreground">
               Preview with sample data. Real values are filled in from each account when the message is sent.
             </p>
-            <pre className="text-sm whitespace-pre-wrap break-words bg-muted p-3 rounded-lg max-h-[400px] overflow-y-auto">
-              {renderWithSampleValues(previewTemplate?.body || "", customVarNames)}
-            </pre>
+            {previewTemplate?.templateType === "email" ? (
+              <div
+                className="text-sm bg-background border p-3 rounded-lg max-h-[400px] overflow-y-auto"
+                data-testid="preview-email-rendered"
+                dangerouslySetInnerHTML={{
+                  __html: renderWithSampleValues(previewTemplate?.body || "", customVarNames, true, companyLogoUrl),
+                }}
+              />
+            ) : (
+              <pre className="text-sm whitespace-pre-wrap break-words bg-muted p-3 rounded-lg max-h-[400px] overflow-y-auto">
+                {renderWithSampleValues(previewTemplate?.body || "", customVarNames, false)}
+              </pre>
+            )}
           </div>
         </DialogContent>
       </Dialog>

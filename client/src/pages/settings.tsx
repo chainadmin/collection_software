@@ -636,8 +636,17 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                Example decline text: Hello First Name, your payment for the amount and date came back declined with the gateway reason. Please call or email the callback details above to rectify it.
+              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+                <p>
+                  Example decline text: "Your payment to [Company] for [amount] dated [date] came back as
+                  declined with the reason of: [reason]. Please [call/email] the callback details above to
+                  rectify this."
+                </p>
+                <p>
+                  Example receipt text: "Thank you for your payment of [amount]. This will be posted to
+                  your account. Your next payment is [amount] on [date]." (the last sentence is left off when
+                  there's no other payment scheduled)
+                </p>
               </div>
 
               <Button

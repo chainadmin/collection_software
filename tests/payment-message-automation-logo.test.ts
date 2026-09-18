@@ -170,9 +170,9 @@ test("payment email HTML embeds custom logo for receipt and decline and defaults
   const branded = org(mergePaymentMessageAutomationLogo(org(), validated.logo));
   const debtor = { firstName: "<Debtor>" } as any;
   const payment = { amount: 1250, paymentDate: "2026-01-02" } as any;
-  assert.match(buildReceiptMessage(branded, debtor, payment, "<txn>", {}, true), new RegExp(png.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(buildReceiptMessage(branded, debtor, payment, "<txn>", null, {}, true), new RegExp(png.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(buildDeclineMessage(branded, debtor, payment, "<reason>", {}, true), new RegExp(png.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(buildReceiptMessage(org(), debtor, payment, null, {}, true), /src="\/logo\.png"/);
-  assert.match(buildReceiptMessage(org(), debtor, payment, null, {}, true), /Hello &lt;Debtor&gt;/);
+  assert.match(buildReceiptMessage(org(), debtor, payment, null, null, {}, true), /src="\/logo\.png"/);
+  assert.match(buildReceiptMessage(org(), debtor, payment, null, null, {}, true), /Hello &lt;Debtor&gt;/);
   assert.equal(paymentMessageLogoUrl("org/a"), "/payment-message-automation/logo/org%2Fa");
 });
