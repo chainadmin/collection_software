@@ -586,9 +586,13 @@ export default function Workstation() {
   });
 
   const runPaymentMutation = useMutation({
-    mutationFn: async (paymentId: string) => {
-      setProcessingPaymentId(paymentId);
-      const response = await apiRequest("POST", `/api/payments/${paymentId}/process`);
+    mutationFn: async (payment: Payment) => {
+      setProcessingPaymentId(payment.id);
+      // A pending payment hasn't been attempted yet, so it goes through the
+      // initial-run endpoint; a declined one needs the rerun endpoint, which
+      // is the only one that will claim a non-pending payment.
+      const endpoint = payment.status === "pending" ? "process" : "rerun";
+      const response = await apiRequest("POST", `/api/payments/${payment.id}/${endpoint}`);
       return response.json();
     },
     onSuccess: (payment: Payment & { declineReason?: string }) => {
@@ -2286,16 +2290,16 @@ export default function Workstation() {
                                         <Pencil className="h-4 w-4" />
                                       </Button>
                                     )}
-                                    {canRunScheduledPayments && (
+                                    {canRunScheduledPayments && (payment.status === "pending" || payment.status === "declined") && (
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => runPaymentMutation.mutate(payment.id)}
+                                        onClick={() => runPaymentMutation.mutate(payment)}
                                         disabled={processingPaymentId !== null}
                                         data-testid={`button-run-payment-${payment.id}`}
                                       >
                                         <DollarSign className="mr-1 h-4 w-4" />
-                                        {processingPaymentId === payment.id ? "Running…" : "Run"}
+                                        {processingPaymentId === payment.id ? "Running…" : payment.status === "declined" ? "Re-run" : "Run"}
                                       </Button>
                                     )}
                                     <div className="text-right">
