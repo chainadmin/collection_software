@@ -179,6 +179,18 @@ function calculateAge(dateOfBirth: string): number | null {
   return age;
 }
 
+// A run/rerun here changes a payment's status and, often, the debtor's
+// status too (e.g. declined -> processed) - the dashboard's decline totals
+// and account lists read off exactly those fields, so they go stale (still
+// showing the old decline) until these are invalidated alongside the
+// payment queries this mutation already refreshes.
+function invalidateDashboardQueries() {
+  queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/collectors/performance"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+}
+
 export default function Workstation() {
   const { toast } = useToast();
   const { user: authUser, isLoading: authLoading } = useAuth();
@@ -597,8 +609,10 @@ export default function Workstation() {
     },
     onSuccess: (payment: Payment & { declineReason?: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       if (payment.status === "processed") {
         toast({ title: "Payment processed", description: "The payment was successful." });
       } else {
