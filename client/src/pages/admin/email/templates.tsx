@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -92,7 +93,10 @@ const MERGE_VAR_GROUPS: MergeVarGroup[] = [
   },
   {
     label: "Agency",
-    vars: ["{{agencyName}}", "{{agencyEmail}}", "{{agencyPhone}}", "{{COMPANY_LOGO}}"],
+    vars: [
+      "{{agencyName}}", "{{agencyEmail}}", "{{agencyPhone}}",
+      "{{COMPANY_LOGO_SMALL}}", "{{COMPANY_LOGO}}", "{{COMPANY_LOGO_LARGE}}",
+    ],
   },
   {
     label: "Links",
@@ -139,9 +143,10 @@ function renderWithSampleValues(text: string, custom: string[], html: boolean, c
     // org's uploaded logo in an email, since a text message can't carry
     // one - so preview the same way instead of the plain "[company logo]"
     // placeholder text.
-    if (name === "COMPANY_LOGO") {
+    const logoHeight = { COMPANY_LOGO_SMALL: 32, COMPANY_LOGO: 64, COMPANY_LOGO_LARGE: 120 }[name];
+    if (logoHeight) {
       return html
-        ? `<img src="${companyLogoUrl || "/logo.png"}" alt="Company logo" style="max-height:64px;max-width:220px;" />`
+        ? `<img src="${companyLogoUrl || "/logo.png"}" alt="Company logo" style="max-height:${logoHeight}px;max-width:${logoHeight * 3.5}px;" />`
         : SAMPLE_VALUES.agencyName;
     }
     if (Object.prototype.hasOwnProperty.call(SAMPLE_VALUES, name)) {
@@ -173,6 +178,14 @@ const STYLE_SNIPPETS: { label: string; html: string }[] = [
   {
     label: "Divider",
     html: `\n<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />\n`,
+  },
+  {
+    // Dark blue on a silver border, per the user's ask. The href is a
+    // placeholder - there's no consumer self-service payment portal in
+    // this app yet, so this needs to be pointed at wherever accounts
+    // actually go to pay (a hosted processor page, etc.) before sending.
+    label: "Payment Button",
+    html: `\n<div style="margin:16px 0;text-align:center;"><a href="PASTE-YOUR-PAYMENT-LINK-HERE" style="display:inline-block;background:#1e3a5f;color:#ffffff;border:2px solid #c0c0c0;border-radius:6px;padding:12px 28px;font-weight:bold;text-decoration:none;">Click Here to Make a Payment</a></div>\n`,
   },
 ];
 
@@ -348,6 +361,19 @@ export default function EmailTemplates() {
       const pos = start + v.length;
       textarea.setSelectionRange(pos, pos);
     });
+  };
+
+  const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
+  const [linkText, setLinkText] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+
+  const insertLink = () => {
+    const text = linkText.trim() || "Click Here";
+    const url = linkUrl.trim() || "https://";
+    insertVariable(`<a href="${url}" style="color:#1d4ed8;text-decoration:underline;">${text}</a>`);
+    setLinkText("");
+    setLinkUrl("");
+    setLinkPopoverOpen(false);
   };
 
   // ---- Send campaign ----
@@ -604,9 +630,47 @@ export default function EmailTemplates() {
                         {snippet.label}
                       </Badge>
                     ))}
+                    <Popover open={linkPopoverOpen} onOpenChange={setLinkPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="text-xs cursor-pointer hover-elevate"
+                          data-testid="badge-insert-link"
+                        >
+                          Insert Link
+                        </Badge>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 space-y-3" align="start">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="link-text" className="text-xs">Link text</Label>
+                          <Input
+                            id="link-text"
+                            placeholder="Click Here"
+                            value={linkText}
+                            onChange={(e) => setLinkText(e.target.value)}
+                            data-testid="input-link-text"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="link-url" className="text-xs">URL</Label>
+                          <Input
+                            id="link-url"
+                            placeholder="https://example.com"
+                            value={linkUrl}
+                            onChange={(e) => setLinkUrl(e.target.value)}
+                            data-testid="input-link-url"
+                          />
+                        </div>
+                        <Button size="sm" className="w-full" onClick={insertLink} data-testid="button-insert-link">
+                          Insert
+                        </Button>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Inserts HTML at your cursor - edit the border/background colors and text directly in the body above.
+                    The Payment Button's link is a placeholder since there's no payment page to send it to yet -
+                    replace <code className="font-mono">PASTE-YOUR-PAYMENT-LINK-HERE</code> with wherever accounts should go to pay.
                   </p>
                 </div>
               )}

@@ -395,13 +395,18 @@ async function renderTemplateForDebtor(templateText: string, debtor: any, html: 
   // asset this app has - reuse it here instead of asking for a second logo
   // upload just for campaign templates.
   const companyLogoUrl = org ? getCompanyLogoUrl(org, getPaymentMessageAutomationSettings(org)) : "/logo.png";
+  const companyLogoImg = (maxHeight: number) =>
+    `<img src="${companyLogoUrl}" alt="${org?.name || "Company"} logo" style="max-height:${maxHeight}px;max-width:${maxHeight * 3.5}px;" />`;
   const values: Record<string, string> = {
     agencyName: org?.name || "",
     agencyEmail: org?.email || "",
     agencyPhone: org?.phone || "",
-    COMPANY_LOGO: html
-      ? `<img src="${companyLogoUrl}" alt="${org?.name || "Company"} logo" style="max-height:64px;max-width:220px;" />`
-      : (org?.name || ""),
+    // Three fixed sizes rather than a free-form size param - a merge
+    // variable is a plain token typed into the body, so it can't carry an
+    // argument the way a function call could.
+    COMPANY_LOGO_SMALL: html ? companyLogoImg(32) : (org?.name || ""),
+    COMPANY_LOGO: html ? companyLogoImg(64) : (org?.name || ""),
+    COMPANY_LOGO_LARGE: html ? companyLogoImg(120) : (org?.name || ""),
     firstName: debtor.firstName || "",
     lastName: debtor.lastName || "",
     fullName: `${debtor.firstName || ""} ${debtor.lastName || ""}`.trim(),
