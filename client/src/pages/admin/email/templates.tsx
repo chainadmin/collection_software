@@ -179,14 +179,6 @@ const STYLE_SNIPPETS: { label: string; html: string }[] = [
     label: "Divider",
     html: `\n<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />\n`,
   },
-  {
-    // Dark blue on a silver border, per the user's ask. The href is a
-    // placeholder - there's no consumer self-service payment portal in
-    // this app yet, so this needs to be pointed at wherever accounts
-    // actually go to pay (a hosted processor page, etc.) before sending.
-    label: "Payment Button",
-    html: `\n<div style="margin:16px 0;text-align:center;"><a href="PASTE-YOUR-PAYMENT-LINK-HERE" style="display:inline-block;background:#1e3a5f;color:#ffffff;border:2px solid #c0c0c0;border-radius:6px;padding:12px 28px;font-weight:bold;text-decoration:none;">Click Here to Make a Payment</a></div>\n`,
-  },
 ];
 
 const blankForm = { name: "", subject: "", body: "", templateType: "email" };
@@ -375,6 +367,21 @@ export default function EmailTemplates() {
     setLinkUrl("");
     setLinkPopoverOpen(false);
   };
+
+  const [paymentButtonPopoverOpen, setPaymentButtonPopoverOpen] = useState(false);
+  const [paymentButtonText, setPaymentButtonText] = useState("Click Here to Make a Payment");
+  const [paymentButtonUrl, setPaymentButtonUrl] = useState("");
+
+  const insertPaymentButton = () => {
+    const text = paymentButtonText.trim() || "Click Here to Make a Payment";
+    const url = paymentButtonUrl.trim() || "https://";
+    insertVariable(
+      `\n<div style="margin:16px 0;text-align:center;"><a href="${url}" style="display:inline-block;background:#1e3a5f;color:#ffffff;border:2px solid #c0c0c0;border-radius:6px;padding:12px 28px;font-weight:bold;text-decoration:none;">${text}</a></div>\n`,
+    );
+    setPaymentButtonPopoverOpen(false);
+  };
+
+  const [showLivePreview, setShowLivePreview] = useState(false);
 
   // ---- Send campaign ----
   const { data: debtors = [] } = useQuery<Debtor[]>({
@@ -666,12 +673,67 @@ export default function EmailTemplates() {
                         </Button>
                       </PopoverContent>
                     </Popover>
+                    <Popover open={paymentButtonPopoverOpen} onOpenChange={setPaymentButtonPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="text-xs cursor-pointer hover-elevate"
+                          data-testid="badge-payment-button"
+                        >
+                          Payment Button
+                        </Badge>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 space-y-3" align="start">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payment-button-text" className="text-xs">Button text</Label>
+                          <Input
+                            id="payment-button-text"
+                            value={paymentButtonText}
+                            onChange={(e) => setPaymentButtonText(e.target.value)}
+                            data-testid="input-payment-button-text"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="payment-button-url" className="text-xs">Payment link URL</Label>
+                          <Input
+                            id="payment-button-url"
+                            placeholder="https://your-payment-link.com"
+                            value={paymentButtonUrl}
+                            onChange={(e) => setPaymentButtonUrl(e.target.value)}
+                            data-testid="input-payment-button-url"
+                          />
+                        </div>
+                        <Button size="sm" className="w-full" onClick={insertPaymentButton} data-testid="button-insert-payment-button">
+                          Insert Button
+                        </Button>
+                      </PopoverContent>
+                    </Popover>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Inserts HTML at your cursor - edit the border/background colors and text directly in the body above.
-                    The Payment Button's link is a placeholder since there's no payment page to send it to yet -
-                    replace <code className="font-mono">PASTE-YOUR-PAYMENT-LINK-HERE</code> with wherever accounts should go to pay.
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      Inserts HTML at your cursor - a box's border/background color and text can be edited directly
+                      in the body above.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setShowLivePreview((v) => !v)}
+                      data-testid="button-toggle-live-preview"
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1.5" />
+                      {showLivePreview ? "Hide preview" : "Show preview"}
+                    </Button>
+                  </div>
+                  {showLivePreview && (
+                    <div
+                      className="text-sm bg-background border p-3 rounded-lg max-h-[300px] overflow-y-auto"
+                      data-testid="editor-live-preview"
+                      dangerouslySetInnerHTML={{
+                        __html: renderWithSampleValues(form.body, customVarNames, true, companyLogoUrl) || "<p class=\"text-muted-foreground\">Nothing to preview yet.</p>",
+                      }}
+                    />
+                  )}
                 </div>
               )}
               <div className="p-3 bg-muted rounded-lg space-y-3 max-h-[260px] overflow-y-auto">
