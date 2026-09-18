@@ -179,6 +179,18 @@ function calculateAge(dateOfBirth: string): number | null {
   return age;
 }
 
+// A run/rerun here changes a payment's status and, often, the debtor's
+// status too (e.g. declined -> processed) - the dashboard's decline totals
+// and account lists read off exactly those fields, so they go stale (still
+// showing the old decline) until these are invalidated alongside the
+// payment queries this mutation already refreshes.
+function invalidateDashboardQueries() {
+  queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/collectors/performance"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+}
+
 export default function Workstation() {
   const { toast } = useToast();
   const { user: authUser, isLoading: authLoading } = useAuth();
@@ -586,15 +598,21 @@ export default function Workstation() {
   });
 
   const runPaymentMutation = useMutation({
-    mutationFn: async (paymentId: string) => {
-      setProcessingPaymentId(paymentId);
-      const response = await apiRequest("POST", `/api/payments/${paymentId}/process`);
+    mutationFn: async (payment: Payment) => {
+      setProcessingPaymentId(payment.id);
+      // A pending payment hasn't been attempted yet, so it goes through the
+      // initial-run endpoint; a declined one needs the rerun endpoint, which
+      // is the only one that will claim a non-pending payment.
+      const endpoint = payment.status === "pending" ? "process" : "rerun";
+      const response = await apiRequest("POST", `/api/payments/${payment.id}/${endpoint}`);
       return response.json();
     },
     onSuccess: (payment: Payment & { declineReason?: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/debtors", selectedDebtorId] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       if (payment.status === "processed") {
         toast({ title: "Payment processed", description: "The payment was successful." });
       } else {
@@ -2286,16 +2304,16 @@ export default function Workstation() {
                                         <Pencil className="h-4 w-4" />
                                       </Button>
                                     )}
-                                    {canRunScheduledPayments && (
+                                    {canRunScheduledPayments && (payment.status === "pending" || payment.status === "declined") && (
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => runPaymentMutation.mutate(payment.id)}
+                                        onClick={() => runPaymentMutation.mutate(payment)}
                                         disabled={processingPaymentId !== null}
                                         data-testid={`button-run-payment-${payment.id}`}
                                       >
                                         <DollarSign className="mr-1 h-4 w-4" />
-                                        {processingPaymentId === payment.id ? "Running…" : "Run"}
+                                        {processingPaymentId === payment.id ? "Running…" : payment.status === "declined" ? "Re-run" : "Run"}
                                       </Button>
                                     )}
                                     <div className="text-right">

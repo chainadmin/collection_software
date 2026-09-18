@@ -47,6 +47,20 @@ interface PaymentWithDebtor extends Payment {
   debtor?: Debtor;
 }
 
+// A run/rerun/post/reverse here changes a payment's status and, often, the
+// debtor's status too (e.g. declined -> processed -> paid/in_payment) - the
+// dashboard's decline totals and account lists read off exactly those
+// fields, so they go stale (still showing the old decline) until these are
+// invalidated alongside the payment queries every mutation below already
+// refreshes.
+function invalidateDashboardQueries() {
+  queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/collectors/performance"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/payments/recent"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/debtors/recent"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/debtors"] });
+}
+
 export default function PaymentRunner() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -150,6 +164,7 @@ export default function PaymentRunner() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Payment was successful." });
       } else if (data.declineReason || data.status === "declined") {
@@ -171,6 +186,7 @@ export default function PaymentRunner() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       if (data.status === "processed") {
         toast({ title: "Payment Processed", description: "Re-run was successful." });
       } else if (data.declineReason || data.status === "declined") {
@@ -186,15 +202,16 @@ export default function PaymentRunner() {
 
   const reversePaymentMutation = useMutation({
     mutationFn: async ({ paymentId, reason }: { paymentId: string; reason: string }) => {
-      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse`, { 
-        reason, 
-        collectorId: currentCollector?.id 
+      const res = await apiRequest("POST", `/api/payments/${paymentId}/reverse`, {
+        reason,
+        collectorId: currentCollector?.id
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       toast({ title: "Payment Reversed", description: "Payment has been reversed and future scheduled payments deleted." });
       setReverseDialogOpen(false);
       setSelectedPayment(null);
@@ -216,6 +233,7 @@ export default function PaymentRunner() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       toast({ title: "Payment Posted", description: "Payment has been posted successfully." });
       setPostDialogOpen(false);
       setPaymentToPost(null);
@@ -235,6 +253,7 @@ export default function PaymentRunner() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
+      invalidateDashboardQueries();
       toast({ title: "Payments Posted", description: `${data.count} payments have been posted.` });
     },
     onError: () => {
@@ -270,6 +289,7 @@ export default function PaymentRunner() {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payment-runner/auto-status"] });
+      invalidateDashboardQueries();
 
       const totalProcessed = data.totalProcessed ?? 0;
       const totalSuccess = data.totalSuccess ?? 0;
